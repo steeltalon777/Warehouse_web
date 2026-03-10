@@ -1,23 +1,35 @@
-<aside style="width:200px;background:#f5f5f5;padding:15px">
+<aside style="width:220px;background:#f5f5f5;padding:15px">
+    <ul style="list-style:none;padding:0;margin:0">
 
-    <ul style="list-style:none;padding:0">
+        {% if user.is_authenticated %}
+            <li style="margin-bottom:10px;">
+                <a href="/client/">Главная</a>
+            </li>
 
-        <li>
-            <a href="/client/">Главная</a>
-        </li>
+            <li style="margin-bottom:10px;">
+                <a href="#">Операции</a>
+            </li>
 
-        <li>
-            <a href="#">Операции</a>
-        </li>
+            <li style="margin-bottom:10px;">
+                <a href="#">Остатки</a>
+            </li>
 
-        <li>
-            <a href="#">Остатки</a>
-        </li>
+            <li style="margin-bottom:10px;">
+                <a href="#">Остатки складов</a>
+            </li>
 
-        <li>
-            <a href="#">Остатки складов</a>
-        </li>
+            {% if user.is_superuser or user.profile.role == "chief_storekeeper" %}
+                <li style="margin-bottom:10px;">
+                    <a href="/catalog/">Справочники</a>
+                </li>
+            {% endif %}
+
+            {% if user.is_superuser %}
+                <li style="margin-bottom:10px;">
+                    <a href="/admin/">Админка</a>
+                </li>
+            {% endif %}
+        {% endif %}
 
     </ul>
-
 </aside>
