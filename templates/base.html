@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Warehouse Web{% endblock %}</title>
+</head>
+
+<body>
+
+{% include "includes/navbar.html" %}
+
+<div style="display:flex">
+
+    {% include "includes/sidebar.html" %}
+
+    <main style="padding:20px; flex:1;">
+        {% block content %}{% endblock %}
+    </main>
+
+</div>
+
+</body>
+</html>
