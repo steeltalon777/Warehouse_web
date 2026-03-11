@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}Дерево категорий{% endblock %}
+
+{% block content %}
+    <h2>Дерево категорий</h2>
+
+    <p>
+        <a href="{% url 'catalog:category_list' %}">← К списку категорий</a>
+    </p>
+
+    <ul>
+        {% for category in categories %}
+            <li>
+                {{ category.name }}
+                {% if category.parent %}
+                    <small>(родитель: {{ category.parent.name }})</small>
+                {% endif %}
+            </li>
+        {% endfor %}
+    </ul>
+{% endblock %}

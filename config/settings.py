@@ -125,3 +125,5 @@ LOGOUT_REDIRECT_URL = "/users/login/"
 
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
+
+SYNCSERVER_API_URL = "http://127.0.0.1:8000"

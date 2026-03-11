@@ -43,3 +43,61 @@ class Category(models.Model):
             if parent.id == self.id:
                 raise ValidationError("Нельзя создать циклическую связь в дереве категорий.")
             parent = parent.parent
+
+class Unit(models.Model):
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+
+    code = models.CharField(max_length=20, unique=True)
+    name = models.CharField(max_length=100)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} — {self.name}"
+
+class Item(models.Model):
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+
+    name = models.CharField(max_length=255)
+
+    sku = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+    )
+
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="items",
+    )
+
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.PROTECT,
+        related_name="items",
+    )
+
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name

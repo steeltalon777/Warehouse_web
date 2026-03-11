@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}Справочники{% endblock %}
+
+{% block content %}
+    <h2>Справочники</h2>
+    <p>Раздел управления каталогом склада.</p>
+
+    <ul>
+        <li><a href="{% url 'catalog:category_list' %}">Категории</a></li>
+        <li><a href="{% url 'catalog:category_tree' %}">Дерево категорий</a></li>
+        <li><a href="{% url 'catalog:item_list' %}">ТМЦ</a></li>
+        <li><a href="{% url 'catalog:unit_list' %}">Единицы измерения</a></li>
+    </ul>
+{% endblock %}

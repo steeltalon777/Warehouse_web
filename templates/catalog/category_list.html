@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Категории{% endblock %}
+
+{% block content %}
+    <h2>Категории</h2>
+
+    <p>
+        <a href="{% url 'catalog:category_create' %}">➕ Создать категорию</a>
+    </p>
+
+    {% if categories %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Название</th>
+                    <th>Родитель</th>
+                    <th>Код</th>
+                    <th>Активна</th>
+                    <th>Порядок</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for category in categories %}
+                    <tr>
+                        <td>{{ category.name }}</td>
+                        <td>
+                            {% if category.parent %}
+                                {{ category.parent.name }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        <td>{{ category.code|default:"—" }}</td>
+                        <td>{% if category.is_active %}Да{% else %}Нет{% endif %}</td>
+                        <td>{{ category.sort_order|default:"—" }}</td>
+                        <td>
+                            <a href="{% url 'catalog:category_update' category.pk %}">Редактировать</a>
+                            |
+                            <a href="{% url 'catalog:category_delete' category.pk %}">Удалить</a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Категории пока не созданы.</p>
+    {% endif %}
+{% endblock %}

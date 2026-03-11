@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}Удалить категорию{% endblock %}
+
+{% block content %}
+    <h2>Удалить категорию</h2>
+
+    <p>Ты точно хочешь удалить категорию: <strong>{{ object.name }}</strong>?</p>
+
+    <form method="post">
+        {% csrf_token %}
+        <button type="submit">Да, удалить</button>
+        <a href="{% url 'catalog:category_list' %}">Отмена</a>
+    </form>
+{% endblock %}

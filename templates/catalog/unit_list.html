@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Единицы измерения{% endblock %}
+
+{% block content %}
+    <h2>Единицы измерения</h2>
+
+    <p>
+        <a href="{% url 'catalog:unit_create' %}">➕ Создать единицу</a>
+    </p>
+
+    {% if units %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Код</th>
+                    <th>Название</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for unit in units %}
+                    <tr>
+                        <td>{{ unit.code }}</td>
+                        <td>{{ unit.name }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Единицы измерения пока не созданы.</p>
+    {% endif %}
+{% endblock %}

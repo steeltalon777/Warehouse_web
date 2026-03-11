@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}ТМЦ{% endblock %}
+
+{% block content %}
+    <h2>ТМЦ</h2>
+
+    <p>
+        <a href="{% url 'catalog:item_create' %}">➕ Создать ТМЦ</a>
+    </p>
+
+    {% if items %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Название</th>
+                    <th>SKU</th>
+                    <th>Категория</th>
+                    <th>Ед. изм.</th>
+                    <th>Активен</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                    <tr>
+                        <td>{{ item.name }}</td>
+                        <td>{{ item.sku|default:"—" }}</td>
+                        <td>{{ item.category|default:"—" }}</td>
+                        <td>{{ item.unit }}</td>
+                        <td>{% if item.is_active %}Да{% else %}Нет{% endif %}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>ТМЦ пока не созданы.</p>
+    {% endif %}
+{% endblock %}
