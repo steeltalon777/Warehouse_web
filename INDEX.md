@@ -1,54 +1,58 @@
 # INDEX
 
-## Project Overview
+## Project overview
+Warehouse_web — Django web-клиент складской системы с UI для пользователей склада, ролями доступа и модулями справочников.
 
-**Warehouse_web** — Django web-клиент складской системы.
+## Architecture overview
+Многомодульный Django-проект (MVT): URLs/Views → permissions/services → ORM models → SQLite, с внешней интеграцией в SyncServer API.
 
-Основной backend системы — **SyncServer (FastAPI)**. Django-часть выполняет роль UI-клиента и административного интерфейса.
+## Tech stack
+- Python 3
+- Django 6
+- Django Templates
+- Django ORM
+- SQLite
+- httpx
 
----
+## Application structure
+- `config/` — настройки проекта и корневые URL.
+- `apps/catalog/` — категории, единицы, номенклатура.
+- `apps/users/` — роли, профили, login/logout, сигналы.
+- `apps/client/` — dashboard.
+- `apps/common/` — permissions и общие сервисы.
+- `apps/integration/` — клиент внешнего SyncServer.
+- `apps/documents/` — будущий модуль документов.
 
-## Tech Stack
+## Main modules
+- Catalog management
+- User roles and access control
+- Client dashboard
+- External sync integration
 
-- Python
-- Django
-- HTML Templates
-
----
-
-## Main Applications
-
-- `apps/catalog` — справочники склада (категории, единицы измерения, ТМЦ)
-- `apps/users` — управление пользователями и ролями
-- `apps/common` — общие компоненты (permissions, сервисы)
-- `apps/integration` — интеграция с SyncServer
-
----
-
-## Catalog App Map
-
-- `apps/catalog/models.py`
-  - `Category` — дерево категорий
-  - `Unit` — единицы измерения
-  - `Item` — складские позиции
-- `apps/catalog/views.py` — CRUD для справочников
-- `apps/catalog/forms.py` — Django формы
-- `apps/catalog/urls.py` — маршруты каталога
-- `templates/catalog/` — UI-страницы каталога
-
----
-
-## Entry Points
-
+## Entry points
 - `manage.py`
 - `config/settings.py`
 - `config/urls.py`
+- `config/asgi.py`
+- `config/wsgi.py`
 
----
+## Important models
+- `apps/catalog/models.py`: `Category`, `Unit`, `Item`
+- `apps/users/models.py`: `Site`, `UserProfile`, `Role`
 
-## Future Modules
+## Important services
+- `apps/common/permissions.py` — RBAC rules
+- `apps/common/services/syncserver_client.py` — SyncServer client
+- `apps/integration/syncserver/client.py` — SyncServer client (integration namespace)
 
-- operations
-- warehouse balances
-- document templates
-- API integration with SyncServer
+## Future modules
+- Документы (`apps/documents`)
+- Расширение интеграций и синхронизации
+- Операционный контур склада (остатки, операции)
+
+## Architecture decisions
+- `docs/adr/0001-django-modular-monolith.md`
+- `docs/adr/0002-uuid-domain-identifiers.md`
+- `docs/adr/0003-role-based-access-via-userprofile.md`
+- `docs/adr/0004-server-rendered-ui.md`
+- `docs/adr/0005-syncserver-http-integration.md`
