@@ -1,31 +1,36 @@
 # AI_CONTEXT
 
 ## System architecture
-- Application type: Django SSR client.
-- Role: warehouse web UI and access control.
-- External dependency: SyncServer for catalog master data.
+Warehouse_web is a Django SSR client application with layered boundaries:
+- API/UI layer (urls + views + templates)
+- Service layer (`CatalogService`)
+- Repository/data access layer (`SyncServerClient` and local ORM)
+- Data sources (local DB + external SyncServer DB through API only)
 
 ## Backend rules
-- Keep catalog business flow through `CatalogService`.
-- Do not call low-level SyncServer client directly from templates/forms.
-- Convert integration failures to deterministic user-facing outcomes.
+- Keep business orchestration in `apps/catalog/services.py`
+- Keep views thin: request parsing, permission checks, response rendering
+- Do not duplicate SyncServer transport logic in views/forms/templates
+- Standardize external error translation in service result objects
 
 ## Database rules
-- Local DB stores Django/auth/application-local records.
-- SyncServer DB remains source of truth for catalog entities.
-- Do not introduce direct writes from Warehouse_web to SyncServer PostgreSQL.
+- Local Django DB is for app-local persistence and auth domain
+- Catalog master-data authority is external SyncServer
+- Do not add direct write paths to SyncServer-owned data via local ORM
+- Preserve UUID-based identity usage in catalog models
 
 ## Layered architecture
-- API: Django URLs + views
-- Services: orchestration and error mapping
-- Repositories/Data: integration client + local ORM
-- Models: catalog + users/access models
+- **API**: `config/urls.py` + app url modules + view handlers
+- **Services**: `apps/catalog/services.py`
+- **Repositories**: `apps/integration/syncserver_client.py` and Django ORM access in app models
+- **Models**: `apps/catalog/models.py`, `apps/users/models.py`, `apps/client/models.py`, `apps/common/models.py`
 
 ## Client rules
-- UI is server-rendered via Django templates.
-- Protected pages require login and role checks.
+- Primary client is browser users (warehouse operators)
+- UI uses Django templates (SSR)
+- Protected routes require authentication and role checks via shared permission helpers
 
 ## Architecture constraints
-- Required Sync headers: `X-Site-Id`, `X-Device-Id`, `X-Device-Token`, `X-Client-Version`.
-- SyncServer timeout must be bounded.
-- Warehouse_web must preserve client-only responsibility in multi-repo system.
+- SyncServer headers must be present for outbound requests (`X-Site-Id`, `X-Device-Id`, `X-Device-Token`, `X-Client-Version`)
+- SyncServer calls must use bounded timeout (`SYNC_SERVER_TIMEOUT`)
+- Catalog workflows should stay aligned with ADR decisions in `docs/adr/`

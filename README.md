@@ -1,56 +1,51 @@
 # Warehouse_web
 
-Warehouse_web is a **Django server-rendered client** for warehouse operators.
-It provides UI/auth flows and depends on SyncServer for catalog master data.
+## Project overview
+Warehouse_web is a Django server-rendered web client for warehouse staff. It provides authentication, role-based access, and catalog UI workflows while delegating catalog master-data operations to an external SyncServer API.
 
-> Core invariant: **SyncServer is the source of truth**. Warehouse_web must not directly read/write SyncServer PostgreSQL tables.
+## Architecture overview
+The project is a modular Django monolith with explicit layering:
 
-## Architecture
+`Browser -> Django Views -> CatalogService -> SyncServerClient (HTTP) -> SyncServer API -> PostgreSQL`
 
-```text
-Browser
-  -> Django (Warehouse_web)
-  -> CatalogService
-  -> SyncServerClient (HTTP + device headers)
-  -> SyncServer API
-  -> PostgreSQL (owned by SyncServer)
-```
+Warehouse_web keeps its own local Django database for application concerns (users, sessions, admin, local app data), while SyncServer remains the source of truth for catalog master data.
 
-Warehouse_web keeps only local client data (auth/sessions/admin-related) in its own Django DB.
+## Tech stack
+- Python 3
+- Django 6
+- Django Templates (SSR)
+- httpx
+- python-dotenv
+- Gunicorn + WhiteNoise (production)
+- SQLite by default (or PostgreSQL via env settings)
 
-## Configuration
+## Project structure
+- `config/` — project settings and root URL/WSGI/ASGI wiring
+- `apps/catalog/` — catalog UI, forms, service orchestration
+- `apps/integration/` — SyncServer HTTP client
+- `apps/users/` — roles, user profile extension, auth routing
+- `apps/common/` — shared permissions and health checks
+- `apps/client/` — main dashboard
+- `apps/documents/` — reserved module scaffold
+- `templates/` — server-rendered HTML templates
+- `docs/adr/` — architecture decision records
 
-Copy and edit environment file:
-
-```bash
-cp .env.example .env
-```
-
-Important variables:
-- Django runtime/security: `DJANGO_ENV`, `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`
-- Local Django DB: `DB_ENGINE`, `DB_NAME`, `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`
-- SyncServer integration: `SYNC_SERVER_URL`, `SYNC_SITE_ID`, `SYNC_DEVICE_ID`, `SYNC_DEVICE_TOKEN`, `SYNC_CLIENT_VERSION`, `SYNC_SERVER_TIMEOUT`
-
-## Local run
-
+## Installation / Setup
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 python manage.py migrate
+```
+
+## Running the project
+Development:
+```bash
 python manage.py runserver 0.0.0.0:8000
 ```
 
-Pages:
-- `/users/login/`
-- `/client/`
-- `/catalog/categories/`
-- `/catalog/units/`
-- `/catalog/items/`
-
-## Production mode (without Docker)
-
+Production-like (without Docker):
 ```bash
 export DJANGO_ENV=production
 python manage.py migrate --noinput
@@ -58,20 +53,21 @@ python manage.py collectstatic --noinput
 gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
 ```
 
-## Docker run
-
+Docker:
 ```bash
 docker compose up --build
 ```
 
-Container entrypoint runs `migrate` and `collectstatic`, then starts Gunicorn.
+## Main modules
+- Catalog management UI (`/catalog/*`)
+- User authentication and role access (`/users/*`)
+- Warehouse dashboard (`/client/`)
+- Health checks (`/healthz/`, `/healthz/sync/`)
 
-## SyncServer connectivity checks
-- App health: `GET /healthz/`
-- Sync dependency health: `GET /healthz/sync/`
+## API overview
+Warehouse_web mainly serves SSR pages. Integration API usage is outbound:
+- Reads: SyncServer catalog list/tree endpoints
+- Writes: SyncServer admin catalog endpoints
+- Mandatory headers: `X-Site-Id`, `X-Device-Id`, `X-Device-Token`, `X-Client-Version`
 
-If SyncServer is unavailable, catalog pages show a readable Django message and remain renderable with empty-state tables.
-
-## More docs
-- Deployment operations: [DEPLOYMENT.md](DEPLOYMENT.md)
-- Architecture decision records: `docs/adr/`
+Internal HTTP routes are composed in Django URL configs (`config/urls.py` + app urls).
