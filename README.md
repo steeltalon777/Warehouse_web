@@ -1,77 +1,59 @@
 # Warehouse_web
 
-## Project overview
-Warehouse_web — Django web-клиент складской системы. Приложение предоставляет UI для сотрудников и администраторов, а также управляет локальными справочниками (категории, единицы измерения, номенклатура) и доступом пользователей.
+Warehouse_web — Django web-client для складской системы, где **SyncServer является единственным source of truth** по мастер-данным каталога (Category, Unit, Item).
 
-Проект интегрируется с внешним SyncServer API (FastAPI) через HTTP-клиент.
+## Project overview
+- Warehouse_web отвечает за web UI, шаблоны, формы, авторизацию и роли.
+- SyncServer (FastAPI) отвечает за хранение и изменение мастер-данных склада.
+- Каталог в Warehouse_web работает через HTTP API SyncServer, а не через локальный ORM CRUD.
 
 ## Architecture overview
-Система построена как многомодульный Django monolith (MVT) с ролевым доступом и шаблонным веб-интерфейсом:
-
-- **Client/UI layer**: Django templates + function/class-based views.
-- **Application/API layer**: URL routing и view-контроллеры в `apps/*/urls.py` и `apps/*/views.py`.
-- **Service/Integration layer**: общие permission-функции и HTTP-клиент SyncServer.
-- **Data layer**: Django ORM модели.
-- **Database**: SQLite в текущей конфигурации.
+```text
+Warehouse_web (Django UI)
+        ↓ HTTP (X-Site-Id / X-Device-Id / X-Device-Token / X-Client-Version)
+SyncServer (FastAPI source of truth)
+        ↓
+PostgreSQL
+```
 
 ## Tech stack
-- Python 3
-- Django 6
-- Django ORM
-- SQLite (default)
-- httpx (интеграция с внешним API)
-- Django Templates
+- Python 3, Django 6
+- Django Templates (SSR)
+- httpx (HTTP integration)
+- SQLite локально для Django-специфичных данных (users/sessions/admin)
 
 ## Project structure
 ```text
-config/                 # настройки и маршрутизация проекта
-apps/
-  catalog/              # справочники склада: Category, Unit, Item
-  users/                # роли, профили, login/logout, сигналы
-  client/               # dashboard клиента
-  documents/            # заготовка модуля документов
-  common/               # permissions и общие сервисы
-  integration/          # интеграция с SyncServer
-templates/              # HTML шаблоны
-manage.py               # entrypoint Django CLI
+config/                          # settings, root urls, wsgi/asgi
+apps/catalog/                    # catalog UI/views/forms/services (через SyncServer)
+apps/integration/syncserver_client.py  # единый SyncServer client
+apps/common/                     # permissions и shared utilities
+docs/adr/                        # architecture decision records
+templates/                       # HTML templates
 ```
 
-## Installation / Setup
-1. Создать виртуальное окружение.
-2. Установить зависимости проекта (Django, httpx).
-3. Применить миграции.
-4. Создать суперпользователя (опционально).
-
-Пример команд:
-
+## Setup / Run
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install django httpx
 python manage.py migrate
-python manage.py createsuperuser
-```
-
-## Running the project
-```bash
 python manage.py runserver
 ```
 
-По умолчанию приложение доступно на `http://127.0.0.1:8000/`.
+## SyncServer integration settings
+Укажите переменные окружения:
+- `SYNC_SERVER_URL`
+- `SYNC_SITE_ID`
+- `SYNC_DEVICE_ID`
+- `SYNC_DEVICE_TOKEN`
+- `SYNC_CLIENT_VERSION`
+- `SYNC_SERVER_TIMEOUT`
+
+Warehouse_web использует **статический system device** как trusted client SyncServer.
 
 ## Main modules
-- `apps/catalog` — CRUD справочников склада.
-- `apps/users` — роли (`root`, `chief_storekeeper`, `storekeeper`), профиль и авторизация.
-- `apps/client` — защищенный dashboard.
-- `apps/common` — permission-правила и общий SyncServer клиент.
-- `apps/integration` — интеграционный HTTP-клиент к SyncServer.
-- `apps/documents` — будущий модуль документов (пока заготовка).
-
-## API overview
-Проект в первую очередь серверит HTML-страницы, а не публичный REST API. Основные маршруты:
-
-- `/catalog/` — каталог и справочники.
-- `/client/` — dashboard клиента.
-- `/users/login/`, `/users/logout/` — авторизация.
-- `/admin/` — Django admin.
-
+- `apps/catalog/views.py` — catalog pages через integration service.
+- `apps/catalog/forms.py` — input forms с базовой валидацией.
+- `apps/catalog/services.py` — orchestration + mapping ошибок SyncServer.
+- `apps/integration/syncserver_client.py` — единый HTTP client.

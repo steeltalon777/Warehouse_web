@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 
-{% block title %}Создать единицу{% endblock %}
+{% block title %}{% if mode == "update" %}Редактировать категорию{% else %}Создать категорию{% endif %}{% endblock %}
 
 {% block content %}
-    <h2>Создать единицу измерения</h2>
+    <h2>{% if mode == "update" %}Редактировать категорию{% else %}Создать категорию{% endif %}</h2>
 
     <form method="post">
         {% csrf_token %}

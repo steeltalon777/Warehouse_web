@@ -11,12 +11,9 @@
 
     <ul>
         {% for category in categories %}
-            <li>
-                {{ category.name }}
-                {% if category.parent %}
-                    <small>(родитель: {{ category.parent.name }})</small>
-                {% endif %}
-            </li>
+            <li>{{ category.name }}{% if category.parent_name %} <small>(родитель: {{ category.parent_name }})</small>{% endif %}</li>
+        {% empty %}
+            <li>Данные не получены.</li>
         {% endfor %}
     </ul>
 {% endblock %}

@@ -6,7 +6,8 @@
     <h2>Категории</h2>
 
     <p>
-        <a href="{% url 'catalog:category_create' %}">➕ Создать категорию</a>
+        <a href="{% url 'catalog:category_create' %}">➕ Создать категорию</a> |
+        <a href="{% url 'catalog:category_tree' %}">Показать дерево</a>
     </p>
 
     {% if categories %}
@@ -25,26 +26,20 @@
                 {% for category in categories %}
                     <tr>
                         <td>{{ category.name }}</td>
-                        <td>
-                            {% if category.parent %}
-                                {{ category.parent.name }}
-                            {% else %}
-                                —
-                            {% endif %}
-                        </td>
+                        <td>{{ category.parent_name|default:"—" }}</td>
                         <td>{{ category.code|default:"—" }}</td>
                         <td>{% if category.is_active %}Да{% else %}Нет{% endif %}</td>
                         <td>{{ category.sort_order|default:"—" }}</td>
                         <td>
-                            <a href="{% url 'catalog:category_update' category.pk %}">Редактировать</a>
+                            <a href="{% url 'catalog:category_update' category.id %}">Редактировать</a>
                             |
-                            <a href="{% url 'catalog:category_delete' category.pk %}">Удалить</a>
+                            <a href="{% url 'catalog:category_delete' category.id %}">Деактивировать</a>
                         </td>
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
     {% else %}
-        <p>Категории пока не созданы.</p>
+        <p>Категории пока не получены из SyncServer.</p>
     {% endif %}
 {% endblock %}

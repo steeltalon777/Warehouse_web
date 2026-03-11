@@ -1,21 +1,38 @@
 from django import forms
 
-from apps.catalog.models import Category, Unit, Item
+
+class CategoryForm(forms.Form):
+    name = forms.CharField(max_length=200)
+    parent_id = forms.ChoiceField(required=False)
+    code = forms.CharField(max_length=100, required=False)
+    sort_order = forms.IntegerField(required=False)
+    is_active = forms.BooleanField(required=False, initial=True)
+
+    def __init__(self, *args, category_choices=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        choices = [("", "— Без родителя —")]
+        choices.extend((str(item["id"]), item["name"]) for item in (category_choices or []))
+        self.fields["parent_id"].choices = choices
 
 
-class CategoryForm(forms.ModelForm):
-    class Meta:
-        model = Category
-        fields = ["name", "parent", "code", "sort_order", "is_active"]
+class UnitForm(forms.Form):
+    code = forms.CharField(max_length=20)
+    name = forms.CharField(max_length=100)
+    is_active = forms.BooleanField(required=False, initial=True)
 
 
-class UnitForm(forms.ModelForm):
-    class Meta:
-        model = Unit
-        fields = ["code", "name"]
+class ItemForm(forms.Form):
+    name = forms.CharField(max_length=255)
+    sku = forms.CharField(max_length=100, required=False)
+    category_id = forms.ChoiceField(required=False)
+    unit_id = forms.ChoiceField(required=True)
+    is_active = forms.BooleanField(required=False, initial=True)
 
+    def __init__(self, *args, categories=None, units=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        category_choices = [("", "— Без категории —")]
+        category_choices.extend((str(item["id"]), item["name"]) for item in (categories or []))
+        self.fields["category_id"].choices = category_choices
 
-class ItemForm(forms.ModelForm):
-    class Meta:
-        model = Item
-        fields = ["name", "sku", "category", "unit", "is_active"]
+        unit_choices = [(str(item["id"]), f'{item["code"]} — {item["name"]}') for item in (units or [])]
+        self.fields["unit_id"].choices = unit_choices
