@@ -1,42 +1,58 @@
 # ARCHITECTURE
 
 ## System Overview
-Warehouse_web — frontend-like Django web-client для операторов склада. Master-data живут в SyncServer.
-
-## Role of Warehouse_web
-- UI / templates / forms
-- authentication, users, roles
-- вызовы SyncServer API для каталога
-
-## Role of SyncServer
-- source of truth по `Category`, `Unit`, `Item`
-- admin write endpoints и read/sync endpoints
-- device-based authentication
+Warehouse_web — модульный Django-монолит с server-side rendering. Он отвечает за UI, авторизацию и ролевой доступ, а мастер-данные каталога запрашивает/изменяет через SyncServer.
 
 ## High-Level Architecture
 ```text
-Warehouse_web
-  ↓ HTTP
-SyncServer
-  ↓
-PostgreSQL
+Clients (browser users)
+    ↓
+API / Application Layer (Django URLs + Views)
+    ↓
+Service Layer (CatalogService)
+    ↓
+Repository / Data Layer (SyncServerClient + local Django ORM)
+    ↓
+Database
+  - Local SQLite (Django auth/admin/session + local models)
+  - External DB behind SyncServer (catalog source of truth)
 ```
 
 ## Application Layers
-### UI Layer
-`templates/*`, `apps/catalog/views.py`, `apps/users/*`
+### API layer
+- `config/urls.py`, `apps/*/urls.py`
+- `apps/catalog/views.py`, `apps/client/views.py`
 
-### Integration Layer
-`apps/integration/syncserver_client.py`, `apps/catalog/services.py`
+### Service layer
+- `apps/catalog/services.py` (оркестрация и унификация обработки ошибок)
 
-### Local Django Data
-Локальная БД используется для Django concern-ов (users, sessions, admin). Каталог не является локальной истиной.
+### Repository layer
+- `apps/integration/syncserver_client.py` (HTTP gateway в SyncServer)
+- Django ORM модели в `apps/*/models.py` для локальных данных и совместимости
 
-## Architectural Constraints
-- Нельзя писать master-data каталога напрямую через Django ORM.
-- Любое создание/изменение Category/Unit/Item — только через SyncServer API.
-- Ошибки SyncServer маппятся в user-friendly сообщения (400/404/409/5xx).
+### Models / entities
+- Catalog: `Category`, `Unit`, `Item`
+- Users: `Site`, `UserProfile`, `Role`
 
-## Future Evolution
-- Возможный cache/read model для ускорения UI без смены source of truth.
-- Расширение на остатки и движения после появления API в SyncServer.
+## Data Model
+- Локально в Django: users/profiles/site и прочие служебные данные.
+- Каталог (`Category`, `Unit`, `Item`) представлен моделями, но актуальное чтение/запись в UI выполняется через SyncServer API.
+
+## Data Flow
+```text
+Client → Django View → CatalogService → SyncServerClient → SyncServer API
+```
+
+## Architectural Principles
+- Разделение UI и бизнес-интеграции: views не работают с HTTP-клиентом напрямую.
+- Единая точка интеграции: все внешние запросы через `SyncServerClient`.
+- Явная ролевая авторизация (`can_manage_catalog`, `can_use_client`).
+- Ошибки интеграции преобразуются в `ServiceResult` для предсказуемого поведения UI.
+
+## External Integrations
+- SyncServer HTTP API (`httpx.Client`)
+- Заголовки доверенного устройства: `X-Site-Id`, `X-Device-Id`, `X-Device-Token`, `X-Client-Version`
+
+## Future Architecture
+- Добавление модулей документов/операций склада поверх того же шаблона слоев.
+- Потенциальный read-model/cache для ускорения списков без смены source of truth.

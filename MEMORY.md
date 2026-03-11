@@ -1,20 +1,35 @@
 # MEMORY
 
-## Project role
-Warehouse_web = Django web-client and UI shell for warehouse operations. SyncServer = source of truth for catalog master-data.
+## System architecture
+- Django 6 modular monolith with SSR templates.
+- Routing in `config/urls.py`, feature apps in `apps/*`.
+- Catalog operations flow through service + integration layers.
 
-## Architectural decisions
-- Catalog CRUD in UI goes through SyncServer HTTP API.
-- No direct master-data writes via Django ORM for Category/Unit/Item.
-- Single integration client is used for SyncServer communication.
+## Core entities
+- `Category`, `Unit`, `Item` (catalog domain).
+- `Site`, `UserProfile`, `Role` (user access domain).
 
-## Integration model
-- Django views -> catalog service -> SyncServer client -> SyncServer API.
-- Static trusted system device headers are sent on each request.
+## Data model decisions
+- UUID PK for catalog entities.
+- Hierarchical categories via self-FK (`parent`).
+- `Item.unit` protected on delete; `Item.category` nullable.
+- User profile is separate model linked OneToOne to Django User.
 
-## Known constraints
-- Legacy ORM catalog models may still exist for migration compatibility, but are not source of truth.
-- Documents module remains a placeholder.
+## API design
+- Internal API is server-rendered Django endpoints (`/catalog/*`, `/client/*`, `/users/*`).
+- External dependency: SyncServer HTTP API via `SyncServerClient`.
+- SyncServer calls always include site/device/client headers.
 
-## Future direction
-- Expand SyncServer-driven workflows (stocks, movements, sync events) without shifting source-of-truth responsibility back to Django.
+## Business rules
+- Catalog management allowed for root/chief_storekeeper.
+- Client dashboard доступен активным пользователям с профилем (или superuser).
+- Ошибки SyncServer маппятся в user-facing сообщения через `ServiceResult`.
+
+## Known pitfalls
+- `apps/documents` пока пустой (нет бизнес-логики/endpoint-ов).
+- Runtime-зависимость от SyncServer: при недоступности внешнего API каталоговые страницы деградируют в ошибки.
+- В репозитории есть локальные catalog models, но operational truth находится во внешнем сервисе.
+
+## Future architecture
+- Развитие документов и складских операций через ту же layered схему.
+- Возможное добавление read-cache при сохранении SyncServer как source of truth.
