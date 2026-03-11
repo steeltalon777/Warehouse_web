@@ -1,31 +1,31 @@
 # AI_CONTEXT
 
 ## System architecture
-- Проект: Django SSR web-client.
-- Архитектурный стиль: layered modular monolith.
-- Интеграция: SyncServer по HTTP через единый клиент.
+- Application type: Django SSR client.
+- Role: warehouse web UI and access control.
+- External dependency: SyncServer for catalog master data.
 
 ## Backend rules
-- Для каталога не обращаться к внешнему API напрямую из views; использовать `CatalogService`.
-- Ошибки SyncServer обрабатывать через `ServiceResult` (`ok`, `not_found`, `server_unavailable`, `form_error`).
-- Ролевые проверки выполнять через `apps.common.permissions`.
+- Keep catalog business flow through `CatalogService`.
+- Do not call low-level SyncServer client directly from templates/forms.
+- Convert integration failures to deterministic user-facing outcomes.
 
 ## Database rules
-- Локальная БД: данные Django (auth/admin/sessions) и локальные сущности проекта.
-- Каталог (`Category`, `Unit`, `Item`) в runtime считается внешним доменом SyncServer.
-- Не предлагать решения, где мастер-данные каталога редактируются напрямую через Django ORM как основной путь.
+- Local DB stores Django/auth/application-local records.
+- SyncServer DB remains source of truth for catalog entities.
+- Do not introduce direct writes from Warehouse_web to SyncServer PostgreSQL.
 
 ## Layered architecture
-- API/Application: `urls.py` + `views.py`
-- Service: `apps/catalog/services.py`
-- Data/Integration: `apps/integration/syncserver_client.py`
-- Domain models: `apps/catalog/models.py`, `apps/users/models.py`
+- API: Django URLs + views
+- Services: orchestration and error mapping
+- Repositories/Data: integration client + local ORM
+- Models: catalog + users/access models
 
 ## Client rules
-- UI server-rendered (Django Templates), без выделенного SPA слоя.
-- Основные пользовательские интерфейсы: `/client/` и `/catalog/*`.
+- UI is server-rendered via Django templates.
+- Protected pages require login and role checks.
 
 ## Architecture constraints
-- SyncServer headers обязательны: `X-Site-Id`, `X-Device-Id`, `X-Device-Token`, `X-Client-Version`.
-- Нет прямой зависимости views от httpx-клиента.
-- Модуль `documents` пока не содержит рабочей бизнес-логики.
+- Required Sync headers: `X-Site-Id`, `X-Device-Id`, `X-Device-Token`, `X-Client-Version`.
+- SyncServer timeout must be bounded.
+- Warehouse_web must preserve client-only responsibility in multi-repo system.
