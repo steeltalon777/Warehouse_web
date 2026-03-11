@@ -1,28 +1,34 @@
 # INDEX
 
 ## Project overview
-Django web-клиент для складской системы с SSR-интерфейсом и ролями доступа.
+Django server-rendered warehouse client with role-based access and SyncServer integration.
 
 ## Architecture overview
-- Модульный монолит Django.
-- Каталог проксируется в SyncServer (источник истины).
-- Поток: Browser → Django Views → Service → SyncServerClient → SyncServer.
+- Layered modular monolith.
+- Browser UI served by Django templates.
+- Catalog data path: Django → SyncServer API → SyncServer DB.
 
 ## Tech stack
-- Python 3, Django 6, Django Templates, httpx, SQLite.
+- Python 3
+- Django 6
+- Django Templates
+- httpx
+- python-dotenv
+- SQLite (local default)
 
 ## Application structure
-- `config/` — конфигурация приложения и корневой роутинг.
-- `apps/catalog/` — каталог (UI + service + формы).
-- `apps/integration/` — внешний API клиент.
-- `apps/users/` — пользовательские профили и роли.
-- `apps/common/` — permissions.
+- `config/` — settings and root wiring.
+- `apps/catalog/` — catalog UI, forms, service layer.
+- `apps/integration/` — SyncServer HTTP client.
+- `apps/users/` — profiles, roles, auth pages.
+- `apps/common/` — permissions/helpers.
 - `apps/client/` — dashboard.
-- `apps/documents/` — placeholder.
+- `apps/documents/` — scaffold.
+- `templates/` — SSR templates.
 
 ## Main modules
 - Catalog module
-- Users & roles module
+- Users & role access module
 - Integration module
 - Client dashboard module
 
@@ -30,22 +36,28 @@ Django web-клиент для складской системы с SSR-инте
 - `manage.py`
 - `config/settings.py`
 - `config/urls.py`
-- `config/asgi.py`, `config/wsgi.py`
+- `config/wsgi.py`
+- `config/asgi.py`
 
 ## Important models
 - `apps/catalog/models.py`: `Category`, `Unit`, `Item`
 - `apps/users/models.py`: `Site`, `UserProfile`, `Role`
 
 ## Important services
-- `apps/catalog/services.py`: `CatalogService`, `ServiceResult`
-- `apps/integration/syncserver_client.py`: `SyncServerClient`
+- `apps/catalog/services.py`: service orchestration and error mapping
+- `apps/integration/syncserver_client.py`: external API gateway
 
 ## Future modules
-- Развитие `apps/documents`
-- Расширение складских сценариев (движения/остатки) через SyncServer API
+- `apps/documents` functional expansion
+- Additional warehouse workflows over SyncServer API
 
 ## Architecture decisions
-- ADR: `docs/adr/0001-django-modular-monolith.md`
-- ADR: `docs/adr/0005-syncserver-http-integration.md`
-- ADR: `docs/adr/0006-syncserver-source-of-truth-catalog.md`
-- ADR: `docs/adr/0009-no-direct-master-data-writes-via-django-orm.md`
+- `docs/adr/0001-django-modular-monolith.md`
+- `docs/adr/0002-uuid-domain-identifiers.md`
+- `docs/adr/0003-role-based-access-via-userprofile.md`
+- `docs/adr/0004-server-rendered-ui.md`
+- `docs/adr/0005-syncserver-http-integration.md`
+- `docs/adr/0006-syncserver-source-of-truth-catalog.md`
+- `docs/adr/0007-warehouse-web-http-client-role.md`
+- `docs/adr/0008-catalog-integration-via-service-layer.md`
+- `docs/adr/0009-no-direct-master-data-writes-via-django-orm.md`

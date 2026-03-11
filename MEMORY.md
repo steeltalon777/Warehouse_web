@@ -1,35 +1,37 @@
 # MEMORY
 
 ## System architecture
-- Django 6 modular monolith with SSR templates.
-- Routing in `config/urls.py`, feature apps in `apps/*`.
-- Catalog operations flow through service + integration layers.
+- Django modular monolith with server-rendered templates.
+- Warehouse_web acts as client; SyncServer owns catalog truth.
+- Integration boundary is HTTP (`SyncServerClient`).
 
 ## Core entities
-- `Category`, `Unit`, `Item` (catalog domain).
-- `Site`, `UserProfile`, `Role` (user access domain).
+- Catalog: `Category`, `Unit`, `Item`.
+- Access domain: `Site`, `UserProfile`, `Role`.
 
 ## Data model decisions
-- UUID PK for catalog entities.
-- Hierarchical categories via self-FK (`parent`).
-- `Item.unit` protected on delete; `Item.category` nullable.
-- User profile is separate model linked OneToOne to Django User.
+- UUID identifiers for domain entities.
+- Category supports parent-child hierarchy.
+- User profile extends Django user via OneToOne.
+- Catalog models exist locally, but runtime authority is external SyncServer.
 
 ## API design
-- Internal API is server-rendered Django endpoints (`/catalog/*`, `/client/*`, `/users/*`).
-- External dependency: SyncServer HTTP API via `SyncServerClient`.
-- SyncServer calls always include site/device/client headers.
+- Internal endpoints are Django routes (`/catalog/*`, `/client/*`, `/users/*`).
+- External calls are centralized in integration client.
+- Required trusted headers identify site/device/client version.
 
 ## Business rules
-- Catalog management allowed for root/chief_storekeeper.
-- Client dashboard доступен активным пользователям с профилем (или superuser).
-- Ошибки SyncServer маппятся в user-facing сообщения через `ServiceResult`.
+- Catalog management requires elevated roles.
+- Dashboard and catalog pages are protected by auth + role checks.
+- Integration errors are surfaced to UI through service-layer mapping.
 
 ## Known pitfalls
-- `apps/documents` пока пустой (нет бизнес-логики/endpoint-ов).
-- Runtime-зависимость от SyncServer: при недоступности внешнего API каталоговые страницы деградируют в ошибки.
-- В репозитории есть локальные catalog models, но operational truth находится во внешнем сервисе.
+- Production settings hardening is incomplete (debug/secret/hosts defaults in code).
+- No Docker/Gunicorn assets in repository at this stage.
+- Static collection path (`STATIC_ROOT`) is not configured yet.
+- Catalog availability depends on SyncServer uptime and bootstrap identifiers.
 
 ## Future architecture
-- Развитие документов и складских операций через ту же layered схему.
-- Возможное добавление read-cache при сохранении SyncServer как source of truth.
+- Introduce explicit dev/prod settings split.
+- Add deployment runtime artifacts and static pipeline hardening.
+- Expand documents/warehouse workflow modules without breaking SyncServer boundary.
