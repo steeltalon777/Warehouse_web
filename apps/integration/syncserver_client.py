@@ -48,18 +48,33 @@ class SyncServerClient:
         return response.json()
 
     def list_categories(self) -> list[dict[str, Any]]:
-        return self._request("GET", "/catalog/categories")
+        response = self._request("POST", "/catalog/categories", json={"updated_after": None, "limit": 100})
+        return response.get("categories", [])
+
+    def list_units(self) -> list[dict[str, Any]]:
+        response = self._request("POST", "/catalog/units", json={"updated_after": None, "limit": 100})
+        return response.get("units", [])
+
+    def list_items(self, *, category_id: str | None = None, search: str | None = None) -> list[dict[str, Any]]:
+        response = self._request("POST", "/catalog/items", json={"updated_after": None, "limit": 100})
+        items = response.get("items", [])
+
+        if category_id:
+            items = [item for item in items if str(item.get("category_id")) == str(category_id)]
+
+        if search:
+            search_lower = search.lower()
+            items = [
+                item for item in items
+                if search_lower in str(item.get("name", "")).lower()
+            ]
+
+        return items
+
 
     def categories_tree(self) -> list[dict[str, Any]]:
         return self._request("GET", "/catalog/categories/tree")
 
-    def list_units(self) -> list[dict[str, Any]]:
-        return self._request("GET", "/catalog/units")
-
-    def list_items(self, *, category_id: str | None = None, search: str | None = None) -> list[dict[str, Any]]:
-        params = {"category_id": category_id, "search": search}
-        clean = {k: v for k, v in params.items() if v}
-        return self._request("GET", "/catalog/items", params=clean)
 
     def create_category(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/catalog/admin/categories", json=payload)

@@ -13,6 +13,7 @@ db.sqlite3
 .venv/
 venv/
 env/
+.env
 
 # PyCharm
 .idea/
