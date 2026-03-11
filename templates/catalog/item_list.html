@@ -5,6 +5,19 @@
 {% block content %}
     <h2>ТМЦ</h2>
 
+    <form method="get" style="margin-bottom: 12px;">
+        <label>Категория:</label>
+        <select name="category_id">
+            <option value="">Все</option>
+            {% for category in categories %}
+                <option value="{{ category.id }}" {% if selected_category_id == category.id|stringformat:"s" %}selected{% endif %}>{{ category.name }}</option>
+            {% endfor %}
+        </select>
+        <label>Поиск:</label>
+        <input name="search" value="{{ search }}" placeholder="name / sku" />
+        <button type="submit">Фильтровать</button>
+    </form>
+
     <p>
         <a href="{% url 'catalog:item_create' %}">➕ Создать ТМЦ</a>
     </p>
@@ -18,6 +31,7 @@
                     <th>Категория</th>
                     <th>Ед. изм.</th>
                     <th>Активен</th>
+                    <th>Действия</th>
                 </tr>
             </thead>
             <tbody>
@@ -25,14 +39,21 @@
                     <tr>
                         <td>{{ item.name }}</td>
                         <td>{{ item.sku|default:"—" }}</td>
-                        <td>{{ item.category|default:"—" }}</td>
-                        <td>{{ item.unit }}</td>
+                        <td>{{ item.category_name|default:"—" }}</td>
+                        <td>{{ item.unit_name|default:"—" }}</td>
                         <td>{% if item.is_active %}Да{% else %}Нет{% endif %}</td>
+                        <td>
+                            <a href="{% url 'catalog:item_update' item.id %}">Редактировать</a>
+                            <form method="post" action="{% url 'catalog:item_deactivate' item.id %}" style="display:inline;">
+                                {% csrf_token %}
+                                <button type="submit">Деактивировать</button>
+                            </form>
+                        </td>
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
     {% else %}
-        <p>ТМЦ пока не созданы.</p>
+        <p>ТМЦ пока не получены из SyncServer.</p>
     {% endif %}
 {% endblock %}

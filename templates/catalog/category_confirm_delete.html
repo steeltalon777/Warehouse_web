@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 
-{% block title %}Удалить категорию{% endblock %}
+{% block title %}Деактивировать категорию{% endblock %}
 
 {% block content %}
-    <h2>Удалить категорию</h2>
+    <h2>Деактивировать категорию</h2>
 
-    <p>Ты точно хочешь удалить категорию: <strong>{{ object.name }}</strong>?</p>
+    <p>Категория будет отключена в SyncServer.</p>
 
     <form method="post">
         {% csrf_token %}
-        <button type="submit">Да, удалить</button>
+        <button type="submit">Да, деактивировать</button>
         <a href="{% url 'catalog:category_list' %}">Отмена</a>
     </form>
 {% endblock %}

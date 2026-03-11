@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -126,4 +127,9 @@ LOGOUT_REDIRECT_URL = "/users/login/"
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
-SYNCSERVER_API_URL = "http://127.0.0.1:8000"
+SYNC_SERVER_URL = os.getenv("SYNC_SERVER_URL", "http://127.0.0.1:8001")
+SYNC_SITE_ID = os.getenv("SYNC_SITE_ID", "default-site")
+SYNC_DEVICE_ID = os.getenv("SYNC_DEVICE_ID", "warehouse-web")
+SYNC_DEVICE_TOKEN = os.getenv("SYNC_DEVICE_TOKEN", "change-me")
+SYNC_CLIENT_VERSION = os.getenv("SYNC_CLIENT_VERSION", "warehouse-web/1.0")
+SYNC_SERVER_TIMEOUT = float(os.getenv("SYNC_SERVER_TIMEOUT", "10"))

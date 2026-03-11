@@ -7,7 +7,7 @@ Accepted
 Warehouse_web работает как web-клиент в экосистеме, где внешний SyncServer (FastAPI) является системным backend для части данных/операций.
 
 ## Decision
-Интеграцию выполнять по HTTP через `httpx`-клиенты с базовым URL из `SYNCSERVER_API_URL`.
+Интеграцию выполнять по HTTP через `httpx`-клиенты с базовым URL из `SYNC_SERVER_URL`.
 
 ## Consequences
 Плюсы:
