@@ -18,6 +18,8 @@ from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import RedirectView
 
+from apps.common.views import HealthCheckView, SyncHealthCheckView
+
 urlpatterns = [
 
     path("admin/", admin.site.urls),
@@ -27,5 +29,7 @@ urlpatterns = [
     path("documents/", include("apps.documents.urls")),
     path("users/", include("apps.users.urls")),
 
+    path("healthz/", HealthCheckView.as_view(), name="healthz"),
+    path("healthz/sync/", SyncHealthCheckView.as_view(), name="healthz_sync"),
     path("", RedirectView.as_view(url="/client/", permanent=False)),
 ]
