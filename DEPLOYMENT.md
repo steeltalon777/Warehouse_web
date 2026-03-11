@@ -1,86 +1,97 @@
 # DEPLOYMENT
 
-This document describes realistic deployment requirements for **Warehouse_web** as a Django client application that depends on **SyncServer**.
+This document covers deployment of **Warehouse_web** as a Django client that depends on **SyncServer**.
 
-## 1) System role and dependency
-- Warehouse_web is a UI/client layer.
-- SyncServer is the source of truth for catalog data.
-- Warehouse_web must communicate with catalog through SyncServer HTTP API only.
+## 1. System role (must preserve)
+- Warehouse_web = web client/UI + auth.
+- SyncServer = source of truth for catalog data.
+- Catalog data flow is only via SyncServer HTTP API.
+- Warehouse_web must not directly access SyncServer PostgreSQL.
 
-## 2) Required environment variables
-Current codebase reads Sync variables from `.env` (`config/settings.py`).
+## 2. Required environment variables
+Use `.env.example` as baseline.
 
-Required in production-like environments:
+### Django
+- `DJANGO_ENV` (`development` or `production`)
+- `SECRET_KEY`
+- `DEBUG`
+- `ALLOWED_HOSTS`
+- `CSRF_TRUSTED_ORIGINS`
 
-```env
-# Django (recommended to externalize)
-SECRET_KEY=<strong-secret>
-DEBUG=False
-ALLOWED_HOSTS=your-domain,internal-host
+### Django local DB (client-side data only)
+- `DB_ENGINE`
+- `DB_NAME`
+- `DB_HOST`
+- `DB_PORT`
+- `DB_USER`
+- `DB_PASSWORD`
+- `DB_CONN_MAX_AGE`
 
-# SyncServer connectivity (required)
-SYNC_SERVER_URL=https://syncserver.example.com
-SYNC_SITE_ID=<uuid>
-SYNC_DEVICE_ID=<uuid>
-SYNC_DEVICE_TOKEN=<registration-token>
-SYNC_CLIENT_VERSION=warehouse-web/1.0
-SYNC_SERVER_TIMEOUT=10
-```
+### SyncServer integration (required)
+- `SYNC_SERVER_URL`
+- `SYNC_SITE_ID`
+- `SYNC_DEVICE_ID`
+- `SYNC_DEVICE_TOKEN`
+- `SYNC_CLIENT_VERSION`
+- `SYNC_SERVER_TIMEOUT`
 
-> Note: in current code, `SECRET_KEY`, `DEBUG`, and `ALLOWED_HOSTS` still have development defaults and are not fully env-driven yet. Treat this as a hardening gap before production.
+### Production hardening
+- `SECURE_SSL_REDIRECT`
 
-## 3) Startup sequence
-1. Ensure SyncServer bootstrap entities exist (`site`, `device`, registration token).
-2. Configure `.env` with Sync identifiers and token.
-3. Run database migrations for local Django data:
+## 3. Startup sequence
+1. Ensure SyncServer bootstrap exists (`site`, `device`, registration token).
+2. Configure `.env` in deployment environment.
+3. Start app with production settings (`DJANGO_ENV=production`).
+4. Run migrations:
    ```bash
-   python manage.py migrate
+   python manage.py migrate --noinput
    ```
-4. (Optional) create administrative user:
-   ```bash
-   python manage.py createsuperuser
-   ```
-5. Collect static assets (once STATIC_ROOT is configured):
+5. Build static:
    ```bash
    python manage.py collectstatic --noinput
    ```
-6. Start application server (`runserver` for dev; Gunicorn/ASGI server for production setup).
+6. Run Gunicorn:
+   ```bash
+   gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
+   ```
 
-## 4) Static files status
-Current settings define:
-- `STATIC_URL = 'static/'`
-- `STATICFILES_DIRS = [BASE_DIR / 'static']`
+## 4. Static pipeline
+- `STATIC_URL=/static/`
+- `STATIC_ROOT=<repo>/staticfiles`
+- `STATICFILES_DIRS=<repo>/static`
+- Production uses WhiteNoise `CompressedManifestStaticFilesStorage`.
 
-Current settings do **not** define `STATIC_ROOT`, so production `collectstatic` pipeline is incomplete.
+## 5. Containerized deployment
+Included artifacts:
+- `Dockerfile`
+- `docker-compose.yml`
+- `entrypoint.sh`
 
-## 5) Application server and containerization status
-Current repository state:
-- No `Dockerfile`
-- No `docker-compose.yml`
-- No checked-in Gunicorn configuration
+Run:
+```bash
+docker compose up --build
+```
 
-Operational implication:
-- Deployment artifacts must be added externally or in a dedicated infra PR.
+The entrypoint runs `migrate` + `collectstatic` before executing Gunicorn command.
 
-## 6) SyncServer failure behavior (current)
-- HTTP calls use `httpx` with timeout from `SYNC_SERVER_TIMEOUT`.
-- Connection issues raise user-facing error "SyncServer временно недоступен.".
-- Catalog service maps common status codes (400/404/409/5xx) to predictable UI messages.
+## 6. Health and diagnostics
+- Liveness: `GET /healthz/`
+- Sync dependency: `GET /healthz/sync/`
+  - `200` when SyncServer catalog API responds.
+  - `503` with reason when dependency fails.
 
-## 7) Post-deploy validation checklist
-- Login works at `/users/login/`.
-- Dashboard opens at `/client/`.
-- Catalog pages open:
-  - `/catalog/categories/`
-  - `/catalog/units/`
-  - `/catalog/items/`
-- Validate SyncServer connectivity by checking category/unit/item lists load.
-- Validate error handling by temporarily pointing `SYNC_SERVER_URL` to an invalid host and confirming readable error messages.
+## 7. Post-deploy verification
+1. Login works at `/users/login/`.
+2. Dashboard opens at `/client/`.
+3. Catalog pages render:
+   - `/catalog/categories/`
+   - `/catalog/units/`
+   - `/catalog/items/`
+4. Confirm `/healthz/sync/` reports healthy.
+5. Temporarily break `SYNC_SERVER_URL` to confirm graceful UI error messaging.
 
-## 8) Known production gaps in current codebase
-- Settings are not yet split into dedicated development/production modules.
-- Security-critical Django settings are not fully environment-driven.
-- Static pipeline lacks `STATIC_ROOT`.
-- Production runtime stack files (Gunicorn/Docker/Nginx) are absent.
-
-This repository is close to functionally integrated state, but requires these hardening items before true production deployment.
+## 8. Common failure points
+- Missing/invalid Sync bootstrap identifiers (`SYNC_SITE_ID`, `SYNC_DEVICE_ID`, `SYNC_DEVICE_TOKEN`).
+- `ALLOWED_HOSTS` not matching ingress host.
+- Not running `collectstatic` in production.
+- SyncServer network reachability / TLS mismatch.

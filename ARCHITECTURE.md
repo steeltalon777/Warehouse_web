@@ -1,70 +1,55 @@
 # ARCHITECTURE
 
 ## System Overview
-Warehouse_web is a Django SSR client for warehouse users. It handles authentication, authorization, and web UI, while catalog master data is managed by external SyncServer.
+Warehouse_web is a Django SSR **client application** for warehouse operators.
+It provides authentication, authorization, and web UI workflows.
+
+SyncServer is an external backend (FastAPI + PostgreSQL) and remains the **source of truth** for catalog master data.
+
+## Core invariant
+- SyncServer = source of truth.
+- Warehouse_web = client layer.
+- Warehouse_web must not directly read/write SyncServer PostgreSQL.
+- Integration path is HTTP only.
 
 ## High-Level Architecture
 ```text
-Clients (Browser)
-  ↓
-API / Application Layer (Django URLs + Views)
-  ↓
-Service Layer (CatalogService)
-  ↓
-Repository / Data Layer (SyncServerClient + local ORM)
-  ↓
-Databases
-  - Local Django DB (auth/session/local metadata)
-  - SyncServer PostgreSQL (catalog source of truth)
+Browser
+  -> Django URLs/Views (Warehouse_web)
+  -> CatalogService
+  -> SyncServerClient (httpx)
+  -> SyncServer API
+  -> PostgreSQL (owned by SyncServer)
 ```
 
-## Application Layers
-### API layer
-- `config/urls.py`
-- `apps/catalog/urls.py`, `apps/users/urls.py`, `apps/client/urls.py`
-- `apps/catalog/views.py`, `apps/client/views.py`, `apps/users/views.py`
+Warehouse_web local DB is used only for app-side concerns (auth/session/admin/local metadata).
 
-### Service layer
-- `apps/catalog/services.py` (`CatalogService`, `ServiceResult`)
+## Layers and key files
+- URL/API layer:
+  - `config/urls.py`
+  - `apps/catalog/urls.py`, `apps/users/urls.py`, `apps/client/urls.py`
+- UI/application layer:
+  - `apps/catalog/views.py`
+  - `apps/client/views.py`
+- Service layer:
+  - `apps/catalog/services.py`
+- Integration layer:
+  - `apps/integration/syncserver_client.py`
+- Settings/runtime:
+  - `config/settings/base.py`
+  - `config/settings/development.py`
+  - `config/settings/production.py`
 
-### Repository / data layer
-- External: `apps/integration/syncserver_client.py` (`SyncServerClient` over HTTP)
-- Local: Django ORM models in `apps/*/models.py`
-
-### Models / entities
-- Catalog entities: `Category`, `Unit`, `Item`
-- Access entities: `Site`, `UserProfile`, `Role`
-
-## Data Model
-- Local persistent data: Django auth/admin/session + local domain models.
-- Catalog runtime source of truth: SyncServer (not local Django DB).
-
-## Data Flow
+## Data and integration flow
 ```text
-Client request
-  → Django View
-  → CatalogService
-  → SyncServerClient
-  → SyncServer API
-  → Response mapped to ServiceResult
-  → Template rendering
+Request -> Django View -> CatalogService -> SyncServerClient -> SyncServer API
+       <- Template rendering <- ServiceResult <- HTTP response mapping
 ```
 
-## Architectural Principles
-- SyncServer is canonical source for catalog domain.
-- No direct catalog master-data writes from Django app to SyncServer PostgreSQL.
-- Views use service layer, not low-level HTTP client directly.
-- Integration errors are mapped to predictable user-facing results.
-
-## External Integrations
-- SyncServer HTTP API.
-- Device/site identity headers:
-  - `X-Site-Id`
-  - `X-Device-Id`
-  - `X-Device-Token`
-  - `X-Client-Version`
-
-## Future Architecture
-- Add production settings split (`base/dev/prod`).
-- Add production runtime stack (Gunicorn + static strategy + containerization).
-- Extend `apps/documents` using the same layered approach.
+## Operational architecture
+- Settings selected by `DJANGO_ENV` (`development` / `production`).
+- Environment-driven security and connection configuration via `.env`.
+- Static pipeline uses `STATIC_ROOT` + WhiteNoise in production mode.
+- Health endpoints:
+  - `/healthz/` (app liveness)
+  - `/healthz/sync/` (dependency health)

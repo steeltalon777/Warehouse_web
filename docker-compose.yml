@@ -1,0 +1,10 @@
+services:
+  web:
+    build: .
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
+    env_file:
+      - .env
+    environment:
+      DJANGO_ENV: production
+    ports:
+      - "8000:8000"
