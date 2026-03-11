@@ -1,34 +1,31 @@
 # AI_ENTRY_POINTS
 
 ## Server entrypoints
-- `manage.py` — Django CLI entrypoint.
-- `config/wsgi.py` — WSGI entrypoint.
-- `config/asgi.py` — ASGI entrypoint.
+- `manage.py` — Django management and local runtime entrypoint
+- `config/wsgi.py` — WSGI application entrypoint
+- `config/asgi.py` — ASGI application entrypoint
+- `config/settings/__init__.py` — environment switch (`development`/`production`)
 
 ## API layer
-- `config/urls.py` — root route composition.
-- `apps/catalog/urls.py` — catalog endpoints.
-- `apps/users/urls.py` — auth/user endpoints.
-- `apps/client/urls.py` — dashboard endpoints.
-- `apps/documents/urls.py` — documents namespace.
+- `config/urls.py` — root route composition
+- `apps/catalog/urls.py` — catalog pages/actions
+- `apps/users/urls.py` — login/logout
+- `apps/client/urls.py` — dashboard
+- `apps/documents/urls.py` — documents namespace placeholder
 
 ## Service layer
-- `apps/catalog/services.py` — `CatalogService`, `ServiceResult`.
+- `apps/catalog/services.py` — catalog use cases + error normalization
 
 ## Repository / Data layer
-- `apps/integration/syncserver_client.py` — SyncServer HTTP gateway.
-- `apps/*/models.py` — local persistence models.
+- `apps/integration/syncserver_client.py` — external SyncServer HTTP client
+- `apps/*/models.py` — local data models for Django ORM
 
 ## Models / Entities
-- Catalog: `Category`, `Unit`, `Item`.
-- Users/access: `Site`, `UserProfile`, `Role`.
+- `apps/catalog/models.py`: `Category`, `Unit`, `Item`
+- `apps/users/models.py`: `Site`, `UserProfile`, `Role`
 
 ## Configuration
-- `config/settings.py`.
-- Environment-driven integration keys:
-  - `SYNC_SERVER_URL`
-  - `SYNC_SITE_ID`
-  - `SYNC_DEVICE_ID`
-  - `SYNC_DEVICE_TOKEN`
-  - `SYNC_CLIENT_VERSION`
-  - `SYNC_SERVER_TIMEOUT`
+- `config/settings/base.py`
+- `config/settings/development.py`
+- `config/settings/production.py`
+- `.env` variables for integration and DB/runtime settings

@@ -1,55 +1,69 @@
 # ARCHITECTURE
 
 ## System Overview
-Warehouse_web is a Django SSR **client application** for warehouse operators.
-It provides authentication, authorization, and web UI workflows.
-
-SyncServer is an external backend (FastAPI + PostgreSQL) and remains the **source of truth** for catalog master data.
-
-## Core invariant
-- SyncServer = source of truth.
-- Warehouse_web = client layer.
-- Warehouse_web must not directly read/write SyncServer PostgreSQL.
-- Integration path is HTTP only.
+Warehouse_web is a Django SSR application for warehouse operators. It handles web authentication, role-based access, and catalog-facing user flows. Catalog master data is owned by SyncServer, not by Warehouse_web.
 
 ## High-Level Architecture
-```text
-Browser
-  -> Django URLs/Views (Warehouse_web)
-  -> CatalogService
-  -> SyncServerClient (httpx)
-  -> SyncServer API
-  -> PostgreSQL (owned by SyncServer)
-```
+Clients  
+↓  
+API / Application Layer (Django URLs + Views)  
+↓  
+Service Layer (`CatalogService`)  
+↓  
+Repository / Data Layer (`SyncServerClient`, local Django ORM for app-local entities)  
+↓  
+Database (local Django DB) and external SyncServer database (through SyncServer API only)
 
-Warehouse_web local DB is used only for app-side concerns (auth/session/admin/local metadata).
+## Application Layers
+### API layer
+- Root URL composition in `config/urls.py`
+- App endpoints in `apps/catalog/urls.py`, `apps/users/urls.py`, `apps/client/urls.py`
+- Request handling in Django views
 
-## Layers and key files
-- URL/API layer:
-  - `config/urls.py`
-  - `apps/catalog/urls.py`, `apps/users/urls.py`, `apps/client/urls.py`
-- UI/application layer:
-  - `apps/catalog/views.py`
-  - `apps/client/views.py`
-- Service layer:
-  - `apps/catalog/services.py`
-- Integration layer:
-  - `apps/integration/syncserver_client.py`
-- Settings/runtime:
-  - `config/settings/base.py`
-  - `config/settings/development.py`
-  - `config/settings/production.py`
+### Service layer
+- `apps/catalog/services.py`
+- Encapsulates integration operations and maps SyncServer errors into predictable UI-facing results
 
-## Data and integration flow
-```text
-Request -> Django View -> CatalogService -> SyncServerClient -> SyncServer API
-       <- Template rendering <- ServiceResult <- HTTP response mapping
-```
+### Repository / data layer
+- `apps/integration/syncserver_client.py` for HTTP integration with SyncServer
+- Django ORM models for local application state and auth-related domain data
 
-## Operational architecture
-- Settings selected by `DJANGO_ENV` (`development` / `production`).
-- Environment-driven security and connection configuration via `.env`.
-- Static pipeline uses `STATIC_ROOT` + WhiteNoise in production mode.
-- Health endpoints:
-  - `/healthz/` (app liveness)
-  - `/healthz/sync/` (dependency health)
+### Models / entities
+- Catalog domain models: `Category`, `Unit`, `Item`
+- Access domain models: `Site`, `UserProfile`, `Role`
+
+## Data Model
+Primary entities:
+- `Category`: hierarchical structure with optional parent relation
+- `Unit`: measurement unit with unique code
+- `Item`: inventory item linked to category and unit
+- `UserProfile`: user extension with role and optional site
+- `Site`: physical/organizational warehouse scope
+
+## Data Flow
+Typical catalog request flow:
+
+Client → Django View → CatalogService → SyncServerClient → SyncServer API  
+SyncServer API → SyncServerClient → CatalogService → View → Template response
+
+## Architectural Principles
+- Keep UI logic in views/templates and business orchestration in service layer
+- Centralize external HTTP calls in integration client
+- Keep access-control checks centralized in shared permissions module
+- Treat SyncServer as source of truth for catalog master data
+- Avoid direct writes to external master-data storage via Django ORM
+
+## External Integrations
+- SyncServer API over HTTP (`httpx`)
+- Environment-driven credentials/headers:
+  - `SYNC_SERVER_URL`
+  - `SYNC_SITE_ID`
+  - `SYNC_DEVICE_ID`
+  - `SYNC_DEVICE_TOKEN`
+  - `SYNC_CLIENT_VERSION`
+  - `SYNC_SERVER_TIMEOUT`
+
+## Future Architecture
+- Expand `apps/documents` into a functional module with same layered conventions
+- Add broader integration resilience patterns (retries/circuit breaking) when load grows
+- Introduce explicit sync read models/cache only if operationally necessary

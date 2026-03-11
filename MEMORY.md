@@ -1,37 +1,36 @@
 # MEMORY
 
 ## System architecture
-- Django modular monolith with server-rendered templates.
-- Warehouse_web acts as client; SyncServer owns catalog truth.
-- Integration boundary is HTTP (`SyncServerClient`).
+- Django modular monolith with SSR templates
+- Layered request path: URL/View -> Service -> Integration client
+- SyncServer is external backend authority for catalog master data
 
 ## Core entities
-- Catalog: `Category`, `Unit`, `Item`.
-- Access domain: `Site`, `UserProfile`, `Role`.
+- Catalog: `Category`, `Unit`, `Item`
+- Access control: `UserProfile` with `Role`, optional `Site`
 
 ## Data model decisions
-- UUID identifiers for domain entities.
-- Category supports parent-child hierarchy.
-- User profile extends Django user via OneToOne.
-- Catalog models exist locally, but runtime authority is external SyncServer.
+- UUID primary keys for catalog entities
+- Category supports tree hierarchy (`parent` self-reference)
+- User profile extends Django user by OneToOne relation
+- Catalog entities are represented in Django domain model, but operational truth is maintained in SyncServer
 
 ## API design
-- Internal endpoints are Django routes (`/catalog/*`, `/client/*`, `/users/*`).
-- External calls are centralized in integration client.
-- Required trusted headers identify site/device/client version.
+- Internal interface: Django routes for SSR pages (`/catalog`, `/client`, `/users`)
+- External integration interface: centralized SyncServer HTTP client
+- Service layer maps transport/API failures to deterministic UI errors
 
 ## Business rules
-- Catalog management requires elevated roles.
-- Dashboard and catalog pages are protected by auth + role checks.
-- Integration errors are surfaced to UI through service-layer mapping.
+- Catalog management is restricted to elevated roles (`root`, `chief_storekeeper`)
+- Dashboard requires authenticated active user profile (or superuser)
+- Catalog create/update/deactivate actions are executed through SyncServer admin endpoints
 
 ## Known pitfalls
-- Production settings hardening is incomplete (debug/secret/hosts defaults in code).
-- No Docker/Gunicorn assets in repository at this stage.
-- Static collection path (`STATIC_ROOT`) is not configured yet.
-- Catalog availability depends on SyncServer uptime and bootstrap identifiers.
+- Catalog pages depend on SyncServer availability
+- Missing sync headers/credentials break external API calls
+- Documents module exists as scaffold and is not yet a full domain feature
 
 ## Future architecture
-- Introduce explicit dev/prod settings split.
-- Add deployment runtime artifacts and static pipeline hardening.
-- Expand documents/warehouse workflow modules without breaking SyncServer boundary.
+- Grow `apps/documents` using current layering rules
+- Extend observability and resilience around external SyncServer dependency
+- Keep architectural decisions synchronized with ADRs in `docs/adr/`
