@@ -1,33 +1,51 @@
 # INDEX
 
 ## Project overview
-- Django web-client для SyncServer.
-- SyncServer — источник истины каталога.
+Django web-клиент для складской системы с SSR-интерфейсом и ролями доступа.
 
 ## Architecture overview
-- См. `ARCHITECTURE.md`.
-- Ключевая связь: Warehouse_web → HTTP → SyncServer.
+- Модульный монолит Django.
+- Каталог проксируется в SyncServer (источник истины).
+- Поток: Browser → Django Views → Service → SyncServerClient → SyncServer.
 
 ## Tech stack
-- Django 6, Python 3, httpx, Django templates.
+- Python 3, Django 6, Django Templates, httpx, SQLite.
 
-## Main apps/modules
-- `apps/catalog` — catalog UI + forms + services.
-- `apps/integration` — HTTP client SyncServer.
-- `apps/users` — auth/roles.
-- `apps/common` — permissions/shared.
+## Application structure
+- `config/` — конфигурация приложения и корневой роутинг.
+- `apps/catalog/` — каталог (UI + service + формы).
+- `apps/integration/` — внешний API клиент.
+- `apps/users/` — пользовательские профили и роли.
+- `apps/common/` — permissions.
+- `apps/client/` — dashboard.
+- `apps/documents/` — placeholder.
+
+## Main modules
+- Catalog module
+- Users & roles module
+- Integration module
+- Client dashboard module
 
 ## Entry points
-- `manage.py`, `config/urls.py`, `config/settings.py`.
+- `manage.py`
+- `config/settings.py`
+- `config/urls.py`
+- `config/asgi.py`, `config/wsgi.py`
 
-## Integration points
-- `apps/integration/syncserver_client.py`
-- `apps/catalog/services.py`
+## Important models
+- `apps/catalog/models.py`: `Category`, `Unit`, `Item`
+- `apps/users/models.py`: `Site`, `UserProfile`, `Role`
 
-## Important views/forms/services
-- Views: `apps/catalog/views.py`
-- Forms: `apps/catalog/forms.py`
-- Services: `apps/catalog/services.py`
+## Important services
+- `apps/catalog/services.py`: `CatalogService`, `ServiceResult`
+- `apps/integration/syncserver_client.py`: `SyncServerClient`
+
+## Future modules
+- Развитие `apps/documents`
+- Расширение складских сценариев (движения/остатки) через SyncServer API
 
 ## Architecture decisions
-- ADRs: `docs/adr/0005-syncserver-http-integration.md`, `docs/adr/0006-*.md ...`
+- ADR: `docs/adr/0001-django-modular-monolith.md`
+- ADR: `docs/adr/0005-syncserver-http-integration.md`
+- ADR: `docs/adr/0006-syncserver-source-of-truth-catalog.md`
+- ADR: `docs/adr/0009-no-direct-master-data-writes-via-django-orm.md`
