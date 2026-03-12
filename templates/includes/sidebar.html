@@ -18,7 +18,7 @@
                 <a href="#">Остатки складов</a>
             </li>
 
-            {% if user.is_superuser or user.profile.role == "chief_storekeeper" %}
+            {% if user.is_superuser %}
                 <li style="margin-bottom:10px;">
                     <a href="/catalog/">Справочники</a>
                 </li>

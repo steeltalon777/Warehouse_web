@@ -1,3 +1,4 @@
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import DatabaseError
 
 
@@ -6,17 +7,11 @@ def is_authenticated_user(user):
 
 
 def _get_profile(user):
-    """Return optional legacy profile without breaking admin auth flow.
-
-    In the target architecture Django auth is technical (superuser/staff),
-    while domain users/roles/sites are owned by SyncServer. If legacy
-    `users_userprofile` table is absent during transition, permissions should
-    gracefully fall back instead of crashing.
-    """
+    """Return optional legacy profile without breaking admin auth flow."""
 
     try:
         return getattr(user, "profile", None)
-    except DatabaseError:
+    except (DatabaseError, ObjectDoesNotExist):
         return None
 
 
@@ -34,6 +29,8 @@ def is_root(user):
 
 
 def is_chief_storekeeper(user):
+    if user.is_superuser:
+        return True
     profile = _get_profile(user)
     return (
         user.is_authenticated
@@ -43,6 +40,8 @@ def is_chief_storekeeper(user):
 
 
 def is_storekeeper(user):
+    if user.is_superuser:
+        return True
     profile = _get_profile(user)
     return (
         user.is_authenticated
@@ -56,9 +55,11 @@ def can_manage_catalog(user):
 
 
 def can_use_client(user):
+    if user.is_superuser:
+        return True
     profile = _get_profile(user)
     return (
         user.is_authenticated
         and profile is not None
         and profile.is_active
-    ) or user.is_superuser
+    )
