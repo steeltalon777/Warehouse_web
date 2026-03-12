@@ -1,14 +1,12 @@
 # API_CONTRACT
 
-## Internal Django routes
-- `/users/*` — Django auth screens for technical admin/staff layer.
-- `/admin/` — Django admin.
-- `/client/*`, `/catalog/*` — SSR UI using service layer.
+## Django internal routes
+- `/users/login`, `/users/logout` — technical auth.
+- `/client/root/users/*` — root/admin control panel.
+- `/catalog/*` — chief catalog interface.
+- `/client/catalog`, `/client/balances`, `/client/operations*` — storekeeper/chief work UI.
 
-## External SyncServer contract (authoritative)
-Warehouse domain reads/writes must go through SyncServer.
-
-### Domain areas owned by SyncServer
+## SyncServer authoritative areas
 - users
 - roles
 - sites
@@ -18,14 +16,16 @@ Warehouse domain reads/writes must go through SyncServer.
 - devices
 - events
 
-### Integration path in Warehouse_web
-`Views -> CatalogService -> SyncServerClient -> SyncServer API`
+## Sync endpoints used by Warehouse_web
+- `GET /users`, `POST /users`, `PATCH /users/{id}`
+- `GET /roles`, `GET /sites`
+- `POST /catalog/categories`, `GET /catalog/categories/tree`
+- `POST /catalog/units`, `POST /catalog/items`
+- `POST /catalog/admin/categories`, `PATCH /catalog/admin/categories/{id}`
+- `POST /catalog/admin/units`, `PATCH /catalog/admin/units/{id}`
+- `POST /catalog/admin/items`, `PATCH /catalog/admin/items/{id}`
+- `GET /balances`
+- `GET /operations`, `POST /operations`
 
-### Required headers
-- `X-Site-Id`
-- `X-Device-Id`
-- `X-Device-Token`
-- `X-Client-Version`
-
-## Contract guardrail
-Django ORM models for legacy profile data are non-authoritative and transitional only.
+## Required headers
+`X-Site-Id`, `X-Device-Id`, `X-Device-Token`, `X-Client-Version`.

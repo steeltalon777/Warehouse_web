@@ -1,35 +1,16 @@
-<aside style="width:220px;background:#f5f5f5;padding:15px">
-    <ul style="list-style:none;padding:0;margin:0">
+{% if user.is_authenticated %}
+    <a href="{% url 'client:dashboard' %}">Рабочий стол</a>
+    <a href="{% url 'client:storekeeper_catalog' %}">Каталог</a>
+    <a href="{% url 'client:balances' %}">Остатки</a>
+    <a href="{% url 'client:operations' %}">Операции</a>
+    <a href="{% url 'client:operation_create' %}">Новая операция</a>
 
-        {% if user.is_authenticated %}
-            <li style="margin-bottom:10px;">
-                <a href="/client/">Главная</a>
-            </li>
+    <div class="section">Chief tools</div>
+    <a href="{% url 'catalog:home' %}">Справочники (API-first)</a>
 
-            <li style="margin-bottom:10px;">
-                <a href="#">Операции</a>
-            </li>
-
-            <li style="margin-bottom:10px;">
-                <a href="#">Остатки</a>
-            </li>
-
-            <li style="margin-bottom:10px;">
-                <a href="#">Остатки складов</a>
-            </li>
-
-            {% if user.is_superuser %}
-                <li style="margin-bottom:10px;">
-                    <a href="/catalog/">Справочники</a>
-                </li>
-            {% endif %}
-
-            {% if user.is_superuser %}
-                <li style="margin-bottom:10px;">
-                    <a href="/admin/">Админка</a>
-                </li>
-            {% endif %}
-        {% endif %}
-
-    </ul>
-</aside>
+    {% if user.is_superuser %}
+        <div class="section">Technical root/admin</div>
+        <a href="{% url 'client:root_users' %}">Пользователи SyncServer</a>
+        <a href="{% url 'admin:index' %}">Django Admin</a>
+    {% endif %}
+{% endif %}

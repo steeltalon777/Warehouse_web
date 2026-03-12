@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Остатки{% endblock %}
+{% block content %}
+<div class="card">
+<h1>Остатки</h1>
+<form method="get"><input name="search" value="{{ search }}" placeholder="Поиск по товару/складу"><button type="submit">Фильтр</button></form>
+</div>
+<div class="card">
+<table><tr><th>Товар</th><th>Склад</th><th>Количество</th><th>Ед.</th><th>Обновлено</th></tr>
+{% for b in balances %}<tr><td>{{ b.item_name|default:b.item_id }}</td><td>{{ b.site_name|default:b.site_id }}</td><td>{{ b.quantity }}</td><td>{{ b.unit_name|default:b.unit_id }}</td><td>{{ b.updated_at }}</td></tr>{% empty %}<tr><td colspan="5">Нет данных.</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

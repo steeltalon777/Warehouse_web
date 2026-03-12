@@ -1,17 +1,13 @@
 # AI_ENTRY_POINTS
 
-## Runtime entrypoints
-- `manage.py`
-- `config/wsgi.py`
-- `config/asgi.py`
-- `config/settings/__init__.py`
-
-## Architecture-critical entrypoints
-- `apps/catalog/services.py` — orchestration boundary for catalog use-cases
-- `apps/integration/syncserver_client.py` — external API transport
-- `apps/common/permissions.py` — auth access checks (must tolerate missing legacy profile table)
-- `apps/users/apps.py` — legacy signals should not be auto-wired into auth flow
-
-## Legacy transition files
-- `apps/users/models.py` (`UserProfile`, `Site`, `Role`) — deprecated transitional layer
-- `apps/users/signals.py` — deprecated signal logic, intentionally not auto-registered
+## Кодовые входы
+1. `apps/integration/syncserver_client.py`
+   - endpoints: users, roles, sites, catalog, balances, operations.
+2. `apps/client/services.py`
+   - orchestration сервисы для root/storekeeper экранов.
+3. `apps/client/views.py`
+   - root control panel + storekeeper workflows.
+4. `apps/catalog/services.py`, `apps/catalog/views.py`
+   - chief workflows через SyncServer API.
+5. `config/settings/production.py`
+   - production DB/static policy.

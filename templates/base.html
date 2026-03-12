@@ -1,30 +1,28 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Warehouse Web{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
 </head>
-
 <body>
-
-{% include "includes/navbar.html" %}
-
-<div style="display:flex">
-
-    {% include "includes/sidebar.html" %}
-
-    <main style="padding:20px; flex:1;">
-    {% if messages %}
-        <ul>
-            {% for message in messages %}
-                <li>{{ message }}</li>
-            {% endfor %}
-        </ul>
-    {% endif %}
+<div class="topbar">
+    {% include "includes/navbar.html" %}
+</div>
+<div class="layout">
+    <aside class="sidebar">{% include "includes/sidebar.html" %}</aside>
+    <main class="content">
+        {% if messages %}
+            <ul class="messages">
+                {% for message in messages %}
+                    <li>{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
         {% block content %}{% endblock %}
     </main>
-
 </div>
-
 </body>
 </html>

@@ -1,20 +1,16 @@
 # MEMORY
 
-## Architectural memory
-- Django is not warehouse domain source of truth.
-- SyncServer is the single domain authority.
-- Django auth is technical admin/staff/root layer only.
+## Architectural invariants
+- SyncServer — единственный source of truth для warehouse domain.
+- Django auth нужен только для technical root/staff/admin слоя.
+- Legacy `UserProfile/Site/Role` не должен блокировать вход или работу superuser/staff.
 
-## Current transition state
-- Legacy `UserProfile/Site/Role` remains in codebase for compatibility.
-- Legacy profiles are optional and deprecated.
-- Django superuser must work without `users_userprofile` table dependency.
+## Current transition status
+- Legacy signals не автоподключаются в `apps.users.apps.UsersConfig.ready`.
+- Permissions fallback устойчив к отсутствию profile.
+- Root panel управляет domain users через SyncServer API, не через Django ORM.
 
-## Integration memory
-- Keep API-first integration through `apps/integration/syncserver_client.py` and service layer.
-- Do not move domain users/roles/sites/catalog into Django ORM ownership.
-
-## Deployment memory
-- Production Django DB must be PostgreSQL (env-configured).
-- Do not use sqlite in production.
-- In docker network, SyncServer URL should be `http://syncserver:8000`.
+## UI status
+- Root: отдельный control panel для users/roles/sites.
+- Chief: справочники каталога через API-first `apps.catalog`.
+- Storekeeper: каталог, остатки, операции, создание операции.

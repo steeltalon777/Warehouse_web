@@ -1,10 +1,10 @@
-<header style="background:#eee;padding:10px">
-
+<div>
     <strong>Warehouse Web</strong>
-    <a href="/client/">Dashboard</a>
+</div>
+<div>
     {% if request.user.is_authenticated %}
-        | {{ request.user.username }}
-        | <a href="{% url 'users:logout' %}">Выход</a>
+        {{ request.user.username }} · <a href="{% url 'users:logout' %}">Выход</a>
+    {% else %}
+        <a href="{% url 'users:login' %}">Вход</a>
     {% endif %}
-
-</header>
+</div>

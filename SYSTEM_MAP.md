@@ -1,19 +1,21 @@
 # SYSTEM_MAP
 
-## Components
-- Browser
-- nginx gateway (production ingress)
-- Warehouse_web (Django web/admin client)
-- SyncServer (FastAPI source of truth)
-- PostgreSQL (separate DBs/schemas for Django service data and SyncServer domain data)
+## Контекст
+`Browser -> Django SSR -> Service Layer -> SyncServerClient -> SyncServer API`
 
-## Ownership boundaries
-- **SyncServer owns domain truth**: users, roles, sites, catalog, balances, operations, devices, events.
-- **Warehouse_web owns technical web layer**: Django auth/session/admin/staff/superuser + UI orchestration.
+## Django зоны ответственности
+1. Technical auth/session/admin layer.
+2. Role-oriented web UI (root/chief/storekeeper).
+3. Не хранит warehouse truth в локальной ORM.
 
-## Data flow
-`Browser -> Warehouse_web -> SyncServerClient -> SyncServer API -> Domain DB`
+## Основные модули
+- `apps/integration/syncserver_client.py` — HTTP client к SyncServer.
+- `apps/catalog/services.py` — API-first сервисы каталога (chief workflows).
+- `apps/client/services.py` — API-first сервисы users/roles/sites/balances/operations.
+- `apps/client/views.py` — root panel + storekeeper/chief UI.
+- `apps/users/*` — legacy transition models (deprecated, non-mandatory).
 
-## Legacy transition layer
-`apps/users/models.py` (`UserProfile`, `Site`, `Role`) is legacy/deprecated and optional.
-It must not be required for Django superuser/staff login or permission checks.
+## UI маршруты
+- Root/admin: `/client/root/users/`, `/client/root/users/create/`, `/client/root/users/<id>/edit/`
+- Chief: `/catalog/*`
+- Storekeeper: `/client/catalog/`, `/client/balances/`, `/client/operations/`, `/client/operations/create/`

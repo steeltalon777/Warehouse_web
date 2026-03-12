@@ -1,8 +1,12 @@
 {% extends "base.html" %}
-
-{% block title %}Главная{% endblock %}
-
+{% block title %}Рабочий стол{% endblock %}
 {% block content %}
-    <h2>Онлайн-клиент склада</h2>
-    <p>Каркас клиентского интерфейса запущен.</p>
+<div class="card">
+  <h1>Рабочий стол</h1>
+  <p>Роль интерфейса: <strong>{{ role }}</strong>. Django используется как web/admin client поверх SyncServer API.</p>
+</div>
+<div class="grid-2">
+  <div class="card"><div class="kpi">Каталог</div><p>Просмотр и поиск номенклатуры.</p><a class="btn" href="{% url 'client:storekeeper_catalog' %}">Открыть</a></div>
+  <div class="card"><div class="kpi">Операции</div><p>Создание и контроль движений.</p><a class="btn" href="{% url 'client:operations' %}">Открыть</a></div>
+</div>
 {% endblock %}

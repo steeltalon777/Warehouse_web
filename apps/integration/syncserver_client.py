@@ -26,7 +26,14 @@ class SyncServerClient:
             "X-Client-Version": settings.SYNC_CLIENT_VERSION,
         }
 
-    def _request(self, method: str, path: str, *, json: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> Any:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
         url = f"{self.base_url}{path}"
         try:
             with httpx.Client(timeout=self.timeout) as client:
@@ -64,17 +71,12 @@ class SyncServerClient:
 
         if search:
             search_lower = search.lower()
-            items = [
-                item for item in items
-                if search_lower in str(item.get("name", "")).lower()
-            ]
+            items = [item for item in items if search_lower in str(item.get("name", "")).lower()]
 
         return items
 
-
     def categories_tree(self) -> list[dict[str, Any]]:
         return self._request("GET", "/catalog/categories/tree")
-
 
     def create_category(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/catalog/admin/categories", json=payload)
@@ -93,3 +95,36 @@ class SyncServerClient:
 
     def update_item(self, item_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("PATCH", f"/catalog/admin/items/{item_id}", json=payload)
+
+    # Users / roles / sites
+    def list_users(self) -> list[dict[str, Any]]:
+        response = self._request("GET", "/users")
+        return response.get("users", response if isinstance(response, list) else [])
+
+    def create_user(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", "/users", json=payload)
+
+    def update_user(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("PATCH", f"/users/{user_id}", json=payload)
+
+    def list_roles(self) -> list[dict[str, Any]]:
+        response = self._request("GET", "/roles")
+        return response.get("roles", response if isinstance(response, list) else [])
+
+    def list_sites(self) -> list[dict[str, Any]]:
+        response = self._request("GET", "/sites")
+        return response.get("sites", response if isinstance(response, list) else [])
+
+    # Operations / balances
+    def list_balances(self, *, search: str | None = None) -> list[dict[str, Any]]:
+        params = {"search": search} if search else None
+        response = self._request("GET", "/balances", params=params)
+        return response.get("balances", response if isinstance(response, list) else [])
+
+    def list_operations(self, *, search: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        params = {"search": search, "limit": limit}
+        response = self._request("GET", "/operations", params=params)
+        return response.get("operations", response if isinstance(response, list) else [])
+
+    def create_operation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", "/operations", json=payload)
