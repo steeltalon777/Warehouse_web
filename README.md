@@ -1,111 +1,41 @@
 # Warehouse_web
 
 ## Project overview
-Warehouse_web is a Django server-rendered web client for warehouse staff. It provides authentication, role-based access, and catalog UI workflows while delegating catalog master-data operations to an external SyncServer API.
+Warehouse_web is a Django SSR web/admin client for warehouse operations UI.
 
-## Architecture overview
-The project is a modular Django monolith with explicit layering:
+**Architecture role split:**
+- **SyncServer (FastAPI)** is the source of truth for domain data: users, roles, sites, catalog, balances, operations, devices, events.
+- **Warehouse_web (Django)** is a technical web layer (admin/staff/root access, sessions, templates, orchestration).
 
-`Browser -> Django Views -> CatalogService -> SyncServerClient (HTTP) -> SyncServer API -> PostgreSQL`
+## Source-of-truth policy
+Django must not be a source of truth for warehouse domain entities.
 
-Warehouse_web keeps its own local Django database for application concerns (users, sessions, admin, local app data), while SyncServer remains the source of truth for catalog master data.
+Django DB stores only:
+- technical admin/staff/superuser auth/session/admin tables
+- service/UI technical data
 
-## Tech stack
-- Python 3
-- Django 6
-- Django Templates (SSR)
-- httpx
-- python-dotenv
-- Gunicorn + WhiteNoise (production)
-- SQLite by default (or PostgreSQL via env settings)
+Domain users/roles/sites/catalog must be served via SyncServer API.
 
-## Project structure
-- `config/` — project settings and root URL/WSGI/ASGI wiring
-- `apps/catalog/` — catalog UI, forms, service orchestration
-- `apps/integration/` — SyncServer HTTP client
-- `apps/users/` — roles, user profile extension, auth routing
-- `apps/common/` — shared permissions and health checks
-- `apps/client/` — main dashboard
-- `apps/documents/` — reserved module scaffold
-- `templates/` — server-rendered HTML templates
-- `docs/adr/` — architecture decision records
+## Runtime architecture
+`Browser -> Django Views -> Service layer -> SyncServer client -> SyncServer API -> PostgreSQL(domain)`
 
-## Installation / Setup
+## Database split
+- **Django service DB**: separate PostgreSQL database for Django auth/admin/session/service data.
+- **SyncServer domain DB**: separate domain database/schema for warehouse truth.
+- **Production**: sqlite is not allowed.
+
+## Legacy notice
+`apps/users` contains legacy transition models (`UserProfile`, `Site`, `Role`).
+They are deprecated and must not be mandatory in Django auth flow.
+
+## Key env
+- `DJANGO_ENV=production`
+- `DB_ENGINE`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_CONN_MAX_AGE`
+- `SYNC_SERVER_URL` (in Docker network: `http://syncserver:8000`)
+- `SYNC_SITE_ID`, `SYNC_DEVICE_ID`, `SYNC_DEVICE_TOKEN`, `SYNC_CLIENT_VERSION`, `SYNC_SERVER_TIMEOUT`
+
+## Run
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
 python manage.py migrate
-```
-
-## Running the project
-Development:
-```bash
 python manage.py runserver 0.0.0.0:8000
 ```
-
-Production-like (without Docker):
-```bash
-export DJANGO_ENV=production
-python manage.py migrate --noinput
-python manage.py collectstatic --noinput
-gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
-```
-
-Docker:
-```bash
-docker compose up --build
-```
-
-## Main modules
-- Catalog management UI (`/catalog/*`)
-- User authentication and role access (`/users/*`)
-- Warehouse dashboard (`/client/`)
-- Health checks (`/healthz/`, `/healthz/sync/`)
-
-## API overview
-Warehouse_web mainly serves SSR pages. Integration API usage is outbound:
-- Reads: SyncServer catalog list/tree endpoints
-- Writes: SyncServer admin catalog endpoints
-- Mandatory headers: `X-Site-Id`, `X-Device-Id`, `X-Device-Token`, `X-Client-Version`
-
-## Production deployment
-
-### Временный HTTP режим
-
-Пока у сервера нет домена и TLS:
-
-
-SECURE_SSL_REDIRECT=False
-SESSION_COOKIE_SECURE=False
-CSRF_COOKIE_SECURE=False
-
-
-И обязательно:
-
-
-CSRF_TRUSTED_ORIGINS=http://<server-ip>
-
-
-### Точки входа
-
-
-/ → редирект на /client/
-/client/ → интерфейс склада
-/admin/ → Django admin
-/api/ → проксируется в SyncServer
-/api/docs → Swagger SyncServer
-
-
-### Когда появится домен
-
-После подключения HTTPS нужно вернуть безопасные настройки:
-
-
-SECURE_SSL_REDIRECT=True
-SESSION_COOKIE_SECURE=True
-CSRF_COOKIE_SECURE=True
-SECURE_HSTS_SECONDS=31536000
-
-Internal HTTP routes are composed in Django URL configs (`config/urls.py` + app urls).

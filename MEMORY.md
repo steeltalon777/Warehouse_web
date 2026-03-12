@@ -1,69 +1,20 @@
 # MEMORY
 
-## System architecture
-- Django modular monolith with SSR templates
-- Layered request path: URL/View -> Service -> Integration client
-- SyncServer is external backend authority for catalog master data
+## Architectural memory
+- Django is not warehouse domain source of truth.
+- SyncServer is the single domain authority.
+- Django auth is technical admin/staff/root layer only.
 
-## Core entities
-- Catalog: `Category`, `Unit`, `Item`
-- Access control: `UserProfile` with `Role`, optional `Site`
+## Current transition state
+- Legacy `UserProfile/Site/Role` remains in codebase for compatibility.
+- Legacy profiles are optional and deprecated.
+- Django superuser must work without `users_userprofile` table dependency.
 
-## Data model decisions
-- UUID primary keys for catalog entities
-- Category supports tree hierarchy (`parent` self-reference)
-- User profile extends Django user by OneToOne relation
-- Catalog entities are represented in Django domain model, but operational truth is maintained in SyncServer
+## Integration memory
+- Keep API-first integration through `apps/integration/syncserver_client.py` and service layer.
+- Do not move domain users/roles/sites/catalog into Django ORM ownership.
 
-## API design
-- Internal interface: Django routes for SSR pages (`/catalog`, `/client`, `/users`)
-- External integration interface: centralized SyncServer HTTP client
-- Service layer maps transport/API failures to deterministic UI errors
-
-## Business rules
-- Catalog management is restricted to elevated roles (`root`, `chief_storekeeper`)
-- Dashboard requires authenticated active user profile (or superuser)
-- Catalog create/update/deactivate actions are executed through SyncServer admin endpoints
-
-## Known pitfalls
-- Catalog pages depend on SyncServer availability
-- Missing sync headers/credentials break external API calls
-- Documents module exists as scaffold and is not yet a full domain feature
-
-## Future architecture
-- Grow `apps/documents` using current layering rules
-- Extend observability and resilience around external SyncServer dependency
-- Keep architectural decisions synchronized with ADRs in `docs/adr/`
-
-## Deployment pitfalls
-
-### CSRF ошибки
-
-При работе за reverse proxy необходимо указать:
-
-
-CSRF_TRUSTED_ORIGINS=http://<server-ip>
-
-
-### HTTPS настройки
-
-Если включить
-
-
-SESSION_COOKIE_SECURE=True
-CSRF_COOKIE_SECURE=True
-
-
-на HTTP сервере — логин работать не будет.
-
-Эти настройки включаются **только после подключения HTTPS**.
-
-### nginx headers
-
-nginx должен проксировать:
-
-
-Host
-X-Real-IP
-X-Forwarded-For
-X-Forwarded-Proto
+## Deployment memory
+- Production Django DB must be PostgreSQL (env-configured).
+- Do not use sqlite in production.
+- In docker network, SyncServer URL should be `http://syncserver:8000`.

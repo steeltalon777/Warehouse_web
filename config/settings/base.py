@@ -29,6 +29,8 @@ DEBUG = env_bool("DEBUG", False)
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", ["127.0.0.1", "localhost"] if DEBUG else [])
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", [])
 
+# Django auth in this project is a technical admin/staff layer.
+# Warehouse domain users/roles/sites are owned by SyncServer.
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

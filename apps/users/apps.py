@@ -6,4 +6,7 @@ class UsersConfig(AppConfig):
     name = "apps.users"
 
     def ready(self):
-        import apps.users.signals
+        # Intentionally do not auto-import legacy profile signals.
+        # Django auth in this project is used for technical admin/staff access,
+        # while domain users/roles/sites live in SyncServer.
+        return
