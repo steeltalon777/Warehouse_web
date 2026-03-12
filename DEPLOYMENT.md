@@ -95,3 +95,106 @@ The entrypoint runs `migrate` + `collectstatic` before executing Gunicorn comman
 - `ALLOWED_HOSTS` not matching ingress host.
 - Not running `collectstatic` in production.
 - SyncServer network reachability / TLS mismatch.
+
+## Docker deployment with nginx gateway
+
+Warehouse_web обычно запускается вместе с SyncServer за reverse proxy (nginx).
+
+### Архитектура
+
+
+Browser
+↓
+nginx gateway
+↓
+Warehouse_web (Django)
+↓
+SyncServer (FastAPI)
+↓
+PostgreSQL
+
+
+### Подготовка
+
+Создать внешнюю docker сеть:
+
+```bash
+docker network create backend
+Запуск SyncServer
+cd SyncServer
+docker compose up -d --build
+Запуск Warehouse_web
+cd Warehouse_web
+docker compose up -d --build
+Запуск nginx gateway
+cd gateway
+docker compose up -d
+Проверка
+
+Открыть:
+
+http://<server-ip>/
+
+Должен произойти редирект:
+
+/ → /client/
+
+Проверить:
+
+/client/
+/admin/
+/api/
+/api/docs
+Переменные окружения
+
+Пример:
+
+SYNC_SERVER_URL=http://syncserver:8000
+SECURE_SSL_REDIRECT=False
+CSRF_TRUSTED_ORIGINS=http://<server-ip>
+Важно
+
+В Docker контейнере localhost указывает на сам контейнер, а не на хост.
+
+Поэтому SyncServer должен вызываться через имя сервиса:
+
+http://syncserver:8000
+HTTPS
+
+После появления домена nginx должен выполнять TLS termination.
+
+После этого можно включить:
+
+SECURE_SSL_REDIRECT=True
+SESSION_COOKIE_SECURE=True
+CSRF_COOKIE_SECURE=True
+
+---
+
+# Вставка для `ARCHITECTURE.md`
+
+Добавь раздел **Ingress layer**.
+
+```md
+## Ingress layer
+
+В production доступ к Warehouse_web осуществляется через nginx reverse proxy.
+
+
+Browser
+↓
+nginx
+↓
+Warehouse_web
+↓
+SyncServerClient
+↓
+SyncServer API
+
+
+### Причины использования reverse proxy
+
+- единая точка входа
+- TLS termination
+- проксирование `/api/` в SyncServer
+- корректная работа CSRF и Host заголовков

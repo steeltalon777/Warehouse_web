@@ -34,3 +34,36 @@
 - Grow `apps/documents` using current layering rules
 - Extend observability and resilience around external SyncServer dependency
 - Keep architectural decisions synchronized with ADRs in `docs/adr/`
+
+## Deployment pitfalls
+
+### CSRF ошибки
+
+При работе за reverse proxy необходимо указать:
+
+
+CSRF_TRUSTED_ORIGINS=http://<server-ip>
+
+
+### HTTPS настройки
+
+Если включить
+
+
+SESSION_COOKIE_SECURE=True
+CSRF_COOKIE_SECURE=True
+
+
+на HTTP сервере — логин работать не будет.
+
+Эти настройки включаются **только после подключения HTTPS**.
+
+### nginx headers
+
+nginx должен проксировать:
+
+
+Host
+X-Real-IP
+X-Forwarded-For
+X-Forwarded-Proto

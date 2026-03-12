@@ -70,4 +70,42 @@ Warehouse_web mainly serves SSR pages. Integration API usage is outbound:
 - Writes: SyncServer admin catalog endpoints
 - Mandatory headers: `X-Site-Id`, `X-Device-Id`, `X-Device-Token`, `X-Client-Version`
 
+## Production deployment
+
+### Временный HTTP режим
+
+Пока у сервера нет домена и TLS:
+
+
+SECURE_SSL_REDIRECT=False
+SESSION_COOKIE_SECURE=False
+CSRF_COOKIE_SECURE=False
+
+
+И обязательно:
+
+
+CSRF_TRUSTED_ORIGINS=http://<server-ip>
+
+
+### Точки входа
+
+
+/ → редирект на /client/
+/client/ → интерфейс склада
+/admin/ → Django admin
+/api/ → проксируется в SyncServer
+/api/docs → Swagger SyncServer
+
+
+### Когда появится домен
+
+После подключения HTTPS нужно вернуть безопасные настройки:
+
+
+SECURE_SSL_REDIRECT=True
+SESSION_COOKIE_SECURE=True
+CSRF_COOKIE_SECURE=True
+SECURE_HSTS_SECONDS=31536000
+
 Internal HTTP routes are composed in Django URL configs (`config/urls.py` + app urls).
