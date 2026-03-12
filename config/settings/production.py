@@ -1,6 +1,8 @@
 from .base import *  # noqa: F401,F403
 import os
 
+from django.core.exceptions import ImproperlyConfigured
+
 DEBUG = False
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -44,3 +46,6 @@ DATABASES = {
         "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "60")),
     }
 }
+
+if DATABASES["default"]["ENGINE"] == "django.db.backends.sqlite3":
+    raise ImproperlyConfigured("Production requires PostgreSQL service DB; sqlite is not allowed.")

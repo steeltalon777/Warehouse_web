@@ -1,31 +1,17 @@
 # AI_ENTRY_POINTS
 
-## Server entrypoints
-- `manage.py` — Django management and local runtime entrypoint
-- `config/wsgi.py` — WSGI application entrypoint
-- `config/asgi.py` — ASGI application entrypoint
-- `config/settings/__init__.py` — environment switch (`development`/`production`)
+## Runtime entrypoints
+- `manage.py`
+- `config/wsgi.py`
+- `config/asgi.py`
+- `config/settings/__init__.py`
 
-## API layer
-- `config/urls.py` — root route composition
-- `apps/catalog/urls.py` — catalog pages/actions
-- `apps/users/urls.py` — login/logout
-- `apps/client/urls.py` — dashboard
-- `apps/documents/urls.py` — documents namespace placeholder
+## Architecture-critical entrypoints
+- `apps/catalog/services.py` — orchestration boundary for catalog use-cases
+- `apps/integration/syncserver_client.py` — external API transport
+- `apps/common/permissions.py` — auth access checks (must tolerate missing legacy profile table)
+- `apps/users/apps.py` — legacy signals should not be auto-wired into auth flow
 
-## Service layer
-- `apps/catalog/services.py` — catalog use cases + error normalization
-
-## Repository / Data layer
-- `apps/integration/syncserver_client.py` — external SyncServer HTTP client
-- `apps/*/models.py` — local data models for Django ORM
-
-## Models / Entities
-- `apps/catalog/models.py`: `Category`, `Unit`, `Item`
-- `apps/users/models.py`: `Site`, `UserProfile`, `Role`
-
-## Configuration
-- `config/settings/base.py`
-- `config/settings/development.py`
-- `config/settings/production.py`
-- `.env` variables for integration and DB/runtime settings
+## Legacy transition files
+- `apps/users/models.py` (`UserProfile`, `Site`, `Role`) — deprecated transitional layer
+- `apps/users/signals.py` — deprecated signal logic, intentionally not auto-registered
