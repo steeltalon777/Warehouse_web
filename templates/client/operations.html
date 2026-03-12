@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Операции{% endblock %}
+{% block content %}
+<div class="card">
+<h1>Операции</h1>
+<form method="get"><input name="search" value="{{ search }}" placeholder="Поиск по номеру/товару"><button type="submit">Фильтр</button></form>
+<a class="btn" href="{% url 'client:operation_create' %}">Создать операцию</a>
+</div>
+<div class="card">
+<table><tr><th>ID</th><th>Тип</th><th>Товар</th><th>Количество</th><th>Автор</th><th>Создано</th></tr>
+{% for op in operations %}<tr><td>{{ op.id }}</td><td>{{ op.operation_type|default:op.type }}</td><td>{{ op.item_name|default:op.item_id }}</td><td>{{ op.quantity }}</td><td>{{ op.created_by_name|default:op.created_by }}</td><td>{{ op.created_at }}</td></tr>{% empty %}<tr><td colspan="6">Нет данных.</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

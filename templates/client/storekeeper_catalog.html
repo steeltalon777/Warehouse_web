@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Каталог{% endblock %}
+{% block content %}
+<div class="card">
+<h1>Каталог (SyncServer)</h1>
+<form method="get"><input name="search" value="{{ search }}" placeholder="Поиск по наименованию"><button type="submit">Найти</button></form>
+</div>
+<div class="card">
+<table><tr><th>Наименование</th><th>SKU</th><th>Категория</th><th>Ед.</th><th>Активен</th></tr>
+{% for item in items %}<tr><td>{{ item.name }}</td><td>{{ item.sku }}</td><td>{{ item.category_name|default:item.category_id }}</td><td>{{ item.unit_name|default:item.unit_id }}</td><td>{{ item.is_active }}</td></tr>{% empty %}<tr><td colspan="5">Нет данных.</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

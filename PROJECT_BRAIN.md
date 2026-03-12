@@ -1,18 +1,15 @@
 # PROJECT_BRAIN
 
-## Project mission
-Evolve Warehouse_web into a Django control panel over SyncServer domain APIs.
+## Strategic direction
+1. Django остаётся web/admin client.
+2. SyncServer владеет domain truth.
+3. Legacy Django domain models — transitional compatibility only.
 
-## Current architecture intent
-- Django: technical auth/admin/staff + UI.
-- SyncServer: domain truth and business entities.
+## Implemented direction
+- Root/admin panel для users/roles/sites через SyncServer API.
+- Chief/storekeeper UI разделены по сценариям, но используют общий API-first integration layer.
+- UI переведён на production-friendly static + unified layout.
 
-## Legacy status
-- `UserProfile`, `Site`, `Role` in `apps/users` are deprecated compatibility artifacts.
-- They should not be mandatory for auth flow.
-
-## Roadmap direction
-1. Move all warehouse user/role/site flows to SyncServer-backed APIs.
-2. Keep catalog/balances/operations as API-first through SyncServer.
-3. Support multiple clients (web/WPF/mobile/offline) with same SyncServer domain users.
-4. Gradually phase out legacy Django profile dependency.
+## Next steps
+- Расширять фильтры и bulk-операции без переноса бизнес-логики в Django ORM.
+- Выравнивать WPF/mobile/offline клиенты на те же SyncServer domain users/roles/sites.

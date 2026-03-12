@@ -1,16 +1,12 @@
 # DEPLOYMENT
 
-## 1) Roles in distributed system
-- **Warehouse_web (Django):** web/admin client and technical auth layer.
-- **SyncServer (FastAPI):** source of truth for users/roles/sites/catalog/balances/operations/devices/events.
+## Production assumptions
+- `DJANGO_ENV=production`
+- Django service DB обязательно PostgreSQL (не sqlite).
+- SyncServer URL внутри docker-сети: `http://syncserver:8000`.
 
-## 2) Database separation
-- Django uses a **separate service PostgreSQL DB** for auth/session/admin/service data.
-- SyncServer uses a **separate domain DB/schema**.
-- Django must not use sqlite in production.
-
-## 3) Required env for Django production DB
-- `DB_ENGINE` (must be PostgreSQL backend)
+## Required DB env for Django service DB
+- `DB_ENGINE=django.db.backends.postgresql`
 - `DB_NAME`
 - `DB_USER`
 - `DB_PASSWORD`
@@ -18,23 +14,12 @@
 - `DB_PORT`
 - `DB_CONN_MAX_AGE`
 
-## 4) Sync integration env
-- `SYNC_SERVER_URL` (inside docker network: `http://syncserver:8000`)
-- `SYNC_SITE_ID`
-- `SYNC_DEVICE_ID`
-- `SYNC_DEVICE_TOKEN`
-- `SYNC_CLIENT_VERSION`
-- `SYNC_SERVER_TIMEOUT`
+## Static strategy
+- WhiteNoise middleware включён в `config/settings/production.py`.
+- `collectstatic` обязателен перед запуском production контейнера.
+- `STORAGES['staticfiles'] = whitenoise.storage.CompressedManifestStaticFilesStorage`.
 
-## 5) Production startup
-```bash
-export DJANGO_ENV=production
-python manage.py migrate --noinput
-python manage.py collectstatic --noinput
-gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
-```
-
-## 6) Deployment guardrails
-- Do not bind Django directly to SyncServer DB.
-- Do not re-introduce domain users/roles/sites as Django source-of-truth entities.
-- Keep API-first orchestration through SyncServer client/service layer.
+## Network / nginx notes
+- nginx должен проксировать Django и SyncServer в единой backend network.
+- Заголовки клиента (`X-Site-Id`, `X-Device-Id`, `X-Device-Token`, `X-Client-Version`) должны доходить до SyncServer.
+- Разделение БД Django/SyncServer должно сохраняться во всех окружениях.

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Новая операция{% endblock %}
+{% block content %}
+<div class="card">
+<h1>Создать операцию</h1>
+<form method="post">{% csrf_token %}
+    {% for field in form %}
+      <div class="form-row"><label>{{ field.label }}</label>{{ field }}{% if field.errors %}<div>{{ field.errors }}</div>{% endif %}</div>
+    {% endfor %}
+    {% if form.non_field_errors %}<div>{{ form.non_field_errors }}</div>{% endif %}
+    <button type="submit">Отправить в SyncServer</button>
+</form>
+</div>
+{% endblock %}
