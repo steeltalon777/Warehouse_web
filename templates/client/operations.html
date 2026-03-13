@@ -4,11 +4,15 @@
 <div class="card">
 <h1>Операции</h1>
 <form method="get"><input name="search" value="{{ search }}" placeholder="Поиск по номеру/товару"><button type="submit">Фильтр</button></form>
-<a class="btn" href="{% url 'client:operation_create' %}">Создать операцию</a>
+<a class="btn" href="{% url 'operations:create' %}">Создать операцию</a>
 </div>
 <div class="card">
 <table><tr><th>ID</th><th>Тип</th><th>Товар</th><th>Количество</th><th>Автор</th><th>Создано</th></tr>
-{% for op in operations %}<tr><td>{{ op.id }}</td><td>{{ op.operation_type|default:op.type }}</td><td>{{ op.item_name|default:op.item_id }}</td><td>{{ op.quantity }}</td><td>{{ op.created_by_name|default:op.created_by }}</td><td>{{ op.created_at }}</td></tr>{% empty %}<tr><td colspan="6">Нет данных.</td></tr>{% endfor %}
+{% for op in operations %}<tr><td><a href="{% url 'operations:detail' op.id %}">{{ op.id }}</a></td><td>{{ op.operation_type|default:op.type }}</td><td>{{ op.item_name|default:op.item_id }}</td><td>{{ op.quantity }}</td><td>{{ op.created_by_name|default:op.created_by }}</td><td>{{ op.created_at }}</td></tr>{% empty %}<tr><td colspan="6">Нет данных.</td></tr>{% endfor %}
 </table>
+<div class="toolbar">
+  <a href="?search={{ search }}&limit={{ limit }}&offset={{ prev_offset }}">← Назад</a>
+  <a href="?search={{ search }}&limit={{ limit }}&offset={{ next_offset }}">Вперёд →</a>
+</div>
 </div>
 {% endblock %}

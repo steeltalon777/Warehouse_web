@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Операция{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Операция {{ operation.id }}</h1>
+  {% if operation %}
+  <p>Тип: {{ operation.operation_type|default:operation.type }}</p>
+  <p>Товар: {{ operation.item_name|default:operation.item_id }}</p>
+  <p>Количество: {{ operation.quantity }}</p>
+  <p>Статус: {{ operation.status }}</p>
+  {% else %}
+  <p>Данные операции недоступны.</p>
+  {% endif %}
+</div>
+{% endblock %}

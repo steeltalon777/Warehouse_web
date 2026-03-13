@@ -9,20 +9,24 @@ from django.views.generic import TemplateView
 from apps.catalog.forms import CategoryForm, ItemForm, UnitForm
 from apps.catalog.services import CatalogService
 from apps.common.permissions import can_manage_catalog
+from apps.sync_client.client import SyncServerClient
 
 
-def catalog_home(request):
-    if not request.user.is_authenticated or not can_manage_catalog(request.user):
-        return HttpResponseForbidden("Нет доступа")
-    return render(request, "catalog/home.html")
-
-
-class CatalogAccessMixin(LoginRequiredMixin):
-    service = CatalogService()
+class CatalogHomeView(LoginRequiredMixin, TemplateView):
+    template_name = "catalog/home.html"
 
     def dispatch(self, request, *args, **kwargs):
         if not can_manage_catalog(request.user):
             return HttpResponseForbidden("Нет доступа")
+        return super().dispatch(request, *args, **kwargs)
+
+
+class CatalogAccessMixin(LoginRequiredMixin):
+    def dispatch(self, request, *args, **kwargs):
+        if not can_manage_catalog(request.user):
+            return HttpResponseForbidden("Нет доступа")
+        site_id = request.session.get("active_site") or getattr(getattr(request.user, "profile", None), "site_id", None) or "default"
+        self.service = CatalogService(SyncServerClient(user_id=request.user.id, site_id=site_id))
         return super().dispatch(request, *args, **kwargs)
 
 

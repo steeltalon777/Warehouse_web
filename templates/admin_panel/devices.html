@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Устройства{% endblock %}
+{% block content %}
+<div class="card"><h1>Admin · Устройства</h1></div>
+<div class="card"><table><tr><th>ID</th><th>Название</th></tr>{% for d in devices %}<tr><td>{{ d.id }}</td><td>{{ d.name|default:d.code }}</td></tr>{% empty %}<tr><td colspan="2">Нет данных.</td></tr>{% endfor %}</table></div>
+{% endblock %}

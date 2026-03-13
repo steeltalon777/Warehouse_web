@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Остатки по складам{% endblock %}
+{% block content %}
+<div class="card"><h1>Остатки по складам</h1></div>
+<div class="card">
+<table>
+<tr><th>Склад</th><th>Товар</th><th>Количество</th></tr>
+{% for r in records %}
+<tr><td>{{ r.site_name|default:r.site_id }}</td><td>{{ r.item_name|default:r.item_id }}</td><td>{{ r.quantity }}</td></tr>
+{% empty %}<tr><td colspan="3">Нет данных.</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

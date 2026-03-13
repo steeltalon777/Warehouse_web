@@ -1,7 +1,8 @@
 # INDEX
 
-- `README.md` — high-level architecture and env.
-- `SYSTEM_MAP.md` — component map and route map.
-- `API_CONTRACT.md` — SyncServer endpoints used by Django.
-- `DEPLOYMENT.md` — production DB/static/network notes.
-- `AI_CONTEXT.md`, `AI_ENTRY_POINTS.md`, `MEMORY.md`, `PROJECT_BRAIN.md` — AI-friendly architectural memory.
+- `README.md` — обзор Django->SyncServer клиента.
+- `ARCHITECTURE.md` — слои и ответственность.
+- `AI_CONTEXT.md` — правила для AI-изменений.
+- `AI_ENTRY_POINTS.md` — ключевые точки входа.
+- `MEMORY.md` — архитектурные инварианты.
+- `apps/sync_client/*` — единый API client layer.

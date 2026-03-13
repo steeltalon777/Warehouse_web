@@ -1,16 +1,13 @@
 # MEMORY
 
-## Architectural invariants
-- SyncServer — единственный source of truth для warehouse domain.
-- Django auth нужен только для technical root/staff/admin слоя.
-- Legacy `UserProfile/Site/Role` не должен блокировать вход или работу superuser/staff.
+## Invariants
 
-## Current transition status
-- Legacy signals не автоподключаются в `apps.users.apps.UsersConfig.ready`.
-- Permissions fallback устойчив к отсутствию profile.
-- Root panel управляет domain users через SyncServer API, не через Django ORM.
+- SyncServer = source of truth для warehouse domain.
+- Django = UI + session + thin API client.
+- Нет business logic в Django.
 
-## UI status
-- Root: отдельный control panel для users/roles/sites.
-- Chief: справочники каталога через API-first `apps.catalog`.
-- Storekeeper: каталог, остатки, операции, создание операции.
+## Implemented integration
+
+- Новый слой `apps/sync_client` c service authentication.
+- Список операций/остатков работает с `limit/offset`.
+- Каталог и root admin страницы используют sync_client слой.

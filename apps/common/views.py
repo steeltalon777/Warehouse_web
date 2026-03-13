@@ -2,6 +2,7 @@ from django.http import JsonResponse
 from django.views import View
 
 from apps.catalog.services import CatalogService
+from apps.sync_client.client import SyncServerClient
 
 
 class HealthCheckView(View):
@@ -10,10 +11,10 @@ class HealthCheckView(View):
 
 
 class SyncHealthCheckView(View):
-    service = CatalogService()
-
     def get(self, request):
-        result = self.service.list_categories()
+        client = SyncServerClient(user_id="healthcheck", site_id="healthcheck")
+        service = CatalogService(client)
+        result = service.list_categories()
         if result.ok:
             return JsonResponse({"status": "ok", "syncserver": "reachable"})
         return JsonResponse(

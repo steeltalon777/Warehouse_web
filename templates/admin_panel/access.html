@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Доступы{% endblock %}
+{% block content %}
+<div class="card"><h1>Admin · Доступ пользователей к складам</h1></div>
+<div class="card"><table><tr><th>Пользователь</th><th>Склад</th></tr>{% for a in access %}<tr><td>{{ a.user_name|default:a.user_id }}</td><td>{{ a.site_name|default:a.site_id }}</td></tr>{% empty %}<tr><td colspan="2">Нет данных.</td></tr>{% endfor %}</table></div>
+{% endblock %}
