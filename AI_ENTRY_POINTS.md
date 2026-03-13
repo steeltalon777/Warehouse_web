@@ -1,13 +1,8 @@
 # AI_ENTRY_POINTS
 
-## Кодовые входы
-1. `apps/integration/syncserver_client.py`
-   - endpoints: users, roles, sites, catalog, balances, operations.
-2. `apps/client/services.py`
-   - orchestration сервисы для root/storekeeper экранов.
-3. `apps/client/views.py`
-   - root control panel + storekeeper workflows.
-4. `apps/catalog/services.py`, `apps/catalog/views.py`
-   - chief workflows через SyncServer API.
-5. `config/settings/production.py`
-   - production DB/static policy.
+1. `apps/sync_client/client.py` — базовый HTTP клиент.
+2. `apps/sync_client/operations_api.py` — операции.
+3. `apps/sync_client/balances_api.py` — остатки.
+4. `apps/sync_client/catalog_api.py` — каталог.
+5. `apps/sync_client/admin_api.py` — root admin endpoints.
+6. `apps/operations/views.py`, `apps/balances/views.py`, `apps/catalog/views.py`, `apps/admin_panel/views.py` — CBV UI слой.

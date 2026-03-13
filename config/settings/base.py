@@ -43,6 +43,10 @@ INSTALLED_APPS = [
     "apps.client",
     "apps.documents",
     "apps.common",
+    "apps.sync_client",
+    "apps.operations",
+    "apps.balances",
+    "apps.admin_panel",
 ]
 
 MIDDLEWARE = [
@@ -110,8 +114,10 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 SYNC_SERVER_URL = os.getenv("SYNC_SERVER_URL", "http://127.0.0.1:8001")
+SYNC_SERVER_SERVICE_TOKEN = os.getenv("SYNC_SERVER_SERVICE_TOKEN", "")
+SYNC_SERVER_TIMEOUT = float(os.getenv("SYNC_SERVER_TIMEOUT", "10"))
+
 SYNC_SITE_ID = os.getenv("SYNC_SITE_ID", "")
 SYNC_DEVICE_ID = os.getenv("SYNC_DEVICE_ID", "")
 SYNC_DEVICE_TOKEN = os.getenv("SYNC_DEVICE_TOKEN", "")
 SYNC_CLIENT_VERSION = os.getenv("SYNC_CLIENT_VERSION", "warehouse-web/1.0")
-SYNC_SERVER_TIMEOUT = float(os.getenv("SYNC_SERVER_TIMEOUT", "10"))

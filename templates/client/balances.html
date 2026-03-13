@@ -9,5 +9,9 @@
 <table><tr><th>Товар</th><th>Склад</th><th>Количество</th><th>Ед.</th><th>Обновлено</th></tr>
 {% for b in balances %}<tr><td>{{ b.item_name|default:b.item_id }}</td><td>{{ b.site_name|default:b.site_id }}</td><td>{{ b.quantity }}</td><td>{{ b.unit_name|default:b.unit_id }}</td><td>{{ b.updated_at }}</td></tr>{% empty %}<tr><td colspan="5">Нет данных.</td></tr>{% endfor %}
 </table>
+<div class="toolbar">
+  <a href="?search={{ search }}&limit={{ limit }}&offset={{ prev_offset }}">← Назад</a>
+  <a href="?search={{ search }}&limit={{ limit }}&offset={{ next_offset }}">Вперёд →</a>
+</div>
 </div>
 {% endblock %}

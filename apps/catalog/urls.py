@@ -5,7 +5,7 @@ from apps.catalog import views
 app_name = "catalog"
 
 urlpatterns = [
-    path("", views.catalog_home, name="home"),
+    path("", views.CatalogHomeView.as_view(), name="home"),
     path("categories/", views.CategoryListView.as_view(), name="category_list"),
     path("categories/create/", views.CategoryCreateView.as_view(), name="category_create"),
     path("categories/<uuid:pk>/edit/", views.CategoryUpdateView.as_view(), name="category_update"),

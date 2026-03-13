@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from apps.integration.syncserver_client import SyncServerClient, SyncServerError
+from apps.sync_client.catalog_api import CatalogAPI
+from apps.sync_client.client import SyncServerClient
+from apps.sync_client.exceptions import SyncServerAPIError
 
 
 @dataclass
@@ -12,80 +14,55 @@ class ServiceResult:
     data: Any = None
     form_error: str | None = None
     not_found: bool = False
-    server_unavailable: bool = False
 
 
 class CatalogService:
-    def __init__(self) -> None:
-        self.client = SyncServerClient()
+    def __init__(self, client: SyncServerClient | None = None) -> None:
+        self.client = client or SyncServerClient(user_id="system", site_id="default")
+        self.catalog_api = CatalogAPI(self.client)
 
-    def _handle_error(self, exc: SyncServerError) -> ServiceResult:
-        if exc.status_code == 404:
-            return ServiceResult(ok=False, not_found=True, form_error="Сущность не найдена в SyncServer.")
-        if exc.status_code == 409:
-            return ServiceResult(ok=False, form_error="Конфликт данных: дубль или недопустимая связь.")
-        if exc.status_code == 400:
-            return ServiceResult(ok=False, form_error=str(exc))
-        if exc.status_code and exc.status_code >= 500:
-            return ServiceResult(ok=False, server_unavailable=True, form_error="SyncServer временно недоступен.")
-        return ServiceResult(ok=False, form_error=str(exc))
+    def _exec(self, fn, *args, **kwargs) -> ServiceResult:
+        try:
+            return ServiceResult(ok=True, data=fn(*args, **kwargs))
+        except SyncServerAPIError as exc:
+            return ServiceResult(ok=False, form_error=str(exc), not_found=exc.status_code == 404)
 
     def list_categories(self) -> ServiceResult:
-        try:
-            return ServiceResult(ok=True, data=self.client.list_categories())
-        except SyncServerError as exc:
-            return self._handle_error(exc)
-
-    def categories_tree(self) -> ServiceResult:
-        try:
-            return ServiceResult(ok=True, data=self.client.categories_tree())
-        except SyncServerError as exc:
-            return self._handle_error(exc)
+        # compatibility endpoint for edit forms
+        return self._exec(lambda: self.client.post("/catalog/categories", json={"updated_after": None, "limit": 500}).get("categories", []))
 
     def list_units(self) -> ServiceResult:
-        try:
-            return ServiceResult(ok=True, data=self.client.list_units())
-        except SyncServerError as exc:
-            return self._handle_error(exc)
+        return self._exec(lambda: self.client.post("/catalog/units", json={"updated_after": None, "limit": 500}).get("units", []))
 
     def list_items(self, *, category_id: str | None = None, search: str | None = None) -> ServiceResult:
-        try:
-            return ServiceResult(ok=True, data=self.client.list_items(category_id=category_id, search=search))
-        except SyncServerError as exc:
-            return self._handle_error(exc)
+        def _load():
+            items = self.client.post("/catalog/items", json={"updated_after": None, "limit": 500}).get("items", [])
+            if category_id:
+                items = [i for i in items if str(i.get("category_id")) == str(category_id)]
+            if search:
+                term = search.lower()
+                items = [i for i in items if term in str(i.get("name", "")).lower()]
+            return items
+
+        return self._exec(_load)
+
+    def categories_tree(self) -> ServiceResult:
+        return self._exec(self.catalog_api.categories_tree)
 
     def create_category(self, payload: dict[str, Any]) -> ServiceResult:
-        try:
-            return ServiceResult(ok=True, data=self.client.create_category(payload))
-        except SyncServerError as exc:
-            return self._handle_error(exc)
+        return self._exec(self.catalog_api.create_category, payload)
 
     def update_category(self, category_id: str, payload: dict[str, Any]) -> ServiceResult:
-        try:
-            return ServiceResult(ok=True, data=self.client.update_category(category_id, payload))
-        except SyncServerError as exc:
-            return self._handle_error(exc)
+        return self._exec(self.client.patch, f"/business/catalog/categories/{category_id}", json=payload)
 
     def create_unit(self, payload: dict[str, Any]) -> ServiceResult:
-        try:
-            return ServiceResult(ok=True, data=self.client.create_unit(payload))
-        except SyncServerError as exc:
-            return self._handle_error(exc)
+        return self._exec(self.catalog_api.create_unit, payload)
 
     def update_unit(self, unit_id: str, payload: dict[str, Any]) -> ServiceResult:
-        try:
-            return ServiceResult(ok=True, data=self.client.update_unit(unit_id, payload))
-        except SyncServerError as exc:
-            return self._handle_error(exc)
+        return self._exec(self.client.patch, f"/business/catalog/units/{unit_id}", json=payload)
 
     def create_item(self, payload: dict[str, Any]) -> ServiceResult:
-        try:
-            return ServiceResult(ok=True, data=self.client.create_item(payload))
-        except SyncServerError as exc:
-            return self._handle_error(exc)
+        return self._exec(self.catalog_api.create_item, payload)
 
     def update_item(self, item_id: str, payload: dict[str, Any]) -> ServiceResult:
-        try:
-            return ServiceResult(ok=True, data=self.client.update_item(item_id, payload))
-        except SyncServerError as exc:
-            return self._handle_error(exc)
+        return self._exec(self.client.patch, f"/business/catalog/items/{item_id}", json=payload)

@@ -1,25 +1,35 @@
 # Warehouse_web
 
-Django-приложение Warehouse_web работает как **web/admin client** поверх SyncServer API.
+Warehouse_web — Django SSR web-клиент для SyncServer. Вся бизнес-логика складской системы и domain-данные принадлежат SyncServer.
 
-## Роли компонентов
-- **SyncServer (FastAPI)** — source of truth для users, roles, sites, catalog, balances, operations, devices, events.
-- **Warehouse_web (Django)** — SSR UI, technical admin/root/staff access, сессии и orchestration.
+## Архитектура
 
-## Базы данных
-- Django использует **отдельную service DB в PostgreSQL** (auth/session/admin/service).
-- SyncServer использует отдельную domain DB/domain schema.
-- В production sqlite запрещён.
+`Django UI -> apps.sync_client -> SyncServer API`
 
-## Legacy слой
-`apps/users` содержит `UserProfile`, `Site`, `Role` как transition layer (deprecated).
-Эти модели **не обязательны** для auth flow: superuser/staff может работать без `UserProfile`.
+- Django отвечает за web UI, сессии, рендеринг страниц и UX-права по ролям.
+- Django **не** хранит и не исполняет бизнес-логику склада.
+- Все HTTP-вызовы к SyncServer централизованы в `apps/sync_client/*`.
 
-## UI контуры
-- `/client/root/users/*` — technical root panel (управление users/roles/sites в SyncServer).
-- `/catalog/*` — chief-storekeeper справочники через SyncServer API.
-- `/client/catalog`, `/client/balances`, `/client/operations` — рабочий интерфейс кладовщика.
+## Ключевые настройки
 
-## Ключевые env
-`DB_ENGINE`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_CONN_MAX_AGE`,
-`SYNC_SERVER_URL`, `SYNC_SITE_ID`, `SYNC_DEVICE_ID`, `SYNC_DEVICE_TOKEN`, `SYNC_CLIENT_VERSION`.
+- `SYNC_SERVER_URL`
+- `SYNC_SERVER_SERVICE_TOKEN`
+- `SYNC_SERVER_TIMEOUT`
+
+Для каждого запроса Django передаёт:
+
+- `Authorization: Bearer <SYNC_SERVER_SERVICE_TOKEN>`
+- `X-Acting-User-Id`
+- `X-Acting-Site-Id`
+
+`X-Acting-Site-Id` берётся из `request.session["active_site"]` (с fallback).
+
+## Приложения
+
+- `apps/users` — login/logout
+- `apps/client` — dashboard
+- `apps/operations` — список, создание, карточка операции
+- `apps/balances` — остатки, остатки по складам
+- `apps/catalog` — ТМЦ/категории/единицы
+- `apps/admin_panel` — root: sites/devices/access
+- `apps/sync_client` — thin API client слой
