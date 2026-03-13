@@ -12,6 +12,8 @@ API
   - PROJECT_BRAIN.md
   - README.md
   - SYSTEM_MAP.md
+  - apps/client/services.py
+  - apps/client/views.py
   - apps/integration/users_service.py
   - config/settings/base.py
   - docs/adr/0004-server-rendered-ui.md
@@ -93,7 +95,9 @@ HOST
 
 IMPORTANT
   - .env.example
+  - apps/client/services.py
   - config/settings/base.py
+  - docs/env_map.txt
 
 LOGIN_REDIRECT_URL
   - config/settings/base.py
@@ -152,11 +156,13 @@ SYNC_DEFAULT_ACTING_SITE_ID
   - .env.example
   - apps/sync_client/client.py
   - config/settings/base.py
+  - docs/env_map.txt
 
 SYNC_DEFAULT_ACTING_USER_ID
   - .env.example
   - apps/sync_client/client.py
   - config/settings/base.py
+  - docs/env_map.txt
 
 SYNC_DEVICE_ID
   - .env.example

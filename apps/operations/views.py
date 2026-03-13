@@ -15,9 +15,10 @@ class SyncContextMixin(LoginRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
         if not can_use_client(request.user):
             return self.handle_no_permission()
-        self.site_id = request.session.get("active_site") or getattr(getattr(request.user, "profile", None), "site_id", None)
-        if not self.site_id:
-            self.site_id = "default"
+        self.site_id = (
+                request.session.get("active_site")
+                or getattr(getattr(request.user, "profile", None), "site_id", None)
+        )
         self.client = SyncServerClient(user_id=request.user.id, site_id=self.site_id)
         return super().dispatch(request, *args, **kwargs)
 

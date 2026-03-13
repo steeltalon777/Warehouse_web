@@ -25,7 +25,10 @@ class CatalogAccessMixin(LoginRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
         if not can_manage_catalog(request.user):
             return HttpResponseForbidden("Нет доступа")
-        site_id = request.session.get("active_site") or getattr(getattr(request.user, "profile", None), "site_id", None) or "default"
+        site_id = (
+                request.session.get("active_site")
+                or getattr(getattr(request.user, "profile", None), "site_id", None)
+        )
         self.service = CatalogService(SyncServerClient(user_id=request.user.id, site_id=site_id))
         return super().dispatch(request, *args, **kwargs)
 

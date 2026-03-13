@@ -12,7 +12,7 @@ class HealthCheckView(View):
 
 class SyncHealthCheckView(View):
     def get(self, request):
-        client = SyncServerClient(user_id="healthcheck", site_id="healthcheck")
+        client = SyncServerClient()
         service = CatalogService(client)
         result = service.list_categories()
         if result.ok:
