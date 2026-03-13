@@ -1,0 +1,90 @@
+apps
+├── admin_panel
+│   ├── __init__.py
+│   ├── apps.py
+│   ├── urls.py
+│   └── views.py
+├── balances
+│   ├── __init__.py
+│   ├── apps.py
+│   ├── urls.py
+│   └── views.py
+├── catalog
+│   ├── migrations
+│   │   └── __init__.py
+│   ├── __init__.py
+│   ├── admin.py
+│   ├── apps.py
+│   ├── forms.py
+│   ├── models.py
+│   ├── services.py
+│   ├── tests.py
+│   ├── urls.py
+│   └── views.py
+├── client
+│   ├── migrations
+│   │   └── __init__.py
+│   ├── __init__.py
+│   ├── admin.py
+│   ├── apps.py
+│   ├── forms.py
+│   ├── models.py
+│   ├── services.py
+│   ├── tests.py
+│   ├── urls.py
+│   └── views.py
+├── common
+│   ├── migrations
+│   │   └── __init__.py
+│   ├── services
+│   │   └── syncserver_client.py
+│   ├── __init__.py
+│   ├── admin.py
+│   ├── apps.py
+│   ├── models.py
+│   ├── permissions.py
+│   ├── tests.py
+│   └── views.py
+├── documents
+│   ├── migrations
+│   │   └── __init__.py
+│   ├── __init__.py
+│   ├── admin.py
+│   ├── apps.py
+│   ├── models.py
+│   ├── tests.py
+│   ├── urls.py
+│   └── views.py
+├── integration
+│   ├── syncserver
+│   │   ├── __init__.py
+│   │   └── client.py
+│   ├── __init__.py
+│   ├── syncserver_client.py
+│   └── users_service.py
+├── operations
+│   ├── __init__.py
+│   ├── apps.py
+│   ├── urls.py
+│   └── views.py
+├── sync_client
+│   ├── __init__.py
+│   ├── admin_api.py
+│   ├── apps.py
+│   ├── balances_api.py
+│   ├── catalog_api.py
+│   ├── client.py
+│   ├── exceptions.py
+│   └── operations_api.py
+├── users
+│   ├── migrations
+│   │   └── __init__.py
+│   ├── __init__.py
+│   ├── admin.py
+│   ├── apps.py
+│   ├── models.py
+│   ├── signals.py
+│   ├── tests.py
+│   ├── urls.py
+│   └── views.py
+└── __init__.py

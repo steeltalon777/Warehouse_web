@@ -1,0 +1,219 @@
+ALLOWED_HOSTS
+  - .env.example
+  - config/settings/base.py
+  - config/settings/development.py
+  - docs/env_map.txt
+
+API
+  - AI_CONTEXT.md
+  - ARCHITECTURE.md
+  - INDEX.md
+  - MEMORY.md
+  - PROJECT_BRAIN.md
+  - README.md
+  - SYSTEM_MAP.md
+  - apps/integration/users_service.py
+  - config/settings/base.py
+  - docs/adr/0004-server-rendered-ui.md
+  - docs/adr/0005-syncserver-http-integration.md
+  - docs/adr/0006-syncserver-source-of-truth-catalog.md
+  - docs/adr/0007-warehouse-web-http-client-role.md
+  - docs/adr/0009-no-direct-master-data-writes-via-django-orm.md
+  - docs/developer_guide.md
+  - docs/env_map.txt
+  - tools/update_ai_maps.py
+
+API_CONTRACT
+  - API_CONTRACT.md
+  - docs/env_map.txt
+  - docs/tree_repo.txt
+
+DB_CONN_MAX_AGE
+  - .env.example
+  - DEPLOYMENT.md
+  - config/settings/base.py
+  - config/settings/production.py
+  - docs/env_map.txt
+
+DB_ENGINE
+  - .env.example
+  - DEPLOYMENT.md
+  - config/settings/base.py
+  - config/settings/production.py
+  - docs/env_map.txt
+
+DB_HOST
+  - .env.example
+  - DEPLOYMENT.md
+  - config/settings/base.py
+  - config/settings/production.py
+  - docs/env_map.txt
+
+DB_NAME
+  - .env.example
+  - DEPLOYMENT.md
+  - config/settings/base.py
+  - config/settings/production.py
+  - docs/env_map.txt
+
+DB_PASSWORD
+  - .env.example
+  - DEPLOYMENT.md
+  - config/settings/base.py
+  - config/settings/production.py
+  - docs/env_map.txt
+
+DB_PORT
+  - .env.example
+  - DEPLOYMENT.md
+  - config/settings/base.py
+  - config/settings/production.py
+  - docs/env_map.txt
+
+DB_USER
+  - .env.example
+  - DEPLOYMENT.md
+  - config/settings/base.py
+  - config/settings/production.py
+  - docs/env_map.txt
+
+DEBUG
+  - .env.example
+  - config/settings/base.py
+  - config/settings/development.py
+  - config/settings/production.py
+  - docs/env_map.txt
+  - tools/update_ai_maps.py
+
+HOST
+  - config/settings/base.py
+  - config/settings/production.py
+  - docs/env_map.txt
+  - tools/update_ai_maps.py
+
+IMPORTANT
+  - .env.example
+  - config/settings/base.py
+
+LOGIN_REDIRECT_URL
+  - config/settings/base.py
+  - docs/env_map.txt
+
+LOGIN_URL
+  - config/settings/base.py
+  - docs/env_map.txt
+
+LOGOUT_REDIRECT_URL
+  - config/settings/base.py
+  - docs/env_map.txt
+
+PORT
+  - config/settings/base.py
+  - config/settings/production.py
+  - docs/env_map.txt
+  - tools/update_ai_maps.py
+
+POSTGRES
+  - docs/env_map.txt
+  - tools/update_ai_maps.py
+
+ROOT_URLCONF
+  - config/settings/base.py
+  - docs/env_map.txt
+
+SECRET
+  - docs/env_map.txt
+  - tools/update_ai_maps.py
+
+SECRET_KEY
+  - .env.example
+  - config/settings/base.py
+  - docs/env_map.txt
+
+STATIC_URL
+  - config/settings/base.py
+  - docs/env_map.txt
+
+SYNC
+  - docs/env_map.txt
+  - tools/update_ai_maps.py
+
+SYNCSERVER_API_URL
+  - config/settings/base.py
+  - docs/developer_guide.md
+  - docs/env_map.txt
+
+SYNC_CLIENT_VERSION
+  - .env.example
+  - config/settings/base.py
+  - docs/env_map.txt
+
+SYNC_DEFAULT_ACTING_SITE_ID
+  - .env.example
+  - apps/sync_client/client.py
+  - config/settings/base.py
+
+SYNC_DEFAULT_ACTING_USER_ID
+  - .env.example
+  - apps/sync_client/client.py
+  - config/settings/base.py
+
+SYNC_DEVICE_ID
+  - .env.example
+  - config/settings/base.py
+  - docs/env_map.txt
+
+SYNC_DEVICE_TOKEN
+  - .env.example
+  - config/settings/base.py
+  - docs/env_map.txt
+
+SYNC_SERVER_SERVICE_TOKEN
+  - .env.example
+  - README.md
+  - apps/sync_client/client.py
+  - config/settings/base.py
+  - docs/env_map.txt
+
+SYNC_SERVER_TIMEOUT
+  - .env.example
+  - README.md
+  - apps/sync_client/client.py
+  - config/settings/base.py
+  - docs/env_map.txt
+
+SYNC_SERVER_URL
+  - .env.example
+  - README.md
+  - apps/sync_client/client.py
+  - config/settings/base.py
+  - docs/adr/0005-syncserver-http-integration.md
+  - docs/env_map.txt
+
+SYNC_SITE_ID
+  - .env.example
+  - config/settings/base.py
+  - docs/env_map.txt
+
+TOKEN
+  - docs/env_map.txt
+  - tools/update_ai_maps.py
+
+URL
+  - .env.example
+  - DEPLOYMENT.md
+  - apps/sync_client/client.py
+  - config/settings/base.py
+  - config/urls.py
+  - docs/adr/0005-syncserver-http-integration.md
+  - docs/developer_guide.md
+  - docs/env_map.txt
+  - tools/update_ai_maps.py
+
+URL_PATTERN
+  - docs/env_map.txt
+  - tools/update_ai_maps.py
+
+USE_X_FORWARDED_HOST
+  - config/settings/production.py
+  - docs/env_map.txt

@@ -1,0 +1,11 @@
+Potential entry points and routing files:
+- apps/admin_panel/urls.py
+- apps/balances/urls.py
+- apps/catalog/urls.py
+- apps/client/urls.py
+- apps/documents/urls.py
+- apps/operations/urls.py
+- apps/users/urls.py
+- config/urls.py
+- manage.py
+- tools/update_ai_maps.py

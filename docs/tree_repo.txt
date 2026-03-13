@@ -1,0 +1,61 @@
+Warehouse_web
+├── apps
+│   ├── admin_panel
+│   ├── balances
+│   ├── catalog
+│   ├── client
+│   ├── common
+│   ├── documents
+│   ├── integration
+│   ├── operations
+│   ├── sync_client
+│   ├── users
+│   └── __init__.py
+├── config
+│   ├── settings
+│   ├── __init__.py
+│   ├── asgi.py
+│   ├── urls.py
+│   └── wsgi.py
+├── docs
+│   ├── adr
+│   ├── developer_guide.md
+│   ├── django_routes.txt
+│   ├── entry_points.txt
+│   ├── env_map.txt
+│   ├── tree_apps.txt
+│   ├── tree_config.txt
+│   └── tree_repo.txt
+├── static
+│   └── css
+├── templates
+│   ├── admin_panel
+│   ├── balances
+│   ├── catalog
+│   ├── client
+│   ├── includes
+│   ├── operations
+│   ├── registration
+│   └── base.html
+├── tools
+│   └── update_ai_maps.py
+├── .env.example
+├── .gitignore
+├── AI_CONTEXT.md
+├── AI_ENTRY_POINTS.md
+├── API_CONTRACT.md
+├── ARCHITECTURE.md
+├── DEPLOYMENT.md
+├── docker-compose.yml
+├── Dockerfile
+├── DOMAIN_MODEL.md
+├── entrypoint.sh
+├── INDEX.md
+├── manage.py
+├── MEMORY.md
+├── PROJECT_BRAIN.md
+├── README.md
+├── requirements.txt
+├── structure.txt
+├── SYSTEM_MAP.md
+└── USE_CASES.md

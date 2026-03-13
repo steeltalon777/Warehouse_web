@@ -1,0 +1,49 @@
+# FILE: apps/admin_panel/urls.py
+users/
+sites/
+devices/
+access/
+
+# FILE: apps/balances/urls.py
+by-site/
+
+# FILE: apps/catalog/urls.py
+categories/
+categories/create/
+categories/<uuid:pk>/edit/
+categories/<uuid:pk>/deactivate/
+categories/tree/
+units/
+units/create/
+units/<uuid:pk>/edit/
+items/
+items/create/
+items/<uuid:pk>/edit/
+items/<uuid:pk>/deactivate/
+
+# FILE: apps/client/urls.py
+root/users/
+root/users/create/
+root/users/<str:user_id>/edit/
+catalog/
+
+# FILE: apps/operations/urls.py
+create/
+<str:operation_id>/
+
+# FILE: apps/users/urls.py
+login/
+logout/
+
+# FILE: config/urls.py
+blog/
+admin/
+catalog/
+client/
+operations/
+balances/
+admin-panel/
+documents/
+users/
+healthz/
+healthz/sync/

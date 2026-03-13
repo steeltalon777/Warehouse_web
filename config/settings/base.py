@@ -113,11 +113,32 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-SYNC_SERVER_URL = os.getenv("SYNC_SERVER_URL", "http://127.0.0.1:8001")
-SYNC_SERVER_SERVICE_TOKEN = os.getenv("SYNC_SERVER_SERVICE_TOKEN", "")
+# -------------------------------------------------------------------
+# SyncServer integration (canonical)
+# -------------------------------------------------------------------
+# IMPORTANT:
+# - Django SSR client must talk only to versioned SyncServer API.
+# - Base URL MUST already include /api/v1
+# - Web client uses service-auth only.
+SYNC_SERVER_URL = os.getenv("SYNC_SERVER_URL", "http://syncserver:8000/api/v1").rstrip("/")
+SYNC_SERVER_SERVICE_TOKEN = os.getenv("SYNC_SERVER_SERVICE_TOKEN", "").strip()
 SYNC_SERVER_TIMEOUT = float(os.getenv("SYNC_SERVER_TIMEOUT", "10"))
 
-SYNC_SITE_ID = os.getenv("SYNC_SITE_ID", "")
-SYNC_DEVICE_ID = os.getenv("SYNC_DEVICE_ID", "")
-SYNC_DEVICE_TOKEN = os.getenv("SYNC_DEVICE_TOKEN", "")
-SYNC_CLIENT_VERSION = os.getenv("SYNC_CLIENT_VERSION", "warehouse-web/1.0")
+# Optional default acting context for technical/service flows.
+# Business requests should normally pass explicit acting context from app layer.
+SYNC_DEFAULT_ACTING_USER_ID = os.getenv("SYNC_DEFAULT_ACTING_USER_ID", "").strip()
+SYNC_DEFAULT_ACTING_SITE_ID = os.getenv("SYNC_DEFAULT_ACTING_SITE_ID", "").strip()
+
+# -------------------------------------------------------------------
+# Legacy device-auth settings
+# -------------------------------------------------------------------
+# DEPRECATED:
+# Django web client MUST NOT use device auth for business/admin operations.
+# Left here only to avoid hard crash in unrelated old code during migration.
+SYNC_SITE_ID = os.getenv("SYNC_SITE_ID", "").strip()
+SYNC_DEVICE_ID = os.getenv("SYNC_DEVICE_ID", "").strip()
+SYNC_DEVICE_TOKEN = os.getenv("SYNC_DEVICE_TOKEN", "").strip()
+SYNC_CLIENT_VERSION = os.getenv("SYNC_CLIENT_VERSION", "warehouse-web/1.0").strip()
+
+# Legacy alias support (read-only fallback). Do not use in new code.
+SYNCSERVER_API_URL = SYNC_SERVER_URL
