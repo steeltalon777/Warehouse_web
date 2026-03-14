@@ -9,5 +9,9 @@
 <tr><td>{{ r.site_name|default:r.site_id }}</td><td>{{ r.item_name|default:r.item_id }}</td><td>{{ r.quantity }}</td></tr>
 {% empty %}<tr><td colspan="3">Нет данных.</td></tr>{% endfor %}
 </table>
+<div class="toolbar">
+  <a href="?limit={{ limit }}&offset={{ prev_offset }}">← Назад</a>
+  <a href="?limit={{ limit }}&offset={{ next_offset }}">Вперёд →</a>
+</div>
 </div>
 {% endblock %}

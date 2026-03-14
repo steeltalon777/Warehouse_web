@@ -8,7 +8,7 @@ from apps.sync_client.exceptions import SyncServerAPIError
 
 
 class BalancesListView(SyncContextMixin, TemplateView):
-    template_name = "client/balances.html"
+    template_name = "balances/list.html"
 
     def get(self, request, *args, **kwargs):
         limit = int(request.GET.get("limit", 20))
@@ -49,4 +49,14 @@ class BalancesBySiteView(SyncContextMixin, TemplateView):
             records = BalancesAPI(self.client).by_site(limit=limit, offset=offset)
         except SyncServerAPIError as exc:
             messages.error(request, str(exc))
-        return render(request, self.template_name, {"records": records, "limit": limit, "offset": offset})
+        return render(
+            request,
+            self.template_name,
+            {
+                "records": records,
+                "limit": limit,
+                "offset": offset,
+                "prev_offset": max(offset - limit, 0),
+                "next_offset": offset + limit,
+            },
+        )
