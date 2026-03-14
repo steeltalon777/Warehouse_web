@@ -1,6 +1,25 @@
 {% extends "base.html" %}
 {% block title %}Устройства{% endblock %}
 {% block content %}
-<div class="card"><h1>Admin · Устройства</h1></div>
-<div class="card"><table><tr><th>ID</th><th>Название</th></tr>{% for d in devices %}<tr><td>{{ d.id }}</td><td>{{ d.name|default:d.code }}</td></tr>{% empty %}<tr><td colspan="2">Нет данных.</td></tr>{% endfor %}</table></div>
+<div class="card">
+  <h1>Admin · Устройства</h1>
+  <a class="btn" href="{% url 'admin_panel:device_create' %}">Создать устройство</a>
+</div>
+<div class="card">
+  <table>
+    <tr><th>ID</th><th>Код</th><th>Название</th><th>Склад</th><th>Активно</th><th></th></tr>
+    {% for d in devices %}
+      <tr>
+        <td>{{ d.id }}</td>
+        <td>{{ d.code|default:"—" }}</td>
+        <td>{{ d.name|default:d.code }}</td>
+        <td>{{ d.site_name|default:d.site_id|default:"—" }}</td>
+        <td>{{ d.is_active }}</td>
+        <td><a href="{% url 'admin_panel:device_edit' d.id %}">Редактировать</a></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6">Нет данных.</td></tr>
+    {% endfor %}
+  </table>
+</div>
 {% endblock %}

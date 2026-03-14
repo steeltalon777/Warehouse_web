@@ -4,7 +4,7 @@ from django.shortcuts import redirect, render
 from django.views import View
 from django.views.generic import TemplateView
 
-from apps.client.forms import OperationCreateForm
+from apps.operations.forms import OperationCreateForm
 from apps.common.permissions import can_use_client
 from apps.sync_client.client import SyncServerClient
 from apps.sync_client.exceptions import SyncServerAPIError
@@ -24,7 +24,7 @@ class SyncContextMixin(LoginRequiredMixin):
 
 
 class OperationsListView(SyncContextMixin, TemplateView):
-    template_name = "client/operations.html"
+    template_name = "operations/list.html"
 
     def get(self, request, *args, **kwargs):
         limit = int(request.GET.get("limit", 20))
@@ -49,7 +49,7 @@ class OperationsListView(SyncContextMixin, TemplateView):
 
 
 class OperationCreateView(SyncContextMixin, View):
-    template_name = "client/operation_form.html"
+    template_name = "operations/form.html"
 
     def get(self, request):
         return render(request, self.template_name, {"form": OperationCreateForm()})

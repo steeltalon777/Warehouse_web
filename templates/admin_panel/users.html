@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Пользователи{% endblock %}
+{% block content %}
+<div class="card"><h1>Admin · Пользователи</h1></div>
+<div class="card">
+<table>
+<tr><th>ID</th><th>Username</th><th>Полное имя</th><th>Роль</th><th>Активен</th></tr>
+{% for u in users %}
+<tr>
+  <td>{{ u.id }}</td>
+  <td>{{ u.username|default:u.login }}</td>
+  <td>{{ u.full_name|default:"—" }}</td>
+  <td>{{ u.role_name|default:u.role|default:u.role_id|default:"—" }}</td>
+  <td>{{ u.is_active }}</td>
+</tr>
+{% empty %}
+<tr><td colspan="5">Нет данных.</td></tr>
+{% endfor %}
+</table>
+</div>
+{% endblock %}
