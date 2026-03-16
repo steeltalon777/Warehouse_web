@@ -12,11 +12,18 @@ class HealthCheckView(View):
 
 class SyncHealthCheckView(View):
     def get(self, request):
-        client = SyncServerClient()
+        # используем системный технический user
+        client = SyncServerClient(
+            user_id=1,
+            site_id=request.session.get("active_site"),
+        )
+
         service = CatalogService(client)
         result = service.list_categories()
+
         if result.ok:
             return JsonResponse({"status": "ok", "syncserver": "reachable"})
+
         return JsonResponse(
             {
                 "status": "degraded",
