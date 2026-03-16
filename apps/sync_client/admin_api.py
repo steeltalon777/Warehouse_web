@@ -11,6 +11,12 @@ class AdminAPI:
         response = self.client.get("/admin/users")
         return response.get("users", response if isinstance(response, list) else [])
 
+    def create_user(self, payload: dict):
+        return self.client.post("/admin/users", json=payload)
+
+    def delete_user(self, user_id: str):
+        return self.client.delete(f"/admin/users/{user_id}")
+
     def sites(self):
         response = self.client.get("/admin/sites")
         return response.get("sites", response if isinstance(response, list) else [])
@@ -35,17 +41,11 @@ class AdminAPI:
         response = self.client.get("/admin/access/user-sites")
         return response.get("access", response if isinstance(response, list) else [])
 
-    def create_user(self, payload: dict):
-        return self.client.post("/admin/users", json=payload)
-
-
     def create_user_site(self, payload: dict):
         return self.client.post("/admin/access/user-sites", json=payload)
 
-
     def update_user_site(self, payload: dict):
         return self.client.patch("/admin/access/user-sites", json=payload)
-
 
     def delete_user_site(self, payload: dict):
         return self.client.delete("/admin/access/user-sites", json=payload)
