@@ -40,8 +40,18 @@ class SyncServerClient:
         self.timeout = float(getattr(settings, "SYNC_SERVER_TIMEOUT", 10))
         self.service_token = getattr(settings, "SYNC_SERVER_SERVICE_TOKEN", "").strip()
 
-        self.default_user_id = user_id if user_id is not None else getattr(settings, "SYNC_DEFAULT_ACTING_USER_ID", "")
-        self.default_site_id = site_id if site_id is not None else getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
+        self.default_user_id = (
+            user_id if user_id is not None else getattr(settings, "SYNC_DEFAULT_ACTING_USER_ID", "")
+        )
+        self.default_site_id = (
+            site_id if site_id is not None else getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
+        )
+
+        self.web_device_id = getattr(
+            settings,
+            "SYNC_WEB_DEVICE_ID",
+            "00000000-0000-0000-0000-000000000001",
+        )
 
         if not self.service_token:
             raise RuntimeError("SYNC_SERVER_SERVICE_TOKEN is not configured.")
@@ -53,10 +63,10 @@ class SyncServerClient:
             )
 
     def build_headers(
-            self,
-            *,
-            acting_user_id: str | int | None = None,
-            acting_site_id: str | int | None = None,
+        self,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
     ) -> dict[str, str]:
         user_id = acting_user_id if acting_user_id is not None else self.default_user_id
         site_id = acting_site_id if acting_site_id is not None else self.default_site_id
@@ -70,14 +80,14 @@ class SyncServerClient:
         return {
             "Authorization": f"Bearer {self.service_token}",
 
-            # новый API (service-auth)
+            # canonical web/service auth
             "X-Acting-User-Id": str(user_id),
             "X-Acting-Site-Id": str(site_id),
 
-            # старый API
+            # compatibility headers for legacy endpoints
             "X-User-Id": str(user_id),
             "X-Site-Id": str(site_id),
-            "X-Device-Id": "web-admin",
+            "X-Device-Id": str(self.web_device_id),
         }
 
     def _normalize_path(self, path: str) -> str:
@@ -137,7 +147,7 @@ class SyncServerClient:
             "path": path,
         }
 
-        if status_code == 400 or status_code == 422:
+        if status_code in (400, 422):
             raise SyncValidationError(message, **kwargs)
         if status_code == 401:
             raise SyncAuthError(message, **kwargs)

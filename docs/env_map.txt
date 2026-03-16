@@ -15,7 +15,6 @@ API
   - apps/client/services.py
   - apps/client/views.py
   - apps/integration/users_service.py
-  - apps/sync_client/client.py
   - config/settings/base.py
   - docs/adr/0004-server-rendered-ui.md
   - docs/adr/0005-syncserver-http-integration.md
@@ -155,6 +154,7 @@ SYNC_CLIENT_VERSION
 
 SYNC_DEFAULT_ACTING_SITE_ID
   - .env.example
+  - apps/catalog/views.py
   - apps/sync_client/client.py
   - config/settings/base.py
   - docs/env_map.txt
@@ -207,6 +207,9 @@ SYNC_SITE_ID
   - README.md
   - config/settings/base.py
   - docs/env_map.txt
+
+SYNC_WEB_DEVICE_ID
+  - apps/sync_client/client.py
 
 TOKEN
   - docs/env_map.txt
