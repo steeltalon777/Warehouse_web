@@ -1,6 +1,13 @@
 from django import forms
 
 
+ROLE_CHOICES = [
+    ("chief_storekeeper", "Главный кладовщик"),
+    ("storekeeper", "Кладовщик"),
+    ("observer", "Просмотр"),
+]
+
+
 class SiteForm(forms.Form):
     code = forms.CharField(max_length=64)
     name = forms.CharField(max_length=255)
@@ -39,14 +46,14 @@ class UserCreateForm(forms.Form):
         required=False
     )
 
-    site_id = forms.CharField(
+    site_id = forms.ChoiceField(
         label="Склад",
-        max_length=64
+        choices=[]
     )
 
-    role = forms.CharField(
+    role = forms.ChoiceField(
         label="Роль",
-        max_length=64
+        choices=ROLE_CHOICES
     )
 
     is_active = forms.BooleanField(
@@ -54,6 +61,12 @@ class UserCreateForm(forms.Form):
         required=False,
         initial=True
     )
+
+    def __init__(self, *args, site_choices=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if site_choices:
+            self.fields["site_id"].choices = site_choices
 
     def clean(self):
         cleaned = super().clean()
@@ -73,7 +86,6 @@ class UserAccessForm(forms.Form):
 
     site_id = forms.CharField(max_length=64)
 
-    role = forms.CharField(
-        max_length=64,
-        required=False
+    role = forms.ChoiceField(
+        choices=ROLE_CHOICES
     )

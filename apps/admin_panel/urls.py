@@ -8,8 +8,10 @@ from .views import (
     SiteCreateView,
     SitesView,
     SiteUpdateView,
-    UsersView,
     UserCreateView,
+    UserUpdateView,
+    UserToggleActiveView,
+    UsersView,
 )
 
 app_name = "admin_panel"
@@ -17,6 +19,8 @@ app_name = "admin_panel"
 urlpatterns = [
     path("users/", UsersView.as_view(), name="users"),
     path("users/create/", UserCreateView.as_view(), name="user_create"),
+    path("users/<int:user_id>/edit/", UserUpdateView.as_view(), name="user_edit"),
+    path("users/<int:user_id>/toggle-active/", UserToggleActiveView.as_view(), name="user_toggle_active"),
 
     path("sites/", SitesView.as_view(), name="sites"),
     path("sites/create/", SiteCreateView.as_view(), name="site_create"),

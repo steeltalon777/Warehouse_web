@@ -35,11 +35,38 @@ class UserCreateView(SyncContextMixin, RootOnlyMixin, View):
     success_url = reverse_lazy("admin_panel:users")
 
     def get(self, request):
-        form = UserCreateForm()
+
+        sites = []
+
+        try:
+            sites = AdminAPI(self.client).sites()
+        except SyncServerAPIError as exc:
+            messages.error(request, str(exc))
+
+        site_choices = [
+            (str(site["id"]), site["name"])
+            for site in sites
+        ]
+
+        form = UserCreateForm(site_choices=site_choices)
+
         return render(request, self.template_name, {"form": form})
 
     def post(self, request):
-        form = UserCreateForm(request.POST)
+
+        sites = []
+
+        try:
+            sites = AdminAPI(self.client).sites()
+        except SyncServerAPIError as exc:
+            messages.error(request, str(exc))
+
+        site_choices = [
+            (str(site["id"]), site["name"])
+            for site in sites
+        ]
+
+        form = UserCreateForm(request.POST, site_choices=site_choices)
 
         if not form.is_valid():
             return render(request, self.template_name, {"form": form})
@@ -48,11 +75,13 @@ class UserCreateView(SyncContextMixin, RootOnlyMixin, View):
         django_user = None
 
         try:
+
             django_user = User.objects.create_user(
                 username=data["username"],
                 password=data["password"],
                 email=data.get("email") or "",
             )
+
             django_user.is_active = data.get("is_active", True)
             django_user.save()
 
@@ -78,16 +107,13 @@ class UserCreateView(SyncContextMixin, RootOnlyMixin, View):
             return redirect(self.success_url)
 
         except SyncServerAPIError as exc:
-            if django_user is not None:
+
+            if django_user:
                 django_user.delete()
+
             form.add_error(None, str(exc))
             return render(request, self.template_name, {"form": form})
 
-        except Exception as exc:
-            if django_user is not None:
-                django_user.delete()
-            form.add_error(None, f"Ошибка создания пользователя: {exc}")
-            return render(request, self.template_name, {"form": form})
 
 
 class SitesView(SyncContextMixin, RootOnlyMixin, TemplateView):

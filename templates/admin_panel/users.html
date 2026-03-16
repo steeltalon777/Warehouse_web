@@ -29,8 +29,10 @@
               <th>ID</th>
               <th>Логин</th>
               <th>Имя</th>
+              <th>Склад</th>
               <th>Роль</th>
               <th>Активен</th>
+              <th>Действия</th>
           </tr>
       </thead>
 
@@ -53,7 +55,11 @@
                   </td>
 
                   <td>
-                      {% firstof u.role_name u.role u.role_id "—" %}
+                      {% firstof u.site_name u.site_id "—" %}
+                  </td>
+
+                  <td>
+                      {% firstof u.role_name u.role "—" %}
                   </td>
 
                   <td>
@@ -64,12 +70,26 @@
                       {% endif %}
                   </td>
 
+                  <td>
+
+                      <a class="btn btn-small"
+                         href="{% url 'admin_panel:user_edit' u.user_id %}">
+                          ✏
+                      </a>
+
+                      <a class="btn btn-small"
+                         href="{% url 'admin_panel:user_toggle_active' u.user_id %}">
+                          🔒
+                      </a>
+
+                  </td>
+
               </tr>
 
           {% empty %}
 
               <tr>
-                  <td colspan="5">Пользователей пока нет.</td>
+                  <td colspan="7">Пользователей пока нет.</td>
               </tr>
 
           {% endfor %}
