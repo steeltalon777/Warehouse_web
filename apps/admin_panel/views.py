@@ -104,7 +104,6 @@ class UserCreateView(SyncContextMixin, RootOnlyMixin, View):
             form.add_error(None, f"Ошибка создания пользователя: {exc}")
             return render(request, self.template_name, {"form": form, "mode": "create"})
 
-
 class UserUpdateView(SyncContextMixin, RootOnlyMixin, View):
     template_name = "admin_panel/user_form.html"
     success_url = reverse_lazy("admin_panel:users")
@@ -113,27 +112,27 @@ class UserUpdateView(SyncContextMixin, RootOnlyMixin, View):
         sites = AdminAPI(self.client).sites()
         return [(str(site["id"]), site["name"]) for site in sites]
 
-    def _find_sync_user(self, user_id: int):
+    def _find_sync_user(self, username: str):
         users = AdminAPI(self.client).users()
         for user in users:
-            if str(user.get("user_id") or user.get("id")) == str(user_id):
+            if str(user.get("username")) == str(username):
                 return user
         return None
 
-    def _find_user_access(self, user_id: int):
+    def _find_user_access(self, username: str):
         access_rows = AdminAPI(self.client).user_sites()
         for row in access_rows:
-            if str(row.get("user_id")) == str(user_id):
+            if str(row.get("username")) == str(username):
                 return row
         return None
 
-    def get(self, request, user_id: int):
-        django_user = get_object_or_404(User, id=user_id)
+    def get(self, request, username: str):
+        django_user = get_object_or_404(User, username=username)
 
         try:
             site_choices = self._site_choices()
-            sync_user = self._find_sync_user(user_id)
-            access = self._find_user_access(user_id)
+            sync_user = self._find_sync_user(username)
+            access = self._find_user_access(username)
         except SyncServerAPIError as exc:
             messages.error(request, str(exc))
             return redirect(self.success_url)
@@ -157,16 +156,16 @@ class UserUpdateView(SyncContextMixin, RootOnlyMixin, View):
             {
                 "form": form,
                 "mode": "update",
-                "edited_user_id": user_id,
+                "edited_username": username,
             },
         )
 
-    def post(self, request, user_id: int):
-        django_user = get_object_or_404(User, id=user_id)
+    def post(self, request, username: str):
+        django_user = get_object_or_404(User, username=username)
 
         try:
             site_choices = self._site_choices()
-            old_access = self._find_user_access(user_id)
+            old_access = self._find_user_access(username)
         except SyncServerAPIError as exc:
             messages.error(request, str(exc))
             return redirect(self.success_url)
@@ -182,13 +181,15 @@ class UserUpdateView(SyncContextMixin, RootOnlyMixin, View):
                 {
                     "form": form,
                     "mode": "update",
-                    "edited_user_id": user_id,
+                    "edited_username": username,
                 },
             )
 
         data = form.cleaned_data
 
         try:
+            old_username = django_user.username
+
             django_user.username = data["username"]
             django_user.email = data.get("email") or ""
             django_user.first_name = data.get("full_name") or ""
@@ -199,19 +200,17 @@ class UserUpdateView(SyncContextMixin, RootOnlyMixin, View):
 
             django_user.save()
 
-            # пока update_user в AdminAPI нет — переиспользуем локальное состояние Django
-            # а доступы синхронизируем через create/delete pair
             if old_access:
                 AdminAPI(self.client).delete_user_site(
                     {
-                        "user_id": str(user_id),
+                        "user_id": str(old_access.get("user_id")),
                         "site_id": str(old_access.get("site_id")),
                     }
                 )
 
             AdminAPI(self.client).create_user_site(
                 {
-                    "user_id": str(user_id),
+                    "user_id": str(django_user.id),
                     "site_id": data["site_id"],
                     "role": data["role"],
                 }
@@ -228,7 +227,7 @@ class UserUpdateView(SyncContextMixin, RootOnlyMixin, View):
                 {
                     "form": form,
                     "mode": "update",
-                    "edited_user_id": user_id,
+                    "edited_username": username,
                 },
             )
 
@@ -240,16 +239,17 @@ class UserUpdateView(SyncContextMixin, RootOnlyMixin, View):
                 {
                     "form": form,
                     "mode": "update",
-                    "edited_user_id": user_id,
+                    "edited_username": username,
                 },
             )
+
 
 
 class UserToggleActiveView(SyncContextMixin, RootOnlyMixin, View):
     success_url = reverse_lazy("admin_panel:users")
 
-    def get(self, request, user_id: int):
-        django_user = get_object_or_404(User, id=user_id)
+    def get(self, request, username: str):
+        django_user = get_object_or_404(User, username=username)
         django_user.is_active = not django_user.is_active
         django_user.save()
 

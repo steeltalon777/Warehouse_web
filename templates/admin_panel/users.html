@@ -23,7 +23,6 @@
   {% endif %}
 
   <table>
-
       <thead>
           <tr>
               <th>ID</th>
@@ -37,31 +36,13 @@
       </thead>
 
       <tbody>
-
           {% for u in users %}
-
               <tr>
-
-                  <td>
-                      {% firstof u.user_id u.id "—" %}
-                  </td>
-
-                  <td>
-                      {% firstof u.username u.login u.email "—" %}
-                  </td>
-
-                  <td>
-                      {% firstof u.full_name "—" %}
-                  </td>
-
-                  <td>
-                      {% firstof u.site_name u.site_id "—" %}
-                  </td>
-
-                  <td>
-                      {% firstof u.role_name u.role "—" %}
-                  </td>
-
+                  <td>{% firstof u.user_id u.id "—" %}</td>
+                  <td>{% firstof u.username u.login u.email "—" %}</td>
+                  <td>{% firstof u.full_name "—" %}</td>
+                  <td>{% firstof u.site_name u.site_id "—" %}</td>
+                  <td>{% firstof u.role_name u.role "—" %}</td>
                   <td>
                       {% if u.is_active %}
                           ✔
@@ -69,33 +50,21 @@
                           ✖
                       {% endif %}
                   </td>
-
                   <td>
-
-                      <a class="btn btn-small"
-                         href="{% url 'admin_panel:user_edit' u.user_id %}">
-                          ✏
-                      </a>
-
-                      <a class="btn btn-small"
-                         href="{% url 'admin_panel:user_toggle_active' u.user_id %}">
-                          🔒
-                      </a>
-
+                      {% if u.username %}
+                          <a class="btn btn-small" href="{% url 'admin_panel:user_edit' u.username %}">✏</a>
+                          <a class="btn btn-small" href="{% url 'admin_panel:user_toggle_active' u.username %}">🔒</a>
+                      {% else %}
+                          —
+                      {% endif %}
                   </td>
-
               </tr>
-
           {% empty %}
-
               <tr>
                   <td colspan="7">Пользователей пока нет.</td>
               </tr>
-
           {% endfor %}
-
       </tbody>
-
   </table>
 
 </div>
