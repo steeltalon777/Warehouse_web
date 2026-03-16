@@ -18,7 +18,7 @@ class ServiceResult:
 
 class CatalogService:
     def __init__(self, client: SyncServerClient | None = None) -> None:
-        self.client = client or SyncServerClient(user_id="system", site_id="default")
+        self.client = client or SyncServerClient()
         self.catalog_api = CatalogAPI(self.client)
 
     def _exec(self, fn, *args, **kwargs) -> ServiceResult:
@@ -32,27 +32,14 @@ class CatalogService:
             )
 
     def list_categories(self) -> ServiceResult:
-        return self._exec(
-            lambda: self.client.post(
-                "/business/catalog/categories",
-                json={"updated_after": None, "limit": 500},
-            ).get("categories", [])
-        )
+        return self._exec(self.catalog_api.list_categories, updated_after=None, limit=500)
 
     def list_units(self) -> ServiceResult:
-        return self._exec(
-            lambda: self.client.post(
-                "/business/catalog/units",
-                json={"updated_after": None, "limit": 500},
-            ).get("units", [])
-        )
+        return self._exec(self.catalog_api.list_units, updated_after=None, limit=500)
 
     def list_items(self, *, category_id: str | None = None, search: str | None = None) -> ServiceResult:
         def _load():
-            items = self.client.post(
-                "/business/catalog/items",
-                json={"updated_after": None, "limit": 500},
-            ).get("items", [])
+            items = self.catalog_api.list_items(updated_after=None, limit=500)
 
             if category_id:
                 items = [i for i in items if str(i.get("category_id")) == str(category_id)]
@@ -72,16 +59,16 @@ class CatalogService:
         return self._exec(self.catalog_api.create_category, payload)
 
     def update_category(self, category_id: str, payload: dict[str, Any]) -> ServiceResult:
-        return self._exec(self.client.patch, f"/catalog/admin/categories/{category_id}", json=payload)
+        return self._exec(self.catalog_api.update_category, category_id, payload)
 
     def create_unit(self, payload: dict[str, Any]) -> ServiceResult:
         return self._exec(self.catalog_api.create_unit, payload)
 
     def update_unit(self, unit_id: str, payload: dict[str, Any]) -> ServiceResult:
-        return self._exec(self.client.patch, f"/catalog/admin/units/{unit_id}", json=payload)
+        return self._exec(self.catalog_api.update_unit, unit_id, payload)
 
     def create_item(self, payload: dict[str, Any]) -> ServiceResult:
         return self._exec(self.catalog_api.create_item, payload)
 
     def update_item(self, item_id: str, payload: dict[str, Any]) -> ServiceResult:
-        return self._exec(self.client.patch, f"/catalog/admin/items/{item_id}", json=payload)
+        return self._exec(self.catalog_api.update_item, item_id, payload)
