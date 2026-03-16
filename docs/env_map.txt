@@ -210,6 +210,8 @@ SYNC_SITE_ID
 
 SYNC_WEB_DEVICE_ID
   - apps/sync_client/client.py
+  - config/settings/base.py
+  - docs/env_map.txt
 
 TOKEN
   - docs/env_map.txt
