@@ -171,3 +171,27 @@ class AccessView(SyncContextMixin, RootOnlyMixin, TemplateView):
         except SyncServerAPIError as exc:
             messages.error(request, str(exc))
         return render(request, self.template_name, {"access": access})
+
+class UserCreateView(SyncContextMixin, RootOnlyMixin, View):
+    template_name = "admin_panel/user_form.html"
+    success_url = reverse_lazy("admin_panel:users")
+
+    def get(self, request):
+        return render(request, self.template_name)
+
+    def post(self, request):
+        data = {
+            "username": request.POST.get("username"),
+            "email": request.POST.get("email"),
+            "full_name": request.POST.get("full_name"),
+        }
+
+        try:
+            AdminAPI(self.client).create_user(data)
+            messages.success(request, "Пользователь создан.")
+            return redirect(self.success_url)
+
+        except SyncServerAPIError as exc:
+            messages.error(request, str(exc))
+
+        return render(request, self.template_name, {"data": data})
