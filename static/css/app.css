@@ -260,3 +260,11 @@ button:active, .btn:active {
  color:var(--muted);
  font-size:14px;
 }
+
+.logout-form{
+ margin:0;
+}
+
+.logout-form button{
+ margin:0;
+}
