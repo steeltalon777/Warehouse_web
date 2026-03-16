@@ -14,6 +14,10 @@ class CategoryForm(forms.Form):
         choices.extend((str(item["id"]), item["name"]) for item in (category_choices or []))
         self.fields["parent_id"].choices = choices
 
+    def clean_parent_id(self):
+        value = self.cleaned_data.get("parent_id")
+        return value or None
+
 
 class UnitForm(forms.Form):
     code = forms.CharField(max_length=20)
@@ -30,9 +34,17 @@ class ItemForm(forms.Form):
 
     def __init__(self, *args, categories=None, units=None, **kwargs):
         super().__init__(*args, **kwargs)
+
         category_choices = [("", "— Без категории —")]
         category_choices.extend((str(item["id"]), item["name"]) for item in (categories or []))
         self.fields["category_id"].choices = category_choices
 
-        unit_choices = [(str(item["id"]), f'{item["code"]} — {item["name"]}') for item in (units or [])]
+        unit_choices = [
+            (str(item["id"]), f'{item["code"]} — {item["name"]}')
+            for item in (units or [])
+        ]
         self.fields["unit_id"].choices = unit_choices
+
+    def clean_category_id(self):
+        value = self.cleaned_data.get("category_id")
+        return value or None

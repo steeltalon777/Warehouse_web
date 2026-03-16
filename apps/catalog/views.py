@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponseForbidden
@@ -10,6 +11,24 @@ from apps.catalog.forms import CategoryForm, ItemForm, UnitForm
 from apps.catalog.services import CatalogService
 from apps.common.permissions import can_manage_catalog
 from apps.sync_client.client import SyncServerClient
+
+
+def _resolve_site_id(request):
+    return (
+        request.session.get("active_site")
+        or request.session.get("site_id")
+        or getattr(getattr(request.user, "profile", None), "site_id", None)
+        or getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
+    )
+
+
+def _build_catalog_service(request) -> CatalogService:
+    site_id = _resolve_site_id(request)
+    client = SyncServerClient(
+        user_id=request.user.id,
+        site_id=site_id,
+    )
+    return CatalogService(client)
 
 
 class CatalogHomeView(LoginRequiredMixin, TemplateView):
@@ -25,11 +44,13 @@ class CatalogAccessMixin(LoginRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
         if not can_manage_catalog(request.user):
             return HttpResponseForbidden("Нет доступа")
-        site_id = (
-                request.session.get("active_site")
-                or getattr(getattr(request.user, "profile", None), "site_id", None)
-        )
-        self.service = CatalogService(SyncServerClient(user_id=request.user.id, site_id=site_id))
+
+        site_id = _resolve_site_id(request)
+        if not site_id:
+            messages.error(request, "Не выбран активный склад для работы со справочниками.")
+            return redirect("catalog:home")
+
+        self.service = _build_catalog_service(request)
         return super().dispatch(request, *args, **kwargs)
 
 
@@ -51,12 +72,18 @@ class CategoryCreateView(CatalogAccessMixin, View):
     success_url = reverse_lazy("catalog:category_list")
 
     def get(self, request):
-        categories = self.service.list_categories().data or []
+        categories_result = self.service.list_categories()
+        categories = categories_result.data if categories_result.ok else []
+        if not categories_result.ok:
+            messages.error(request, categories_result.form_error)
+
         form = CategoryForm(category_choices=categories)
         return render(request, self.template_name, {"form": form, "mode": "create"})
 
     def post(self, request):
-        categories = self.service.list_categories().data or []
+        categories_result = self.service.list_categories()
+        categories = categories_result.data if categories_result.ok else []
+
         form = CategoryForm(request.POST, category_choices=categories)
         if form.is_valid():
             result = self.service.create_category(form.cleaned_data)
@@ -64,6 +91,7 @@ class CategoryCreateView(CatalogAccessMixin, View):
                 messages.success(request, "Категория создана.")
                 return redirect(self.success_url)
             form.add_error(None, result.form_error)
+
         return render(request, self.template_name, {"form": form, "mode": "create"})
 
 
@@ -81,18 +109,29 @@ class CategoryUpdateView(CatalogAccessMixin, View):
         return None, None
 
     def get(self, request, pk):
-        categories = self.service.list_categories().data or []
+        categories_result = self.service.list_categories()
+        categories = categories_result.data if categories_result.ok else []
+
         category, list_result = self._get_category(pk)
         if category is None:
             if list_result and not list_result.ok:
                 messages.error(request, list_result.form_error)
             raise Http404("Категория не найдена")
-        form = CategoryForm(initial=category, category_choices=[c for c in categories if str(c["id"]) != str(pk)])
+
+        form = CategoryForm(
+            initial=category,
+            category_choices=[c for c in categories if str(c["id"]) != str(pk)],
+        )
         return render(request, self.template_name, {"form": form, "mode": "update"})
 
     def post(self, request, pk):
-        categories = self.service.list_categories().data or []
-        form = CategoryForm(request.POST, category_choices=[c for c in categories if str(c["id"]) != str(pk)])
+        categories_result = self.service.list_categories()
+        categories = categories_result.data if categories_result.ok else []
+
+        form = CategoryForm(
+            request.POST,
+            category_choices=[c for c in categories if str(c["id"]) != str(pk)],
+        )
         if form.is_valid():
             result = self.service.update_category(str(pk), form.cleaned_data)
             if result.ok:
@@ -101,6 +140,7 @@ class CategoryUpdateView(CatalogAccessMixin, View):
             if result.not_found:
                 raise Http404("Категория не найдена")
             form.add_error(None, result.form_error)
+
         return render(request, self.template_name, {"form": form, "mode": "update"})
 
 
@@ -207,6 +247,7 @@ class ItemListView(CatalogAccessMixin, TemplateView):
     def get(self, request, *args, **kwargs):
         category_id = request.GET.get("category_id") or None
         search = request.GET.get("search") or None
+
         items_result = self.service.list_items(category_id=category_id, search=search)
         categories_result = self.service.list_categories()
 
@@ -217,10 +258,16 @@ class ItemListView(CatalogAccessMixin, TemplateView):
             items = items_result.data
 
         categories = categories_result.data if categories_result.ok else []
+
         return render(
             request,
             self.template_name,
-            {"items": items, "categories": categories, "selected_category_id": category_id or "", "search": search or ""},
+            {
+                "items": items,
+                "categories": categories,
+                "selected_category_id": category_id or "",
+                "search": search or "",
+            },
         )
 
 
@@ -229,8 +276,12 @@ class ItemCreateView(CatalogAccessMixin, View):
     success_url = reverse_lazy("catalog:item_list")
 
     def _catalog_data(self):
-        categories = self.service.list_categories().data or []
-        units = self.service.list_units().data or []
+        categories_result = self.service.list_categories()
+        units_result = self.service.list_units()
+
+        categories = categories_result.data if categories_result.ok else []
+        units = units_result.data if units_result.ok else []
+
         return categories, units
 
     def get(self, request):
@@ -264,19 +315,28 @@ class ItemUpdateView(CatalogAccessMixin, View):
         return None, None
 
     def get(self, request, pk):
-        categories = self.service.list_categories().data or []
-        units = self.service.list_units().data or []
+        categories_result = self.service.list_categories()
+        units_result = self.service.list_units()
+
+        categories = categories_result.data if categories_result.ok else []
+        units = units_result.data if units_result.ok else []
+
         item, result = self._find_item(pk)
         if item is None:
             if result and not result.ok:
                 messages.error(request, result.form_error)
             raise Http404("ТМЦ не найдена")
+
         form = ItemForm(initial=item, categories=categories, units=units)
         return render(request, self.template_name, {"form": form, "mode": "update"})
 
     def post(self, request, pk):
-        categories = self.service.list_categories().data or []
-        units = self.service.list_units().data or []
+        categories_result = self.service.list_categories()
+        units_result = self.service.list_units()
+
+        categories = categories_result.data if categories_result.ok else []
+        units = units_result.data if units_result.ok else []
+
         form = ItemForm(request.POST, categories=categories, units=units)
         if form.is_valid():
             result = self.service.update_item(str(pk), form.cleaned_data)
@@ -286,6 +346,7 @@ class ItemUpdateView(CatalogAccessMixin, View):
             if result.not_found:
                 raise Http404("ТМЦ не найдена")
             form.add_error(None, result.form_error)
+
         return render(request, self.template_name, {"form": form, "mode": "update"})
 
 
