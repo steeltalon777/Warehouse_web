@@ -1,21 +1,68 @@
 {% extends "base.html" %}
+
 {% block title %}Пользователи{% endblock %}
+
 {% block content %}
-<div class="card"><h1>Admin · Пользователи</h1></div>
-<div class="card">
-<table>
-<tr><th>ID</th><th>Username</th><th>Полное имя</th><th>Роль</th><th>Активен</th></tr>
-{% for u in users %}
-<tr>
-  <td>{{ u.id }}</td>
-  <td>{{ u.username|default:u.login }}</td>
-  <td>{{ u.full_name|default:"—" }}</td>
-  <td>{{ u.role_name|default:u.role|default:u.role_id|default:"—" }}</td>
-  <td>{{ u.is_active }}</td>
-</tr>
-{% empty %}
-<tr><td colspan="5">Нет данных.</td></tr>
-{% endfor %}
-</table>
+<div class="container">
+
+  <h1>Пользователи</h1>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Логин</th>
+        <th>Имя</th>
+        <th>Роль</th>
+        <th>Активен</th>
+      </tr>
+    </thead>
+
+    <tbody>
+      {% for u in users %}
+        <tr>
+
+          <td>
+            {% firstof u.user_id u.id "—" %}
+          </td>
+
+          <td>
+            {% firstof u.username u.login u.email "—" %}
+          </td>
+
+          <td>
+            {% firstof u.full_name "—" %}
+          </td>
+
+          <td>
+            {% firstof u.role_name u.role u.role_id "—" %}
+          </td>
+
+          <td>
+            {% if u.is_active %}
+              ✔
+            {% else %}
+              ✖
+            {% endif %}
+          </td>
+
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="5">Пользователей пока нет.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+
+  </table>
+
 </div>
 {% endblock %}
