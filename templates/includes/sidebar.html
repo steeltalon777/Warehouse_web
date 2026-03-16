@@ -6,12 +6,11 @@
     <a href="{% url 'operations:create' %}">Новая операция</a>
 
     <div class="section">Chief tools</div>
-    <a href="{% url 'catalog:home' %}">Справочники (API-first)</a>
+    <a href="{% url 'catalog:home' %}">Справочники</a>
 
     {% if user.is_superuser %}
         <div class="section">Technical root/admin</div>
         <a href="{% url 'admin_panel:users' %}">Пользователи SyncServer</a>
-        <a href="{% url 'admin:index' %}">Django Admin</a>
     {% endif %}
 {% endif %}
 
