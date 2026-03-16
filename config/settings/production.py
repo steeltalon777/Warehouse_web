@@ -3,7 +3,7 @@ import os
 
 from django.core.exceptions import ImproperlyConfigured
 
-DEBUG = False
+DEBUG = env_bool("DEBUG", False)
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
