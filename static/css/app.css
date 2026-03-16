@@ -244,3 +244,19 @@ button:active, .btn:active {
   height:30px;
  }
 }
+
+.navbar-left{
+ display:flex;
+ align-items:center;
+}
+
+.navbar-right{
+ display:flex;
+ align-items:center;
+ gap:12px;
+}
+
+.user-name{
+ color:var(--muted);
+ font-size:14px;
+}

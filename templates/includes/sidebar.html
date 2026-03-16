@@ -1,21 +1,28 @@
 {% if user.is_authenticated %}
-    <a href="{% url 'client:dashboard' %}">Рабочий стол</a>
+
+    <div class="section">Рабочее</div>
+
+    <a href="{% url 'client:dashboard' %}">Главная</a>
     <a href="{% url 'client:storekeeper_catalog' %}">Каталог</a>
     <a href="{% url 'balances:list' %}">Остатки</a>
     <a href="{% url 'operations:list' %}">Операции</a>
     <a href="{% url 'operations:create' %}">Новая операция</a>
 
-    <div class="section">Chief tools</div>
-    <a href="{% url 'catalog:home' %}">Справочники</a>
+
+    <div class="section">Справочники</div>
+
+    <a href="{% url 'catalog:home' %}">Номенклатура</a>
+
 
     {% if user.is_superuser %}
-        <div class="section">Technical root/admin</div>
-        <a href="{% url 'admin_panel:users' %}">Пользователи SyncServer</a>
-    {% endif %}
-{% endif %}
 
-{% if user.is_superuser %}
-    <a href="{% url 'admin_panel:sites' %}">Склады</a>
-    <a href="{% url 'admin_panel:devices' %}">Устройства</a>
-    <a href="{% url 'admin_panel:access' %}">Доступы</a>
+        <div class="section">Администрирование</div>
+
+        <a href="{% url 'admin_panel:users' %}">Пользователи</a>
+        <a href="{% url 'admin_panel:sites' %}">Склады</a>
+        <a href="{% url 'admin_panel:devices' %}">Устройства</a>
+        <a href="{% url 'admin_panel:access' %}">Доступы</a>
+
+    {% endif %}
+
 {% endif %}

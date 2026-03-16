@@ -1,10 +1,12 @@
-<div>
+<div class="navbar-left">
     {% include "includes/brand.html" %}
 </div>
-<div>
+
+<div class="navbar-right">
     {% if request.user.is_authenticated %}
-        {{ request.user.username }} · <a href="{% url 'users:logout' %}">Выход</a>
+        <span class="user-name">{{ request.user.username }}</span>
+        <a class="btn-secondary btn" href="{% url 'users:logout' %}">Выход</a>
     {% else %}
-        <a href="{% url 'users:login' %}">Вход</a>
+        <a class="btn btn-secondary" href="{% url 'users:login' %}">Вход</a>
     {% endif %}
 </div>
