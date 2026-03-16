@@ -69,6 +69,12 @@ class SyncServerClient:
 
         return {
             "Authorization": f"Bearer {self.service_token}",
+
+            # новый API (service-auth)
+            "X-Acting-User-Id": str(user_id),
+            "X-Acting-Site-Id": str(site_id),
+
+            # старый API
             "X-User-Id": str(user_id),
             "X-Site-Id": str(site_id),
             "X-Device-Id": "web-admin",
