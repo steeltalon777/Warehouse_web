@@ -53,10 +53,10 @@ class SyncServerClient:
             )
 
     def build_headers(
-        self,
-        *,
-        acting_user_id: str | int | None = None,
-        acting_site_id: str | int | None = None,
+            self,
+            *,
+            acting_user_id: str | int | None = None,
+            acting_site_id: str | int | None = None,
     ) -> dict[str, str]:
         user_id = acting_user_id if acting_user_id is not None else self.default_user_id
         site_id = acting_site_id if acting_site_id is not None else self.default_site_id
@@ -69,8 +69,9 @@ class SyncServerClient:
 
         return {
             "Authorization": f"Bearer {self.service_token}",
-            "X-Acting-User-Id": str(user_id),
-            "X-Acting-Site-Id": str(site_id),
+            "X-User-Id": str(user_id),
+            "X-Site-Id": str(site_id),
+            "X-Device-Id": "web-admin",
         }
 
     def _normalize_path(self, path: str) -> str:
