@@ -17,6 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import RedirectView
+from django.contrib.auth import views as auth_views
 
 from apps.common.views import HealthCheckView, SyncHealthCheckView
 
@@ -32,7 +33,22 @@ urlpatterns = [
     path("documents/", include("apps.documents.urls")),
     path("users/", include("apps.users.urls")),
 
+    path(
+        "login/",
+        auth_views.LoginView.as_view(
+            template_name="registration/login.html"
+        ),
+        name="login",
+    ),
+
+    path(
+        "logout/",
+        auth_views.LogoutView.as_view(),
+        name="logout",
+    ),
+
     path("healthz/", HealthCheckView.as_view(), name="healthz"),
     path("healthz/sync/", SyncHealthCheckView.as_view(), name="healthz_sync"),
+
     path("", RedirectView.as_view(url="/client/", permanent=False)),
 ]

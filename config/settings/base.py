@@ -142,3 +142,7 @@ SYNC_CLIENT_VERSION = os.getenv("SYNC_CLIENT_VERSION", "warehouse-web/1.0").stri
 
 # Legacy alias support (read-only fallback). Do not use in new code.
 SYNCSERVER_API_URL = SYNC_SERVER_URL
+
+LOGIN_URL = "/login/"
+LOGIN_REDIRECT_URL = "/client/"
+LOGOUT_REDIRECT_URL = "/login/"
