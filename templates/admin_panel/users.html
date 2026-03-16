@@ -3,70 +3,81 @@
 {% block title %}Пользователи{% endblock %}
 
 {% block content %}
-<div class="container">
 
-  <h1>Пользователи</h1>
+<div class="card">
+
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h1>Пользователи</h1>
+
+      <a class="btn" href="{% url 'admin_panel:user_create' %}">
+          + Новый пользователь
+      </a>
+  </div>
 
   {% if messages %}
-    {% for message in messages %}
-      <div class="alert alert-{{ message.tags }}">
-        {{ message }}
-      </div>
-    {% endfor %}
+      {% for message in messages %}
+          <div class="messages">
+              <li>{{ message }}</li>
+          </div>
+      {% endfor %}
   {% endif %}
 
-<a class="btn" href="{% url 'admin_panel:user_create' %}">
-    + Новый пользователь
-</a>
+  <table>
 
-  <table class="table table-striped">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Логин</th>
-        <th>Имя</th>
-        <th>Роль</th>
-        <th>Активен</th>
-      </tr>
-    </thead>
+      <thead>
+          <tr>
+              <th>ID</th>
+              <th>Логин</th>
+              <th>Имя</th>
+              <th>Роль</th>
+              <th>Активен</th>
+          </tr>
+      </thead>
 
-    <tbody>
-      {% for u in users %}
-        <tr>
+      <tbody>
 
-          <td>
-            {% firstof u.user_id u.id "—" %}
-          </td>
+          {% for u in users %}
 
-          <td>
-            {% firstof u.username u.login u.email "—" %}
-          </td>
+              <tr>
 
-          <td>
-            {% firstof u.full_name "—" %}
-          </td>
+                  <td>
+                      {% firstof u.user_id u.id "—" %}
+                  </td>
 
-          <td>
-            {% firstof u.role_name u.role u.role_id "—" %}
-          </td>
+                  <td>
+                      {% firstof u.username u.login u.email "—" %}
+                  </td>
 
-          <td>
-            {% if u.is_active %}
-              ✔
-            {% else %}
-              ✖
-            {% endif %}
-          </td>
+                  <td>
+                      {% firstof u.full_name "—" %}
+                  </td>
 
-        </tr>
-      {% empty %}
-        <tr>
-          <td colspan="5">Пользователей пока нет.</td>
-        </tr>
-      {% endfor %}
-    </tbody>
+                  <td>
+                      {% firstof u.role_name u.role u.role_id "—" %}
+                  </td>
+
+                  <td>
+                      {% if u.is_active %}
+                          ✔
+                      {% else %}
+                          ✖
+                      {% endif %}
+                  </td>
+
+              </tr>
+
+          {% empty %}
+
+              <tr>
+                  <td colspan="5">Пользователей пока нет.</td>
+              </tr>
+
+          {% endfor %}
+
+      </tbody>
 
   </table>
 
 </div>
+
 {% endblock %}
