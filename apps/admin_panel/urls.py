@@ -12,6 +12,7 @@ from .views import (
     UserToggleActiveView,
     UserUpdateView,
     UsersView,
+    UserDeleteView
 )
 
 app_name = "admin_panel"
@@ -31,4 +32,5 @@ urlpatterns = [
     path("devices/<str:id>/edit/", DeviceUpdateView.as_view(), name="device_edit"),
 
     path("access/", AccessView.as_view(), name="access"),
+    path("users/<str:username>/delete/", UserDeleteView.as_view(), name="user_delete"),
 ]

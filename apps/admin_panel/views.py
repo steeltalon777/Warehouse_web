@@ -400,3 +400,34 @@ class AccessView(SyncContextMixin, RootOnlyMixin, TemplateView):
         except SyncServerAPIError as exc:
             messages.error(request, str(exc))
         return render(request, self.template_name, {"access": access})
+
+class UserDeleteView(SyncContextMixin, RootOnlyMixin, View):
+    success_url = reverse_lazy("admin_panel:users")
+
+    def get(self, request, username: str):
+        django_user = get_object_or_404(User, username=username)
+
+        try:
+            # удалить доступы пользователя
+            access_rows = AdminAPI(self.client).user_sites()
+
+            for row in access_rows:
+                if str(row.get("username")) == str(username):
+                    AdminAPI(self.client).delete_user_site(
+                        {
+                            "user_id": str(row.get("user_id")),
+                            "site_id": str(row.get("site_id")),
+                        }
+                    )
+
+            # удалить пользователя в SyncServer
+            AdminAPI(self.client).delete_user(str(django_user.id))
+
+        except SyncServerAPIError:
+            # если в SyncServer его нет — не падаем
+            pass
+
+        django_user.delete()
+
+        messages.success(request, "Пользователь удалён.")
+        return redirect(self.success_url)

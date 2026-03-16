@@ -44,16 +44,15 @@
                   <td>{% firstof u.site_name u.site_id "—" %}</td>
                   <td>{% firstof u.role_name u.role "—" %}</td>
                   <td>
-                      {% if u.is_active %}
-                          ✔
-                      {% else %}
-                          ✖
-                      {% endif %}
+                      {% if u.is_active %}✔{% else %}✖{% endif %}
                   </td>
                   <td>
                       {% if u.username %}
                           <a class="btn btn-small" href="{% url 'admin_panel:user_edit' u.username %}">✏</a>
-                          <a class="btn btn-small" href="{% url 'admin_panel:user_toggle_active' u.username %}">🔒</a>
+                          <a class="btn btn-small btn-danger"
+                            href="{% url 'admin_panel:user_delete' u.username %}">
+                            🗑
+                            </a>
                       {% else %}
                           —
                       {% endif %}

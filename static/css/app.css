@@ -276,3 +276,19 @@ button:active, .btn:active {
 .logout-form button{
  margin:0;
 }
+
+.btn-small{
+ padding:8px 12px;
+ min-width:44px;
+ text-align:center;
+}
+
+.btn-danger{
+ background:#dc2626;
+ color:#fff;
+}
+
+.btn-danger:hover{
+ background:#b91c1c;
+ color:#fff;
+}
