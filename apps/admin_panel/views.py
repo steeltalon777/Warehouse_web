@@ -1,12 +1,13 @@
 from django.contrib import messages
 from django.contrib.auth.mixins import UserPassesTestMixin
+from django.contrib.auth.models import User
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import TemplateView
 
-from apps.admin_panel.forms import DeviceForm, SiteForm
+from apps.admin_panel.forms import DeviceForm, SiteForm, UserCreateForm
 from apps.operations.views import SyncContextMixin
 from apps.sync_client.admin_api import AdminAPI
 from apps.sync_client.exceptions import SyncServerAPIError
@@ -27,6 +28,66 @@ class UsersView(SyncContextMixin, RootOnlyMixin, TemplateView):
         except SyncServerAPIError as exc:
             messages.error(request, str(exc))
         return render(request, self.template_name, {"users": users})
+
+
+class UserCreateView(SyncContextMixin, RootOnlyMixin, View):
+    template_name = "admin_panel/user_form.html"
+    success_url = reverse_lazy("admin_panel:users")
+
+    def get(self, request):
+        form = UserCreateForm()
+        return render(request, self.template_name, {"form": form})
+
+    def post(self, request):
+        form = UserCreateForm(request.POST)
+
+        if not form.is_valid():
+            return render(request, self.template_name, {"form": form})
+
+        data = form.cleaned_data
+        django_user = None
+
+        try:
+            django_user = User.objects.create_user(
+                username=data["username"],
+                password=data["password"],
+                email=data.get("email") or "",
+            )
+            django_user.is_active = data.get("is_active", True)
+            django_user.save()
+
+            AdminAPI(self.client).create_user(
+                {
+                    "user_id": str(django_user.id),
+                    "username": data["username"],
+                    "email": data.get("email") or "",
+                    "full_name": data.get("full_name") or "",
+                    "is_active": data.get("is_active", True),
+                }
+            )
+
+            AdminAPI(self.client).create_user_site(
+                {
+                    "user_id": str(django_user.id),
+                    "site_id": data["site_id"],
+                    "role": data["role"],
+                }
+            )
+
+            messages.success(request, "Пользователь создан.")
+            return redirect(self.success_url)
+
+        except SyncServerAPIError as exc:
+            if django_user is not None:
+                django_user.delete()
+            form.add_error(None, str(exc))
+            return render(request, self.template_name, {"form": form})
+
+        except Exception as exc:
+            if django_user is not None:
+                django_user.delete()
+            form.add_error(None, f"Ошибка создания пользователя: {exc}")
+            return render(request, self.template_name, {"form": form})
 
 
 class SitesView(SyncContextMixin, RootOnlyMixin, TemplateView):
@@ -171,27 +232,3 @@ class AccessView(SyncContextMixin, RootOnlyMixin, TemplateView):
         except SyncServerAPIError as exc:
             messages.error(request, str(exc))
         return render(request, self.template_name, {"access": access})
-
-class UserCreateView(SyncContextMixin, RootOnlyMixin, View):
-    template_name = "admin_panel/user_form.html"
-    success_url = reverse_lazy("admin_panel:users")
-
-    def get(self, request):
-        return render(request, self.template_name)
-
-    def post(self, request):
-        data = {
-            "username": request.POST.get("username"),
-            "email": request.POST.get("email"),
-            "full_name": request.POST.get("full_name"),
-        }
-
-        try:
-            AdminAPI(self.client).create_user(data)
-            messages.success(request, "Пользователь создан.")
-            return redirect(self.success_url)
-
-        except SyncServerAPIError as exc:
-            messages.error(request, str(exc))
-
-        return render(request, self.template_name, {"data": data})

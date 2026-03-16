@@ -34,3 +34,18 @@ class AdminAPI:
     def user_sites(self):
         response = self.client.get("/admin/access/user-sites")
         return response.get("access", response if isinstance(response, list) else [])
+
+    def create_user(self, payload: dict):
+        return self.client.post("/admin/users", json=payload)
+
+
+    def create_user_site(self, payload: dict):
+        return self.client.post("/admin/access/user-sites", json=payload)
+
+
+    def update_user_site(self, payload: dict):
+        return self.client.patch("/admin/access/user-sites", json=payload)
+
+
+    def delete_user_site(self, payload: dict):
+        return self.client.delete("/admin/access/user-sites", json=payload)
