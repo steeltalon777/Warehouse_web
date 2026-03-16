@@ -1,8 +1,16 @@
 # FILE: apps/admin_panel/urls.py
 users/
+users/create/
+users/<str:username>/edit/
+users/<str:username>/toggle-active/
 sites/
+sites/create/
+sites/<str:id>/edit/
 devices/
+devices/create/
+devices/<str:id>/edit/
 access/
+users/<str:username>/delete/
 
 # FILE: apps/balances/urls.py
 by-site/

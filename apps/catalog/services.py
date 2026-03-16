@@ -25,23 +25,42 @@ class CatalogService:
         try:
             return ServiceResult(ok=True, data=fn(*args, **kwargs))
         except SyncServerAPIError as exc:
-            return ServiceResult(ok=False, form_error=str(exc), not_found=exc.status_code == 404)
+            return ServiceResult(
+                ok=False,
+                form_error=str(exc),
+                not_found=exc.status_code == 404,
+            )
 
     def list_categories(self) -> ServiceResult:
-        # compatibility endpoint for edit forms
-        return self._exec(lambda: self.client.post("/catalog/categories", json={"updated_after": None, "limit": 500}).get("categories", []))
+        return self._exec(
+            lambda: self.client.post(
+                "/business/catalog/categories",
+                json={"updated_after": None, "limit": 500},
+            ).get("categories", [])
+        )
 
     def list_units(self) -> ServiceResult:
-        return self._exec(lambda: self.client.post("/catalog/units", json={"updated_after": None, "limit": 500}).get("units", []))
+        return self._exec(
+            lambda: self.client.post(
+                "/business/catalog/units",
+                json={"updated_after": None, "limit": 500},
+            ).get("units", [])
+        )
 
     def list_items(self, *, category_id: str | None = None, search: str | None = None) -> ServiceResult:
         def _load():
-            items = self.client.post("/catalog/items", json={"updated_after": None, "limit": 500}).get("items", [])
+            items = self.client.post(
+                "/business/catalog/items",
+                json={"updated_after": None, "limit": 500},
+            ).get("items", [])
+
             if category_id:
                 items = [i for i in items if str(i.get("category_id")) == str(category_id)]
+
             if search:
                 term = search.lower()
                 items = [i for i in items if term in str(i.get("name", "")).lower()]
+
             return items
 
         return self._exec(_load)
@@ -53,16 +72,16 @@ class CatalogService:
         return self._exec(self.catalog_api.create_category, payload)
 
     def update_category(self, category_id: str, payload: dict[str, Any]) -> ServiceResult:
-        return self._exec(self.client.patch, f"/business/catalog/categories/{category_id}", json=payload)
+        return self._exec(self.client.patch, f"/catalog/admin/categories/{category_id}", json=payload)
 
     def create_unit(self, payload: dict[str, Any]) -> ServiceResult:
         return self._exec(self.catalog_api.create_unit, payload)
 
     def update_unit(self, unit_id: str, payload: dict[str, Any]) -> ServiceResult:
-        return self._exec(self.client.patch, f"/business/catalog/units/{unit_id}", json=payload)
+        return self._exec(self.client.patch, f"/catalog/admin/units/{unit_id}", json=payload)
 
     def create_item(self, payload: dict[str, Any]) -> ServiceResult:
         return self._exec(self.catalog_api.create_item, payload)
 
     def update_item(self, item_id: str, payload: dict[str, Any]) -> ServiceResult:
-        return self._exec(self.client.patch, f"/business/catalog/items/{item_id}", json=payload)
+        return self._exec(self.client.patch, f"/catalog/admin/items/{item_id}", json=payload)

@@ -27,7 +27,8 @@ Warehouse_web
 │   ├── tree_config.txt
 │   └── tree_repo.txt
 ├── static
-│   └── css
+│   ├── css
+│   └── img
 ├── templates
 │   ├── admin_panel
 │   ├── balances

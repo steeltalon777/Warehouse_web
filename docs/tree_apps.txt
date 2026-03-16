@@ -2,6 +2,7 @@ apps
 ├── admin_panel
 │   ├── __init__.py
 │   ├── apps.py
+│   ├── forms.py
 │   ├── urls.py
 │   └── views.py
 ├── balances
@@ -65,6 +66,7 @@ apps
 ├── operations
 │   ├── __init__.py
 │   ├── apps.py
+│   ├── forms.py
 │   ├── urls.py
 │   └── views.py
 ├── sync_client

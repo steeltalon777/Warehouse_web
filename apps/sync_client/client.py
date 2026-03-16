@@ -266,3 +266,21 @@ class SyncServerClient:
             acting_site_id=acting_site_id,
             json=json,
         )
+
+    def delete(
+        self,
+        path: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+        json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        return self._request(
+            "DELETE",
+            path,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+            json=json,
+            params=params,
+        )
