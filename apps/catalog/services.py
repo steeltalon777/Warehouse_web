@@ -17,8 +17,8 @@ class ServiceResult:
 
 
 class CatalogService:
-    def __init__(self, client: SyncServerClient | None = None) -> None:
-        self.client = client or SyncServerClient()
+    def __init__(self, client: SyncServerClient) -> None:
+        self.client = client
         self.catalog_api = CatalogAPI(self.client)
 
     def _exec(self, fn, *args, **kwargs) -> ServiceResult:

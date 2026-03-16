@@ -1,16 +1,30 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import Http404, HttpResponseForbidden
+from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
 
 from apps.catalog.services import CatalogService
 from apps.client.forms import OperationCreateForm, SyncUserForm
 from apps.client.services import DomainService
 from apps.common.permissions import can_manage_catalog, is_storekeeper
+from apps.sync_client.client import SyncServerClient
 
 
 domain_service = DomainService()
-catalog_service = CatalogService()
+
+
+def _build_catalog_service(request) -> CatalogService:
+    site_id = (
+        request.session.get("active_site")
+        or getattr(getattr(request.user, "profile", None), "site_id", None)
+        or request.session.get("site_id")
+    )
+
+    client = SyncServerClient(
+        user_id=request.user.id,
+        site_id=site_id,
+    )
+    return CatalogService(client)
 
 
 @login_required
@@ -173,6 +187,8 @@ def operation_create(request):
 def storekeeper_catalog(request):
     if not (is_storekeeper(request.user) or can_manage_catalog(request.user) or request.user.is_superuser):
         return HttpResponseForbidden("Нет доступа")
+
+    catalog_service = _build_catalog_service(request)
 
     search = request.GET.get("search") or None
     items_result = catalog_service.list_items(search=search)
