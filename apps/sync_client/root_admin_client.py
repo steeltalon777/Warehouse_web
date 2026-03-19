@@ -142,3 +142,6 @@ class SyncServerRootAdminClient:
 
     def put(self, path: str, *, json: dict[str, Any] | None = None) -> Any:
         return self._request("PUT", path, json=json)
+
+    def patch(self, path: str, *, json: dict[str, Any] | None = None) -> Any:
+        return self._request("PATCH", path, json=json)

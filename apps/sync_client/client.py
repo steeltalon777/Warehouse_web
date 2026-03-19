@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 from django.conf import settings
+from django.contrib.auth import get_user_model
 
 from .exceptions import (
     SyncAuthError,
@@ -26,8 +27,9 @@ class SyncServerClient:
 
     Rules:
     - base URL MUST already include /api/v1
-    - service-auth only
-    - acting user/site headers are added here, not in view layer
+    - Django runtime auth is token-based
+    - root user uses root token from env
+    - non-root user uses token from local SyncUserBinding
     - all HTTP calls to SyncServer should go through this client
     """
 
@@ -35,10 +37,16 @@ class SyncServerClient:
         self,
         user_id: str | int | None = None,
         site_id: str | int | None = None,
+        request=None,
+        *,
+        force_root: bool = False,
     ) -> None:
         self.base_url = settings.SYNC_SERVER_URL.rstrip("/")
         self.timeout = float(getattr(settings, "SYNC_SERVER_TIMEOUT", 10))
-        self.service_token = getattr(settings, "SYNC_SERVER_SERVICE_TOKEN", "").strip()
+        self.device_token = getattr(settings, "SYNC_DEVICE_TOKEN", "").strip()
+        self.root_user_token = getattr(settings, "SYNC_ROOT_USER_TOKEN", "").strip()
+        self.request = request
+        self.force_root = force_root
 
         self.default_user_id = (
             user_id if user_id is not None else getattr(settings, "SYNC_DEFAULT_ACTING_USER_ID", "")
@@ -46,15 +54,10 @@ class SyncServerClient:
         self.default_site_id = (
             site_id if site_id is not None else getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
         )
-
-        self.web_device_id = getattr(
-            settings,
-            "SYNC_WEB_DEVICE_ID",
-            "00000000-0000-0000-0000-000000000001",
-        )
-
-        if not self.service_token:
-            raise RuntimeError("SYNC_SERVER_SERVICE_TOKEN is not configured.")
+        if not self.device_token:
+            raise RuntimeError("SYNC_DEVICE_TOKEN is not configured.")
+        if not self.root_user_token:
+            raise RuntimeError("SYNC_ROOT_USER_TOKEN is not configured.")
 
         if not self.base_url.endswith("/api/v1"):
             raise RuntimeError(
@@ -68,27 +71,54 @@ class SyncServerClient:
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
     ) -> dict[str, str]:
-        user_id = acting_user_id if acting_user_id is not None else self.default_user_id
-        site_id = acting_site_id if acting_site_id is not None else self.default_site_id
-
-        if user_id in (None, ""):
-            raise RuntimeError("Acting user id is required for SyncServer service-auth requests.")
-
-        if site_id in (None, ""):
-            raise RuntimeError("Acting site id is required for SyncServer service-auth requests.")
-
+        user_token = self._resolve_user_token(acting_user_id=acting_user_id)
         return {
-            "Authorization": f"Bearer {self.service_token}",
-
-            # canonical web/service auth
-            "X-Acting-User-Id": str(user_id),
-            "X-Acting-Site-Id": str(site_id),
-
-            # compatibility headers for legacy endpoints
-            "X-User-Id": str(user_id),
-            "X-Site-Id": str(site_id),
-            "X-Device-Id": str(self.web_device_id),
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Device-Token": self.device_token,
+            "X-User-Token": user_token,
         }
+
+    def _resolve_user_token(self, *, acting_user_id: str | int | None = None) -> str:
+        if self.force_root:
+            return self.root_user_token
+
+        request_user = getattr(self.request, "user", None)
+        if request_user is not None and getattr(request_user, "is_authenticated", False):
+            if getattr(request_user, "is_superuser", False):
+                return self.root_user_token
+
+            token = self._get_binding_token_for_user(request_user)
+            if token:
+                return token
+            raise RuntimeError(
+                f"Sync user token is not configured for Django user '{request_user.username}'."
+            )
+
+        lookup_user_id = acting_user_id if acting_user_id is not None else self.default_user_id
+        if lookup_user_id not in (None, ""):
+            token = self._get_binding_token_for_user_id(lookup_user_id)
+            if token:
+                return token
+
+        raise RuntimeError("Unable to resolve SyncServer user token for the current request.")
+
+    @staticmethod
+    def _get_binding_token_for_user(user) -> str:
+        try:
+            binding = user.sync_binding
+        except Exception:
+            return ""
+        return (binding.sync_user_token or "").strip()
+
+    @staticmethod
+    def _get_binding_token_for_user_id(user_id: str | int) -> str:
+        UserModel = get_user_model()
+        try:
+            user = UserModel.objects.select_related("sync_binding").get(pk=user_id)
+        except UserModel.DoesNotExist:
+            return ""
+        return SyncServerClient._get_binding_token_for_user(user)
 
     def _normalize_path(self, path: str) -> str:
         if not path:

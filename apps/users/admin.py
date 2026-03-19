@@ -14,19 +14,77 @@ from django.utils.html import format_html
 from apps.sync_client.exceptions import SyncServerAPIError
 from apps.users.admin_forms import (
     SuperuserLocalAdminForm,
+    SyncManagedSiteAdminForm,
     SyncManagedUserAdminForm,
     SyncManagedUserCreationForm,
 )
 from apps.users.models import Site, SyncStatus, SyncUserBinding
-from apps.users.services import UserSyncService
+from apps.users.services import SiteSyncService, UserSyncService
 
 User = get_user_model()
 
 
 @admin.register(Site)
 class SiteAdmin(admin.ModelAdmin):
-    list_display = ("name", "code", "is_active")
-    search_fields = ("name", "code")
+    form = SyncManagedSiteAdminForm
+    list_display = ("name", "code", "syncserver_site_id", "is_active", "updated_at")
+    search_fields = ("name", "code", "syncserver_site_id")
+    readonly_fields = ("syncserver_site_id", "created_at", "updated_at")
+    fields = ("code", "name", "description", "is_active", "syncserver_site_id", "created_at", "updated_at")
+    actions = None
+
+    def get_queryset(self, request: HttpRequest):
+        queryset = super().get_queryset(request)
+        if request.user.is_superuser:
+            try:
+                SiteSyncService().refresh_local_cache()
+            except Exception as exc:
+                self.message_user(
+                    request,
+                    f"Не удалось обновить список складов из SyncServer: {exc}",
+                    level=messages.warning,
+                )
+        return queryset
+
+    def has_module_permission(self, request: HttpRequest) -> bool:
+        return request.user.is_superuser
+
+    def has_view_permission(self, request: HttpRequest, obj: Site | None = None) -> bool:
+        return request.user.is_superuser
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return request.user.is_superuser
+
+    def has_change_permission(self, request: HttpRequest, obj: Site | None = None) -> bool:
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request: HttpRequest, obj: Site | None = None) -> bool:
+        return False
+
+    def save_model(self, request: HttpRequest, obj: Site, form, change: bool) -> None:
+        payload = {
+            "code": form.cleaned_data["code"],
+            "name": form.cleaned_data["name"],
+            "description": form.cleaned_data.get("description") or "",
+            "is_active": form.cleaned_data.get("is_active", True),
+        }
+        service = SiteSyncService()
+
+        if change:
+            if not obj.syncserver_site_id:
+                raise RuntimeError("Local site mirror has no syncserver_site_id.")
+            mirror = service.update_site(obj.syncserver_site_id, payload)
+        else:
+            mirror = service.create_site(payload)
+
+        obj.pk = mirror.pk
+        obj.syncserver_site_id = mirror.syncserver_site_id
+        obj.code = mirror.code
+        obj.name = mirror.name
+        obj.description = mirror.description
+        obj.is_active = mirror.is_active
+        obj.created_at = mirror.created_at
+        obj.updated_at = mirror.updated_at
 
 
 @admin.register(SyncUserBinding)

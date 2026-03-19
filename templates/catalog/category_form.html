@@ -3,11 +3,19 @@
 {% block title %}{% if mode == "update" %}Редактировать категорию{% else %}Создать категорию{% endif %}{% endblock %}
 
 {% block content %}
-    <h2>{% if mode == "update" %}Редактировать категорию{% else %}Создать категорию{% endif %}</h2>
+    <div class="card catalog-form-card">
+        <h2>{% if mode == "update" %}Редактировать категорию{% else %}Создать категорию{% endif %}</h2>
+        <p class="catalog-page-note">
+            Категории хранятся в SyncServer. Активный склад используется как контекст доступа.
+        </p>
 
-    <form method="post">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit">Сохранить</button>
-    </form>
+        <form method="post">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <div class="catalog-actions">
+                <button type="submit">Сохранить</button>
+                <a class="btn btn-secondary" href="{% url 'catalog:category_list' %}">Назад к категориям</a>
+            </div>
+        </form>
+    </div>
 {% endblock %}

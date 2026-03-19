@@ -1,10 +1,4 @@
-from django.contrib import admin
+"""Catalog ORM models are legacy-only and not managed through Django admin.
 
-from .models import Category
-
-
-@admin.register(Category)
-class CategoryAdmin(admin.ModelAdmin):
-    list_display = ("name", "parent", "code", "is_active", "sort_order")
-    list_filter = ("is_active", "parent")
-    search_fields = ("name", "code")
+SyncServer is the source of truth for categories, items, and units.
+"""

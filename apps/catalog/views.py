@@ -13,15 +13,15 @@ from django.views.generic import TemplateView
 
 from apps.catalog.forms import CategoryForm, ItemForm, UnitForm
 from apps.catalog.services import CatalogService
-from apps.common.permissions import can_manage_catalog
+from apps.common.permissions import can_manage_catalog, can_use_client
 from apps.sync_client.client import SyncServerClient
 
 
 def _resolve_site_id(request):
     return (
         request.session.get("active_site")
+        or request.session.get("sync_default_site_id")
         or request.session.get("site_id")
-        or getattr(getattr(request.user, "profile", None), "site_id", None)
         or getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
     )
 
@@ -31,6 +31,7 @@ def _build_catalog_service(request) -> CatalogService:
     client = SyncServerClient(
         user_id=request.user.id,
         site_id=site_id,
+        request=request,
     )
     return CatalogService(client)
 
@@ -235,14 +236,14 @@ class CatalogHomeView(LoginRequiredMixin, TemplateView):
     template_name = "catalog/home.html"
 
     def dispatch(self, request, *args, **kwargs):
-        if not can_manage_catalog(request.user):
+        if not can_use_client(request.user):
             return HttpResponseForbidden("Нет доступа")
         return super().dispatch(request, *args, **kwargs)
 
 
-class CatalogAccessMixin(LoginRequiredMixin):
+class CatalogReadAccessMixin(LoginRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
-        if not can_manage_catalog(request.user):
+        if not can_use_client(request.user):
             return HttpResponseForbidden("Нет доступа")
 
         site_id = _resolve_site_id(request)
@@ -276,24 +277,96 @@ class CatalogAccessMixin(LoginRequiredMixin):
         return [], tree_result if not tree_result.ok else flat_result
 
 
-class CategoryListView(CatalogAccessMixin, TemplateView):
+class CatalogManageAccessMixin(CatalogReadAccessMixin):
+    def dispatch(self, request, *args, **kwargs):
+        if not can_manage_catalog(request.user):
+            return HttpResponseForbidden("Нет доступа")
+        return super().dispatch(request, *args, **kwargs)
+
+
+def _find_category_in_tree(nodes: list[dict], category_id: str) -> dict | None:
+    for node in nodes:
+        if str(node.get("id")) == str(category_id):
+            return node
+        children = node.get("children") or []
+        found = _find_category_in_tree(children, category_id)
+        if found is not None:
+            return found
+    return None
+
+
+def _filter_category_tree(nodes: list[dict], term: str) -> list[dict]:
+    if not term:
+        return nodes
+
+    lowered = term.lower()
+    filtered: list[dict] = []
+    for node in nodes:
+        children = node.get("children") or []
+        filtered_children = _filter_category_tree(children, term)
+        haystack = f'{node.get("name", "")} {node.get("code", "")}'.lower()
+        if lowered in haystack or filtered_children:
+            filtered.append({**node, "children": filtered_children})
+    return filtered
+
+
+def _flatten_category_ids(nodes: list[dict]) -> list[str]:
+    result: list[str] = []
+    for node in nodes:
+        node_id = str(node.get("id") or "")
+        if node_id:
+            result.append(node_id)
+        result.extend(_flatten_category_ids(node.get("children") or []))
+    return result
+
+
+class CategoryListView(CatalogReadAccessMixin, TemplateView):
     template_name = "catalog/category_list.html"
 
     def get(self, request, *args, **kwargs):
-        categories, result = self._get_categories_flat()
+        tree, result = self._get_categories_tree()
         if not result.ok:
             messages.error(request, result.form_error)
+
+        search = (request.GET.get("search") or "").strip()
+        filtered_tree = _filter_category_tree(tree, search)
+        flat_categories = _flatten_tree(tree)
+        visible_ids = set(_flatten_category_ids(filtered_tree))
+        visible_categories = [
+            category for category in flat_categories
+            if category.get("id") in visible_ids
+        ] if search else flat_categories
+
+        selected_id = str(request.GET.get("category_id") or "").strip()
+        selected_category = _find_category_in_tree(tree, selected_id) if selected_id else None
+        if selected_category is None and visible_categories:
+            selected_category = visible_categories[0]
+
+        create_initial = {"is_active": True}
+        if selected_category is not None:
+            create_initial["parent_id"] = selected_category.get("id")
 
         return render(
             request,
             self.template_name,
             {
-                "categories": categories,
+                "categories": filtered_tree,
+                "flat_categories": flat_categories,
+                "selected_category": selected_category,
+                "selected_category_id": str(selected_category.get("id")) if selected_category else "",
+                "search": search,
+                "site_context_id": _resolve_site_id(request),
+                "catalog_is_global": True,
+                "can_manage_catalog": can_manage_catalog(request.user),
+                "create_form": CategoryForm(
+                    initial=create_initial,
+                    category_choices=flat_categories,
+                ),
             },
         )
 
 
-class CategoryCreateView(CatalogAccessMixin, View):
+class CategoryCreateView(CatalogManageAccessMixin, View):
     template_name = "catalog/category_form.html"
     success_url = reverse_lazy("catalog:category_list")
 
@@ -302,7 +375,12 @@ class CategoryCreateView(CatalogAccessMixin, View):
         if not result.ok:
             messages.error(request, result.form_error)
 
-        form = CategoryForm(category_choices=categories)
+        initial = {}
+        parent_id = (request.GET.get("parent_id") or "").strip()
+        if parent_id:
+            initial["parent_id"] = parent_id
+
+        form = CategoryForm(initial=initial, category_choices=categories)
         return render(request, self.template_name, {"form": form, "mode": "create"})
 
     def post(self, request):
@@ -319,7 +397,7 @@ class CategoryCreateView(CatalogAccessMixin, View):
         return render(request, self.template_name, {"form": form, "mode": "create"})
 
 
-class CategoryUpdateView(CatalogAccessMixin, View):
+class CategoryUpdateView(CatalogManageAccessMixin, View):
     template_name = "catalog/category_form.html"
     success_url = reverse_lazy("catalog:category_list")
 
@@ -370,7 +448,7 @@ class CategoryUpdateView(CatalogAccessMixin, View):
         return render(request, self.template_name, {"form": form, "mode": "update"})
 
 
-class CategoryDeleteView(CatalogAccessMixin, View):
+class CategoryDeleteView(CatalogManageAccessMixin, View):
     template_name = "catalog/category_confirm_delete.html"
     success_url = reverse_lazy("catalog:category_list")
 
@@ -388,24 +466,14 @@ class CategoryDeleteView(CatalogAccessMixin, View):
         return render(request, self.template_name, {"category_id": pk})
 
 
-class CategoryTreeView(CatalogAccessMixin, TemplateView):
+class CategoryTreeView(CatalogReadAccessMixin, TemplateView):
     template_name = "catalog/category_tree.html"
 
     def get(self, request, *args, **kwargs):
-        tree, result = self._get_categories_tree()
-        if not result.ok:
-            messages.error(request, result.form_error)
-
-        return render(
-            request,
-            self.template_name,
-            {
-                "categories": tree,
-            },
-        )
+        return redirect("catalog:category_list")
 
 
-class UnitListView(CatalogAccessMixin, TemplateView):
+class UnitListView(CatalogManageAccessMixin, TemplateView):
     template_name = "catalog/unit_list.html"
 
     def get(self, request, *args, **kwargs):
@@ -418,7 +486,7 @@ class UnitListView(CatalogAccessMixin, TemplateView):
         return render(request, self.template_name, {"units": units})
 
 
-class UnitCreateView(CatalogAccessMixin, View):
+class UnitCreateView(CatalogManageAccessMixin, View):
     template_name = "catalog/unit_form.html"
     success_url = reverse_lazy("catalog:unit_list")
 
@@ -436,7 +504,7 @@ class UnitCreateView(CatalogAccessMixin, View):
         return render(request, self.template_name, {"form": form, "mode": "create"})
 
 
-class UnitUpdateView(CatalogAccessMixin, View):
+class UnitUpdateView(CatalogManageAccessMixin, View):
     template_name = "catalog/unit_form.html"
     success_url = reverse_lazy("catalog:unit_list")
 
@@ -471,7 +539,7 @@ class UnitUpdateView(CatalogAccessMixin, View):
         return render(request, self.template_name, {"form": form, "mode": "update"})
 
 
-class ItemListView(CatalogAccessMixin, TemplateView):
+class ItemListView(CatalogManageAccessMixin, TemplateView):
     template_name = "catalog/item_list.html"
 
     def get(self, request, *args, **kwargs):
@@ -502,7 +570,7 @@ class ItemListView(CatalogAccessMixin, TemplateView):
         )
 
 
-class ItemCreateView(CatalogAccessMixin, View):
+class ItemCreateView(CatalogManageAccessMixin, View):
     template_name = "catalog/item_form.html"
     success_url = reverse_lazy("catalog:item_list")
 
@@ -537,7 +605,7 @@ class ItemCreateView(CatalogAccessMixin, View):
         return render(request, self.template_name, {"form": form, "mode": "create"})
 
 
-class ItemUpdateView(CatalogAccessMixin, View):
+class ItemUpdateView(CatalogManageAccessMixin, View):
     template_name = "catalog/item_form.html"
     success_url = reverse_lazy("catalog:item_list")
 
@@ -592,7 +660,7 @@ class ItemUpdateView(CatalogAccessMixin, View):
         return render(request, self.template_name, {"form": form, "mode": "update"})
 
 
-class ItemDeactivateView(CatalogAccessMixin, View):
+class ItemDeactivateView(CatalogManageAccessMixin, View):
     success_url = reverse_lazy("catalog:item_list")
 
     def post(self, request, pk):

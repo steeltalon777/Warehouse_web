@@ -34,10 +34,7 @@ class DomainService:
 
     IMPORTANT:
     - Do NOT use legacy /users, /roles, /sites endpoints.
-    - Do NOT use apps.integration.* clients.
-    - Root/admin pages for sites/devices/access live in apps.admin_panel via AdminAPI.
-    - User CRUD is intentionally not implemented here until SyncServer exposes
-      canonical endpoints for it.
+    - Business flows must go through the canonical SyncServer client.
     """
 
     def __init__(self, client: SyncServerClient | None = None) -> None:
@@ -84,44 +81,6 @@ class DomainService:
             )
         except SyncServerAPIError as exc:
             return ServiceResult(ok=False, form_error=str(exc) or "Ошибка SyncServer.")
-
-    # ------------------------------------------------------------------
-    # Legacy root user-management: intentionally disabled
-    # ------------------------------------------------------------------
-    def users(self) -> ServiceResult:
-        return ServiceResult(
-            ok=False,
-            not_found=True,
-            form_error="Управление пользователями через legacy /users API отключено. Используй admin pages sites/devices/access или дождись нового user API в SyncServer.",
-        )
-
-    def roles(self) -> ServiceResult:
-        return ServiceResult(
-            ok=False,
-            not_found=True,
-            form_error="Legacy endpoint /roles отключён и не используется.",
-        )
-
-    def sites(self) -> ServiceResult:
-        return ServiceResult(
-            ok=False,
-            not_found=True,
-            form_error="Legacy endpoint /sites отключён. Для сайтов используй admin panel -> /api/v1/admin/sites.",
-        )
-
-    def create_user(self, payload: dict[str, Any]) -> ServiceResult:
-        return ServiceResult(
-            ok=False,
-            not_found=True,
-            form_error="Создание пользователей через legacy /users API отключено.",
-        )
-
-    def update_user(self, user_id: str, payload: dict[str, Any]) -> ServiceResult:
-        return ServiceResult(
-            ok=False,
-            not_found=True,
-            form_error="Редактирование пользователей через legacy /users API отключено.",
-        )
 
     # ------------------------------------------------------------------
     # Business flows

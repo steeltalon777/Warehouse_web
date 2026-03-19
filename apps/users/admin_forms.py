@@ -8,7 +8,7 @@ from django.contrib.auth.forms import UserChangeForm
 from django.core.exceptions import ValidationError
 
 from apps.sync_client.exceptions import SyncServerAPIError
-from apps.users.models import Role, SyncUserBinding
+from apps.users.models import Role, Site, SyncUserBinding
 from apps.users.services import UserSyncService
 
 User = get_user_model()
@@ -162,3 +162,15 @@ class SuperuserLocalAdminForm(UserChangeForm):
     class Meta(UserChangeForm.Meta):
         model = User
         fields = "__all__"
+
+
+class SyncManagedSiteAdminForm(forms.ModelForm):
+    class Meta:
+        model = Site
+        fields = ("code", "name", "description", "is_active")
+
+    def clean_code(self) -> str:
+        return str(self.cleaned_data["code"]).strip()
+
+    def clean_name(self) -> str:
+        return str(self.cleaned_data["name"]).strip()

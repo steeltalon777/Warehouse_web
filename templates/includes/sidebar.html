@@ -8,18 +8,15 @@
     <a href="{% url 'operations:list' %}">Операции</a>
     <a href="{% url 'operations:create' %}">Новая операция</a>
 
-
     <div class="section">Справочники</div>
 
     <a href="{% url 'catalog:home' %}">Номенклатура</a>
-
 
     {% if user.is_superuser %}
 
         <div class="section">Администрирование</div>
 
-        <a href="{% url 'admin_panel:users' %}">Пользователи</a>
-        <a href="{% url 'admin_panel:sites' %}">Склады</a>
+        <a href="{% url 'admin:index' %}">Django Admin</a>
         <a href="{% url 'admin_panel:devices' %}">Устройства</a>
         <a href="{% url 'admin_panel:access' %}">Доступы</a>
 

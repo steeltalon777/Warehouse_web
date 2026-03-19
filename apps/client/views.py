@@ -1,30 +1,45 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.conf import settings
 from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
 
 from apps.catalog.services import CatalogService
-from apps.client.forms import OperationCreateForm, SyncUserForm
+from apps.client.forms import OperationCreateForm
 from apps.client.services import DomainService
 from apps.common.permissions import can_manage_catalog, is_storekeeper
 from apps.sync_client.client import SyncServerClient
 
 
-domain_service = DomainService()
-
-
 def _build_catalog_service(request) -> CatalogService:
     site_id = (
         request.session.get("active_site")
-        or getattr(getattr(request.user, "profile", None), "site_id", None)
+        or request.session.get("sync_default_site_id")
         or request.session.get("site_id")
+        or getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
     )
 
     client = SyncServerClient(
         user_id=request.user.id,
         site_id=site_id,
+        request=request,
     )
     return CatalogService(client)
+
+
+def _build_domain_service(request) -> DomainService:
+    site_id = (
+        request.session.get("active_site")
+        or request.session.get("sync_default_site_id")
+        or request.session.get("site_id")
+        or getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
+    )
+    client = SyncServerClient(
+        user_id=request.user.id,
+        site_id=site_id,
+        request=request,
+    )
+    return DomainService(client)
 
 
 @login_required
@@ -41,78 +56,12 @@ def dashboard(request):
 
 
 @login_required
-def root_users(request):
-    """
-    Legacy users page retained only as a stub.
-
-    Canonical Warehouse_web architecture no longer uses:
-    - /users
-    - /roles
-    - /sites
-
-    Admin management that exists today should go through:
-    - admin_panel/sites
-    - admin_panel/devices
-    - admin_panel/access
-    """
-    if not request.user.is_superuser:
-        return HttpResponseForbidden("Нет доступа")
-
-    messages.warning(
-        request,
-        "Управление пользователями через legacy SyncServer endpoints отключено. "
-        "Используй страницы sites/devices/access в admin panel. "
-        "Новый user API на стороне SyncServer пока не подключён.",
-    )
-
-    form = SyncUserForm(roles=[], sites=[])
-
-    return render(
-        request,
-        "client/root_users.html",
-        {
-            "users": [],
-            "roles": [],
-            "sites": [],
-            "form": form,
-            "legacy_user_management_disabled": True,
-        },
-    )
-
-
-@login_required
-def root_user_create(request):
-    if not request.user.is_superuser:
-        return HttpResponseForbidden("Нет доступа")
-
-    messages.error(
-        request,
-        "Создание пользователей через legacy /users API отключено. "
-        "Текущий SyncServer contract для Warehouse_web это не поддерживает.",
-    )
-    return redirect("client:root_users")
-
-
-@login_required
-def root_user_edit(request, user_id: str):
-    if not request.user.is_superuser:
-        return HttpResponseForbidden("Нет доступа")
-
-    messages.error(
-        request,
-        "Редактирование пользователей через legacy /users API отключено. "
-        "Текущий SyncServer contract для Warehouse_web это не поддерживает.",
-    )
-    return redirect("client:root_users")
-
-
-@login_required
 def balances_view(request):
     if not (is_storekeeper(request.user) or can_manage_catalog(request.user) or request.user.is_superuser):
         return HttpResponseForbidden("Нет доступа")
 
     search = request.GET.get("search") or None
-    result = domain_service.balances(search=search)
+    result = _build_domain_service(request).balances(search=search)
     if not result.ok:
         messages.error(request, result.form_error)
 
@@ -141,7 +90,7 @@ def operations_view(request):
         return HttpResponseForbidden("Нет доступа")
 
     search = request.GET.get("search") or None
-    result = domain_service.operations(search=search, limit=100)
+    result = _build_domain_service(request).operations(search=search, limit=100)
     if not result.ok:
         messages.error(request, result.form_error)
 
@@ -172,7 +121,7 @@ def operation_create(request):
     if request.method == "POST":
         form = OperationCreateForm(request.POST)
         if form.is_valid():
-            result = domain_service.create_operation(form.cleaned_data)
+            result = _build_domain_service(request).create_operation(form.cleaned_data)
             if result.ok:
                 messages.success(request, "Операция отправлена в SyncServer.")
                 return redirect("client:operations")

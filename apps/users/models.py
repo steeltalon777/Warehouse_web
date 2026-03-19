@@ -9,11 +9,14 @@ class Site(models.Model):
     authentication/authorization decisions in Django.
     """
 
+    syncserver_site_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
     name = models.CharField(max_length=200, unique=True)
     code = models.CharField(max_length=50, unique=True)
     is_active = models.BooleanField(default=True)
+    description = models.TextField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["name"]

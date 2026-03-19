@@ -1,0 +1,19 @@
+<li class="category-tree-node">
+    <a
+        href="{% url 'catalog:category_list' %}?category_id={{ node.id }}{% if search %}&search={{ search|urlencode }}{% endif %}"
+        class="category-tree-link {% if selected_category_id == node.id|stringformat:'s' %}category-tree-link-active{% endif %} {% if not node.is_active %}category-tree-link-muted{% endif %}"
+    >
+        <span>{{ node.name }}</span>
+        {% if node.code %}
+            <small>{{ node.code }}</small>
+        {% endif %}
+    </a>
+
+    {% if node.children %}
+        <ul class="category-tree">
+            {% for node in node.children %}
+                {% include "catalog/partials/category_tree_node.html" with node=node selected_category_id=selected_category_id search=search only %}
+            {% endfor %}
+        </ul>
+    {% endif %}
+</li>

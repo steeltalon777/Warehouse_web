@@ -16,6 +16,8 @@ class SyncHealthCheckView(View):
         client = SyncServerClient(
             user_id=1,
             site_id=request.session.get("active_site"),
+            request=request,
+            force_root=True,
         )
 
         service = CatalogService(client)

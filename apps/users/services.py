@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from apps.sync_client.root_admin_client import SyncServerRootAdminClient
-from apps.users.models import Role, SyncStatus, SyncUserBinding
+from apps.users.models import Role, Site, SyncStatus, SyncUserBinding
 
 User = get_user_model()
 
@@ -216,3 +216,56 @@ class UserSyncService:
             return int(site_id)
         except (TypeError, ValueError):
             return str(site_id)
+
+
+class SiteSyncService:
+    def __init__(self, client: SyncServerRootAdminClient | None = None) -> None:
+        self.client = client or SyncServerRootAdminClient()
+
+    def list_sites(self) -> list[dict[str, Any]]:
+        response = self.client.get("/admin/sites", params={"page": 1, "page_size": 200})
+        return response.get("sites", []) if isinstance(response, dict) else []
+
+    def refresh_local_cache(self) -> None:
+        remote_sites = self.list_sites()
+        seen_ids: set[str] = set()
+
+        for remote_site in remote_sites:
+            mirror = self._upsert_local_mirror(remote_site)
+            seen_ids.add(mirror.syncserver_site_id)
+
+        if seen_ids:
+            Site.objects.exclude(syncserver_site_id__in=seen_ids).delete()
+            return
+
+        Site.objects.all().delete()
+
+    def create_site(self, payload: dict[str, Any]) -> Site:
+        remote_site = self.client.post("/admin/sites", json=payload)
+        return self._upsert_local_mirror(remote_site)
+
+    def update_site(self, syncserver_site_id: str, payload: dict[str, Any]) -> Site:
+        remote_site = self.client.patch(f"/admin/sites/{syncserver_site_id}", json=payload)
+        return self._upsert_local_mirror(remote_site)
+
+    def _upsert_local_mirror(self, remote_site: dict[str, Any]) -> Site:
+        syncserver_site_id = str(remote_site.get("site_id") or remote_site.get("id") or "").strip()
+        if not syncserver_site_id:
+            raise ValueError("SyncServer site payload does not contain site_id.")
+
+        code = str(remote_site.get("code") or "").strip()
+        name = str(remote_site.get("name") or "").strip()
+        Site.objects.exclude(syncserver_site_id=syncserver_site_id).filter(code=code).delete()
+        Site.objects.exclude(syncserver_site_id=syncserver_site_id).filter(name=name).delete()
+
+        defaults = {
+            "code": code,
+            "name": name,
+            "description": remote_site.get("description") or "",
+            "is_active": bool(remote_site.get("is_active", True)),
+        }
+        site, _ = Site.objects.update_or_create(
+            syncserver_site_id=syncserver_site_id,
+            defaults=defaults,
+        )
+        return site

@@ -3,17 +3,11 @@
 {% block title %}Дерево категорий{% endblock %}
 
 {% block content %}
-    <h2>Дерево категорий</h2>
-
-    <p>
-        <a href="{% url 'catalog:category_list' %}">← К списку категорий</a>
-    </p>
-
-    <ul>
-        {% for category in categories %}
-            <li>{{ category.name }}{% if category.parent_name %} <small>(родитель: {{ category.parent_name }})</small>{% endif %}</li>
-        {% empty %}
-            <li>Данные не получены.</li>
-        {% endfor %}
-    </ul>
+    <div class="card">
+        <h2>Дерево категорий</h2>
+        <p class="catalog-page-note">
+            Этот маршрут сохранён для совместимости. Основной экран категорий уже показывает дерево и карточку выбранной категории.
+        </p>
+        <a class="btn" href="{% url 'catalog:category_list' %}">Открыть категории</a>
+    </div>
 {% endblock %}

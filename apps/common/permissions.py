@@ -15,39 +15,45 @@ def _get_profile(user):
         return None
 
 
+def _get_sync_binding(user):
+    try:
+        return getattr(user, "sync_binding", None)
+    except (DatabaseError, ObjectDoesNotExist):
+        return None
+
+
+def _get_role(user):
+    binding = _get_sync_binding(user)
+    if binding is not None and getattr(binding, "sync_role", None):
+        return binding.sync_role
+
+    profile = _get_profile(user)
+    if profile is not None:
+        return profile.role
+
+    return None
+
+
 def has_profile(user):
     return _get_profile(user) is not None
 
 
 def is_root(user):
-    profile = _get_profile(user)
     return user.is_superuser or (
-        user.is_authenticated
-        and profile is not None
-        and profile.role == "root"
+        user.is_authenticated and _get_role(user) == "root"
     )
 
 
 def is_chief_storekeeper(user):
     if user.is_superuser:
         return True
-    profile = _get_profile(user)
-    return (
-        user.is_authenticated
-        and profile is not None
-        and profile.role == "chief_storekeeper"
-    )
+    return user.is_authenticated and _get_role(user) == "chief_storekeeper"
 
 
 def is_storekeeper(user):
     if user.is_superuser:
         return True
-    profile = _get_profile(user)
-    return (
-        user.is_authenticated
-        and profile is not None
-        and profile.role == "storekeeper"
-    )
+    return user.is_authenticated and _get_role(user) == "storekeeper"
 
 
 def can_manage_catalog(user):
@@ -55,11 +61,4 @@ def can_manage_catalog(user):
 
 
 def can_use_client(user):
-    if user.is_superuser:
-        return True
-    profile = _get_profile(user)
-    return (
-        user.is_authenticated
-        and profile is not None
-        and profile.is_active
-    )
+    return bool(user.is_authenticated and getattr(user, "is_active", False))
