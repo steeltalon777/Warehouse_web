@@ -1,20 +1,49 @@
-# MEMORY
+# Memory
 
-## Invariants
+## System Architecture
 
-- SyncServer = source of truth для warehouse domain.
-- Django = SSR UI + session + thin API client.
-- Нет бизнес-логики склада и direct domain writes в Django ORM.
+- Warehouse_web is a Django SSR web client for SyncServer.
+- SyncServer is the warehouse domain owner.
+- Django owns UI, sessions, Django admin, and a controlled integration layer.
 
-## Implemented integration
+## Core Entities
 
-- Canonical слой `apps/sync_client` с service auth + acting context headers.
-- Operations/Balances SSR list pages поддерживают `search/limit/offset`.
-- Operations SSR create/detail используют `OperationsAPI.create/get`.
-- Catalog SSR pages (items/categories/units) работают через `CatalogService` + `CatalogAPI`.
-- Root admin SSR pages используют `AdminAPI`: users/sites/devices/access + site/device create/edit.
+- local Django `User`
+- `SyncUserBinding` for remote identity and per-user token storage
+- local `Site` mirror used only as an admin convenience cache
+- remote SyncServer entities: sites, scopes, categories, units, items, balances, operations, devices
 
-## Next phase (не в этом этапе)
+## Data Model Decisions
 
-- UI/UX polish (тексты, layout, визуальный стиль, навигационные улучшения).
-- Дополнительные сценарии edit/submit/cancel операций при необходимости UX этапа.
+- keep SyncServer as the source of truth for domain data
+- keep local persistence minimal and technical
+- keep user token storage separate from Django auth fields
+- keep `UserProfile` only as a backward-compatibility tail during transition
+
+## API Design
+
+- all SyncServer traffic goes through `apps/sync_client`
+- runtime client resolves headers from the current Django user context
+- root admin flows use the root token
+- per-user runtime flows use `SyncUserBinding.sync_user_token`
+- Django admin drives root-managed user and site operations
+
+## Business Rules
+
+- Django must not implement warehouse business logic independently
+- catalog master data is currently global
+- `site_id` is currently an access context for catalog reads, not a real data partition
+- final permission enforcement still happens in SyncServer
+
+## Known Pitfalls
+
+- local catalog ORM models still exist and can confuse new contributors; they are not the source of truth
+- `UserProfile` still exists as deprecated compatibility state
+- the local `Site` table is a mirror, not a domain owner
+- runtime correctness still depends on testing against a real SyncServer
+
+## Future Architecture
+
+- finish migrating remaining catalog screens fully onto the current API-first model
+- remove deprecated local domain tails when safe
+- strengthen smoke tests around auth, token resolution, and SyncServer integration

@@ -1,11 +1,50 @@
-# AI_ENTRY_POINTS
+# AI Entry Points
 
-1. `apps/sync_client/client.py` — базовый HTTP клиент.
-2. `apps/sync_client/operations_api.py` — operations endpoints.
-3. `apps/sync_client/balances_api.py` — balances endpoints.
-4. `apps/sync_client/catalog_api.py` — catalog endpoints.
-5. `apps/sync_client/admin_api.py` — root admin endpoints (users/sites/devices/access).
-6. `apps/operations/views.py` — SSR operations pages.
-7. `apps/balances/views.py` — SSR balances pages.
-8. `apps/catalog/views.py` + `apps/catalog/forms.py` — SSR catalog pages/forms.
-9. `apps/admin_panel/views.py` + `apps/admin_panel/forms.py` — root admin SSR pages/forms.
+## Server Entrypoints
+
+- `manage.py` - Django CLI entrypoint
+- `config/wsgi.py` - WSGI entrypoint for Gunicorn
+- `config/asgi.py` - ASGI entrypoint
+- `config/urls.py` - top-level URL routing
+
+## API Layer
+
+- `apps/catalog/views.py`
+- `apps/client/views.py`
+- `apps/operations/views.py`
+- `apps/balances/views.py`
+- `apps/admin_panel/views.py`
+- `apps/users/admin.py`
+
+## Service Layer
+
+- `apps/users/services.py`
+- `apps/catalog/services.py`
+- `apps/client/services.py`
+
+## Repository / Data Layer
+
+- `apps/sync_client/client.py`
+- `apps/sync_client/root_admin_client.py`
+- `apps/sync_client/catalog_api.py`
+- `apps/sync_client/operations_api.py`
+- `apps/sync_client/balances_api.py`
+- `apps/sync_client/access_api.py`
+- `apps/sync_client/admin_api.py`
+- `apps/sync_client/auth_api.py`
+- `apps/sync_client/session_auth.py`
+
+## Models / Entities
+
+- `apps/users/models.py`
+- `apps/catalog/models.py` as legacy local ORM tail
+
+## Configuration
+
+- `config/settings/base.py`
+- `config/settings/development.py`
+- `config/settings/production.py`
+- `.env.example`
+- `requirements.txt`
+- `Dockerfile`
+- `docker-compose.yml`
