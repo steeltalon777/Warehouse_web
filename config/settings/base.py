@@ -122,6 +122,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # - Web client uses service-auth only.
 SYNC_SERVER_URL = os.getenv("SYNC_SERVER_URL", "http://syncserver:8000/api/v1").rstrip("/")
 SYNC_SERVER_SERVICE_TOKEN = os.getenv("SYNC_SERVER_SERVICE_TOKEN", "").strip()
+SYNC_ROOT_USER_TOKEN = os.getenv("SYNC_ROOT_USER_TOKEN", "").strip()
 SYNC_SERVER_TIMEOUT = float(os.getenv("SYNC_SERVER_TIMEOUT", "10"))
 
 # Optional default acting context for technical/service flows.

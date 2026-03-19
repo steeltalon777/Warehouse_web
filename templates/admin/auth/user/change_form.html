@@ -1,0 +1,25 @@
+{% extends "admin/change_form.html" %}
+
+{% block object-tools-items %}
+{{ block.super }}
+{% if original and not original.is_superuser and original.sync_binding %}
+<li>
+    <form method="post" action="sync/" style="display:inline;">
+        {% csrf_token %}
+        <button type="submit" class="button">Синхронизировать</button>
+    </form>
+</li>
+<li>
+    <form method="post" action="repair/" style="display:inline;" onsubmit="return confirm('Восстановить локальную карточку пользователя по данным SyncServer?');">
+        {% csrf_token %}
+        <button type="submit" class="button">Восстановить из SyncServer</button>
+    </form>
+</li>
+<li>
+    <form method="post" action="rotate-token/" style="display:inline;" onsubmit="return confirm('Перегенерировать токен пользователя? Старый токен станет невалидным.');">
+        {% csrf_token %}
+        <button type="submit" class="button">Сбросить и перегенерировать токен</button>
+    </form>
+</li>
+{% endif %}
+{% endblock %}

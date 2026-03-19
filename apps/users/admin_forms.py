@@ -1,0 +1,164 @@
+from __future__ import annotations
+
+from typing import Any
+
+from django import forms
+from django.contrib.auth import get_user_model
+from django.contrib.auth.forms import UserChangeForm
+from django.core.exceptions import ValidationError
+
+from apps.sync_client.exceptions import SyncServerAPIError
+from apps.users.models import Role, SyncUserBinding
+from apps.users.services import UserSyncService
+
+User = get_user_model()
+
+
+MANAGED_ROLE_CHOICES = [
+    (Role.CHIEF_STOREKEEPER, "Главный кладовщик"),
+    (Role.STOREKEEPER, "Кладовщик"),
+    (Role.OBSERVER, "Обозреватель"),
+]
+
+
+class SyncManagedUserAdminForm(UserChangeForm):
+    site_choices: list[tuple[str, str]] = []
+
+    password = forms.CharField(
+        label="Пароль",
+        widget=forms.PasswordInput(render_value=False),
+        required=False,
+        help_text="Оставьте пустым, чтобы не менять локальный Django-пароль.",
+    )
+    password_confirm = forms.CharField(
+        label="Подтвердите пароль",
+        widget=forms.PasswordInput(render_value=False),
+        required=False,
+    )
+    full_name = forms.CharField(label="ФИО", max_length=255, required=False)
+    sync_role = forms.ChoiceField(label="Роль", choices=MANAGED_ROLE_CHOICES)
+    site_ids = forms.MultipleChoiceField(
+        label="Склады",
+        choices=[],
+        required=True,
+        widget=forms.SelectMultiple(attrs={"size": 8}),
+    )
+    default_site_id = forms.ChoiceField(
+        label="Склад по умолчанию",
+        choices=[],
+        required=True,
+    )
+    sync_user_token = forms.CharField(
+        label="User token",
+        required=False,
+        disabled=True,
+        widget=forms.TextInput(
+            attrs={
+                "readonly": "readonly",
+                "style": "background:#f3f4f6;color:#6b7280;",
+            }
+        ),
+    )
+
+    class Meta(UserChangeForm.Meta):
+        model = User
+        fields = ("username", "email", "is_active")
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.service = UserSyncService()
+        self.fields["site_ids"].choices = self.site_choices
+        self.fields["default_site_id"].choices = self.site_choices
+        self.fields["password"].help_text = ""
+        self.fields["password"].initial = ""
+        self.fields["password_confirm"].initial = ""
+        self.fields["full_name"].initial = self.instance.first_name
+
+        binding = self._get_binding()
+        if binding:
+            self.fields["sync_role"].initial = binding.sync_role
+            self.fields["site_ids"].initial = [str(site_id) for site_id in binding.site_ids]
+            self.fields["default_site_id"].initial = str(binding.default_site_id or "")
+            self.fields["sync_user_token"].initial = binding.sync_user_token
+
+        self._prepared_sync = None
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean()
+
+        password = cleaned_data.get("password") or ""
+        password_confirm = cleaned_data.get("password_confirm") or ""
+        if password or password_confirm:
+            if password != password_confirm:
+                raise ValidationError("Пароли не совпадают.")
+
+        role = cleaned_data.get("sync_role")
+        site_ids = [str(site_id) for site_id in cleaned_data.get("site_ids") or []]
+        default_site_id = str(cleaned_data.get("default_site_id") or "")
+
+        if not role:
+            raise ValidationError("Роль обязательна.")
+        if role == Role.ROOT:
+            raise ValidationError("Root-пользователи не управляются через Django-admin.")
+        if not site_ids:
+            raise ValidationError("Нужно выбрать хотя бы один склад.")
+        if not default_site_id:
+            raise ValidationError("Нужно выбрать склад по умолчанию.")
+        if default_site_id not in site_ids:
+            raise ValidationError("Склад по умолчанию должен входить в выбранные склады.")
+
+        self.instance.username = cleaned_data.get("username") or self.instance.username
+        self.instance.email = cleaned_data.get("email") or ""
+        self.instance.is_active = bool(cleaned_data.get("is_active", True))
+
+        try:
+            binding = self._get_binding()
+            self._prepared_sync = self.service.prepare_sync(
+                user=self.instance,
+                full_name=cleaned_data.get("full_name") or "",
+                role=role,
+                site_ids=site_ids,
+                default_site_id=default_site_id,
+                syncserver_user_id=binding.syncserver_user_id if binding else None,
+            )
+        except SyncServerAPIError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        return cleaned_data
+
+    def _get_binding(self) -> SyncUserBinding | None:
+        if not self.instance.pk:
+            return None
+        try:
+            return self.instance.sync_binding
+        except SyncUserBinding.DoesNotExist:
+            return None
+
+
+class SyncManagedUserCreationForm(SyncManagedUserAdminForm):
+    password = forms.CharField(
+        label="Пароль",
+        widget=forms.PasswordInput(render_value=False),
+        required=True,
+    )
+    password_confirm = forms.CharField(
+        label="Подтвердите пароль",
+        widget=forms.PasswordInput(render_value=False),
+        required=True,
+    )
+
+    class Meta(SyncManagedUserAdminForm.Meta):
+        fields = ("username", "email", "is_active")
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["is_active"].initial = True
+        self.fields["sync_user_token"].initial = ""
+        self.instance.is_staff = False
+        self.instance.is_superuser = False
+
+
+class SuperuserLocalAdminForm(UserChangeForm):
+    class Meta(UserChangeForm.Meta):
+        model = User
+        fields = "__all__"

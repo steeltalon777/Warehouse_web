@@ -25,10 +25,6 @@ env/
 .DS_Store
 Thumbs.db
 
-# migrations
-**/migrations/*
-!**/migrations/__init__.py
-
 # static build
 staticfiles/
 
