@@ -8,7 +8,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from apps.admin_panel.forms import DeviceForm, SiteForm, UserCreateForm
-from apps.operations.views import SyncContextMixin
+from apps.common.mixins import SyncContextMixin
 from apps.sync_client.admin_api import AdminAPI
 from apps.sync_client.exceptions import SyncServerAPIError
 

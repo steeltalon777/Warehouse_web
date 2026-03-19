@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Склады{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="mb-4">
+        <h1>Склады</h1>
+        <p class="text-muted">Управление складами SyncServer</p>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div></div>
+            <a href="{% url 'users:sites_create' %}" class="btn btn-primary">
+                Создать склад
+            </a>
+        </div>
+    </div>
+
+    <!-- Таблица складов -->
+    <div class="card">
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Название</th>
+                        <th>Код</th>
+                        <th>Описание</th>
+                        <th>Адрес</th>
+                        <th>Часовой пояс</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for site in sites %}
+                    <tr>
+                        <td>{{ site.id|truncatechars:12 }}</td>
+                        <td>{{ site.name|default:"-" }}</td>
+                        <td>
+                            <span class="badge bg-primary">{{ site.code|default:"-" }}</span>
+                        </td>
+                        <td>{{ site.description|default:"-"|truncatechars:30 }}</td>
+                        <td>{{ site.address|default:"-"|truncatechars:30 }}</td>
+                        <td>{{ site.timezone|default:"Europe/Moscow" }}</td>
+                        <td>
+                            <div style="display: flex; gap: 4px;">
+                                <a href="{% url 'users:sites_update' site.id %}" 
+                                   class="btn btn-small btn-warning" title="Редактировать">
+                                    ✏️
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" style="text-align: center; padding: 32px; color: var(--muted);">
+                            Нет складов для отображения
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+.badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.bg-primary { background: #1d4ed8; color: white; }
+
+.btn-warning {
+    background: #f59e0b;
+    color: white;
+}
+.btn-warning:hover {
+    background: #d97706;
+}
+
+.table-responsive {
+    overflow-x: auto;
+}
+
+.text-muted {
+    color: var(--muted);
+}
+</style>
+{% endblock %}

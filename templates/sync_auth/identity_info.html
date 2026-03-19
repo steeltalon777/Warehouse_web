@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block title %}SyncServer Identity{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1>SyncServer Identity Information</h1>
+    
+    <div class="identity-details">
+        <div class="detail-section">
+            <h2>User Information</h2>
+            <table class="detail-table">
+                <tr>
+                    <th>User ID:</th>
+                    <td>{{ identity.user_id }}</td>
+                </tr>
+                <tr>
+                    <th>Role:</th>
+                    <td>
+                        <span class="role-badge role-{{ identity.role }}">
+                            {{ identity.role }}
+                        </span>
+                    </td>
+                </tr>
+                <tr>
+                    <th>Root Access:</th>
+                    <td>
+                        {% if identity.is_root %}
+                        <span class="badge badge-success">Yes</span>
+                        {% else %}
+                        <span class="badge badge-secondary">No</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Current Site:</th>
+                    <td>
+                        {% if identity.site_id %}
+                        <strong>{{ identity.site_id }}</strong>
+                        {% else %}
+                        <span class="text-muted">Not set</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            </table>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Available Sites ({{ identity.available_sites|length }})</h2>
+            
+            {% if identity.available_sites %}
+            <div class="sites-grid">
+                {% for site in identity.available_sites %}
+                <div class="site-card {% if site.id == identity.site_id %}current-site{% endif %}">
+                    <h3>{{ site.name|default:site.id }}</h3>
+                    <div class="site-details">
+                        <p><strong>ID:</strong> {{ site.id }}</p>
+                        {% if site.code %}<p><strong>Code:</strong> {{ site.code }}</p>{% endif %}
+                        {% if site.description %}<p><strong>Description:</strong> {{ site.description }}</p>{% endif %}
+                    </div>
+                    {% if site.id == identity.site_id %}
+                    <div class="current-badge">Current</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="alert alert-warning">
+                No sites available for your account.
+            </div>
+            {% endif %}
+        </div>
+        
+        <div class="detail-section">
+            <h2>Session Information</h2>
+            <table class="detail-table">
+                <tr>
+                    <th>User Token:</th>
+                    <td>
+                        <code class="token-preview">{{ identity.user_token|slice:":20" }}...</code>
+                        <small class="text-muted">(truncated for security)</small>
+                    </td>
+                </tr>
+                <tr>
+                    <th>Has Site Access:</th>
+                    <td>
+                        {% if identity.site_id %}
+                        {% if identity.has_site_access %}
+                        <span class="badge badge-success">Yes</span>
+                        {% else %}
+                        <span class="badge badge-danger">No</span>
+                        {% endif %}
+                        {% else %}
+                        <span class="text-muted">N/A</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    
+    <div class="action-buttons">
+        <a href="{% url 'users:sync_site_switch' %}" class="btn btn-primary">
+            Switch Site
+        </a>
+        <a href="{% url 'client:dashboard' %}" class="btn btn-secondary">
+            Back to Dashboard
+        </a>
+    </div>
+</div>
+
+<style>
+.identity-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.detail-section {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 1.5rem;
+}
+
+.detail-section h2 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    color: #333;
+    border-bottom: 2px solid #dee2e6;
+    padding-bottom: 0.5rem;
+}
+
+.detail-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.detail-table th {
+    text-align: left;
+    padding: 0.75rem;
+    width: 200px;
+    color: #666;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.detail-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.role-storekeeper {
+    background-color: #17a2b8;
+    color: white;
+}
+
+.role-chief {
+    background-color: #28a745;
+    color: white;
+}
+
+.role-root {
+    background-color: #dc3545;
+    color: white;
+}
+
+.sites-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.site-card {
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    padding: 1.5rem;
+    background-color: white;
+    position: relative;
+}
+
+.site-card.current-site {
+    border-color: #007bff;
+    background-color: #f8f9fa;
+}
+
+.site-card h3 {
+    margin-top: 0;
+    color: #333;
+}
+
+.site-details p {
+    margin: 0.5rem 0;
+    color: #666;
+}
+
+.current-badge {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    background-color: #007bff;
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.token-preview {
+    background-color: #f8f9fa;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.875rem;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 2px solid #dee2e6;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.badge-success {
+    background-color: #28a745;
+    color: white;
+}
+
+.badge-secondary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.badge-danger {
+    background-color: #dc3545;
+    color: white;
+}
+
+.text-muted {
+    color: #6c757d;
+}
+
+.alert {
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+
+.alert-warning {
+    background-color: #fff3cd;
+    border: 1px solid #ffeaa7;
+    color: #856404;
+}
+</style>
+{% endblock %}

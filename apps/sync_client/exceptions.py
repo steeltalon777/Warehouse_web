@@ -73,6 +73,10 @@ class SyncServerInternalError(SyncServerAPIError):
     pass
 
 
+# Backward-compatible alias for legacy imports.
+SyncAPIError = SyncServerAPIError
+
+
 # -------------------------------------------------------------------
 # Compatibility aliases for old imports in current codebase.
 # This lets you migrate call-sites gradually without mass breakage.

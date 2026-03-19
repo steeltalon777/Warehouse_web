@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}{{ form_title }}{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="mb-4">
+        <h1>{{ form_title }}</h1>
+        <nav class="breadcrumb">
+            <a href="{% url 'users:list' %}" class="breadcrumb-item">Пользователи</a>
+            <span class="breadcrumb-item active">{{ form_title }}</span>
+        </nav>
+    </div>
+
+    <div class="card">
+        <form method="post" action="{{ action_url }}">
+            {% csrf_token %}
+            
+            {% if errors %}
+            <div class="alert alert-danger">
+                <h4>Ошибки:</h4>
+                <ul>
+                    {% for error in errors %}
+                    <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            
+            <div class="grid-2">
+                <!-- Основные поля -->
+                <div class="form-row">
+                    <label for="username">Имя пользователя *</label>
+                    <input type="text" id="username" name="username" 
+                           value="{{ user.username|default:'' }}" 
+                           required placeholder="john_doe">
+                    <small class="text-muted">Уникальное имя для входа в систему</small>
+                </div>
+                
+                <div class="form-row">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" name="email" 
+                           value="{{ user.email|default:'' }}" 
+                           placeholder="john@example.com">
+                    <small class="text-muted">Электронная почта пользователя</small>
+                </div>
+                
+                <div class="form-row">
+                    <label for="full_name">Полное имя</label>
+                    <input type="text" id="full_name" name="full_name" 
+                           value="{{ user.full_name|default:'' }}" 
+                           placeholder="John Doe">
+                    <small class="text-muted">Полное имя пользователя</small>
+                </div>
+                
+                <div class="form-row">
+                    <label for="role">Роль *</label>
+                    <select id="role" name="role" required>
+                        <option value="storekeeper" {% if user.role == 'storekeeper' %}selected{% endif %}>Storekeeper</option>
+                        <option value="chief" {% if user.role == 'chief' %}selected{% endif %}>Chief</option>
+                        <option value="root" {% if user.role == 'root' %}selected{% endif %}>Root</option>
+                    </select>
+                    <small class="text-muted">Роль определяет уровень доступа</small>
+                </div>
+                
+                <div class="form-row">
+                    <label for="password">
+                        {% if form_title == 'Создание пользователя' %}
+                        Пароль *
+                        {% else %}
+                        Пароль (оставьте пустым, чтобы не менять)
+                        {% endif %}
+                    </label>
+                    <input type="password" id="password" name="password" 
+                           {% if form_title == 'Создание пользователя' %}required{% endif %}>
+                    <small class="text-muted">
+                        {% if form_title == 'Создание пользователя' %}
+                        Пароль для входа в систему
+                        {% else %}
+                        Введите новый пароль только если хотите его изменить
+                        {% endif %}
+                    </small>
+                </div>
+                
+                <div class="form-row">
+                    <label for="is_root">Root доступ</label>
+                    <div>
+                        <input type="checkbox" id="is_root" name="is_root" 
+                               value="true" {% if user.is_root %}checked{% endif %}>
+                        <label for="is_root" style="display: inline; margin-left: 8px;">
+                            Предоставить root доступ
+                        </label>
+                    </div>
+                    <small class="text-muted">Root доступ предоставляет полные права на все операции</small>
+                </div>
+            </div>
+            
+            <div class="form-row" style="margin-top: 20px;">
+                <div style="display: flex; gap: 8px;">
+                    <button type="submit" class="btn btn-primary">
+                        {% if form_title == 'Создание пользователя' %}
+                        Создать пользователя
+                        {% else %}
+                        Сохранить изменения
+                        {% endif %}
+                    </button>
+                    <a href="{% url 'users:list' %}" class="btn btn-secondary">Отмена</a>
+                </div>
+            </div>
+        </form>
+    </div>
+    
+    <!-- Справка по ролям -->
+    <div class="card mt-4">
+        <h3>Справка по ролям</h3>
+        <div class="grid-2">
+            <div>
+                <h4>Storekeeper</h4>
+                <ul>
+                    <li>Просмотр остатков на складах</li>
+                    <li>Создание операций (поступление, выдача)</li>
+                    <li>Просмотр истории операций</li>
+                    <li>Работа только с назначенными складами</li>
+                </ul>
+            </div>
+            <div>
+                <h4>Chief</h4>
+                <ul>
+                    <li>Все права Storekeeper</li>
+                    <li>Управление пользователями на складах</li>
+                    <li>Просмотр отчётов и аналитики</li>
+                    <li>Управление настройками складов</li>
+                </ul>
+            </div>
+            <div style="grid-column: span 2;">
+                <h4>Root</h4>
+                <ul>
+                    <li>Все права Chief</li>
+                    <li>Полный доступ ко всем функциям системы</li>
+                    <li>Управление всеми пользователями и складами</li>
+                    <li>Доступ к системным настройкам</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.alert-danger {
+    background: #fee2e2;
+    border: 1px solid #fca5a5;
+    color: #dc2626;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+.alert-danger h4 {
+    margin-top: 0;
+    margin-bottom: 8px;
+}
+.alert-danger ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.breadcrumb {
+    display: flex;
+    gap: 8px;
+    margin: 8px 0;
+}
+.breadcrumb-item {
+    color: var(--muted);
+}
+.breadcrumb-item.active {
+    color: var(--text);
+}
+
+.text-muted {
+    color: var(--muted);
+    font-size: 12px;
+    display: block;
+    margin-top: 4px;
+}
+
+input[type="checkbox"] {
+    width: auto;
+    display: inline-block;
+}
+
+.mt-4 {
+    margin-top: 16px;
+}
+</style>
+{% endblock %}

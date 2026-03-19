@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+
+{% block title %}SyncServer Authentication Error{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1>SyncServer Authentication Error</h1>
+    
+    <div class="error-content">
+        <div class="error-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/>
+            </svg>
+        </div>
+        
+        <div class="error-message">
+            <h2>{{ error|default:"Authentication error occurred" }}</h2>
+            
+            <p>
+                There was a problem with your SyncServer authentication. 
+                This may be due to:
+            </p>
+            
+            <ul>
+                <li>Expired authentication session</li>
+                <li>Missing SyncServer identity information</li>
+                <li>Network connectivity issues with SyncServer</li>
+                <li>Invalid or revoked user permissions</li>
+            </ul>
+        </div>
+        
+        <div class="error-actions">
+            {% if login_url %}
+            <a href="{{ login_url }}" class="btn btn-primary">
+                Log In Again
+            </a>
+            {% else %}
+            <a href="{% url 'users:login' %}" class="btn btn-primary">
+                Log In Again
+            </a>
+            {% endif %}
+            
+            <a href="{% url 'client:dashboard' %}" class="btn btn-secondary">
+                Back to Dashboard
+            </a>
+            
+            {% if request.user.is_authenticated %}
+            <form method="post" action="{% url 'users:logout' %}" style="display: inline;">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-danger">
+                    Log Out Completely
+                </button>
+            </form>
+            {% endif %}
+        </div>
+        
+        <div class="technical-details">
+            <details>
+                <summary>Technical Details</summary>
+                <div class="details-content">
+                    <p><strong>User:</strong> {{ request.user.username|default:"Not authenticated" }}</p>
+                    <p><strong>Path:</strong> {{ request.path }}</p>
+                    <p><strong>Time:</strong> {% now "DATETIME_FORMAT" %}</p>
+                    
+                    {% if request.sync_identity %}
+                    <p><strong>Sync Identity:</strong> Present</p>
+                    <p><strong>Sync User ID:</strong> {{ request.sync_identity.user_id }}</p>
+                    <p><strong>Sync Role:</strong> {{ request.sync_identity.role }}</p>
+                    {% else %}
+                    <p><strong>Sync Identity:</strong> Not found in session</p>
+                    {% endif %}
+                </div>
+            </details>
+        </div>
+    </div>
+</div>
+
+<style>
+.error-content {
+    text-align: center;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.error-icon {
+    color: #dc3545;
+    margin-bottom: 2rem;
+}
+
+.error-message {
+    margin-bottom: 2rem;
+}
+
+.error-message h2 {
+    color: #dc3545;
+    margin-bottom: 1rem;
+}
+
+.error-message p {
+    color: #666;
+    margin-bottom: 1rem;
+}
+
+.error-message ul {
+    text-align: left;
+    display: inline-block;
+    margin: 1rem auto;
+    color: #666;
+}
+
+.error-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+@media (min-width: 576px) {
+    .error-actions {
+        flex-direction: row;
+        justify-content: center;
+    }
+}
+
+.technical-details {
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid #dee2e6;
+}
+
+.technical-details summary {
+    cursor: pointer;
+    color: #007bff;
+    font-weight: 600;
+    margin-bottom: 1rem;
+}
+
+.technical-details details[open] summary {
+    margin-bottom: 1rem;
+}
+
+.details-content {
+    text-align: left;
+    background-color: #f8f9fa;
+    padding: 1rem;
+    border-radius: 8px;
+    font-family: monospace;
+    font-size: 0.875rem;
+}
+
+.details-content p {
+    margin: 0.5rem 0;
+}
+
+.btn {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    text-decoration: none;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.btn-primary {
+    background-color: #007bff;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #0056b3;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background-color: #545b62;
+}
+
+.btn-danger {
+    background-color: #dc3545;
+    color: white;
+}
+
+.btn-danger:hover {
+    background-color: #bd2130;
+}
+</style>
+{% endblock %}

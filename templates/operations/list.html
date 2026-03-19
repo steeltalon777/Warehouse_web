@@ -1,18 +1,224 @@
 {% extends "base.html" %}
 {% block title %}Операции{% endblock %}
 {% block content %}
-<div class="card">
-<h1>Операции</h1>
-<form method="get"><input name="search" value="{{ search }}" placeholder="Поиск по номеру/товару"><button type="submit">Фильтр</button></form>
-<a class="btn" href="{% url 'operations:create' %}">Создать операцию</a>
+<div class="container">
+  <div class="mb-4">
+    <h1>Операции</h1>
+    <p class="text-muted">Управление операциями перемещения товаров</p>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <div></div>
+      <a href="{% url 'operations:create' %}" class="btn btn-primary">
+        Создать операцию
+      </a>
+    </div>
+  </div>
+
+  <!-- Фильтры -->
+  <div class="card mb-4">
+    <h3>Фильтры</h3>
+    <form method="get" class="grid-2">
+      <div class="form-row">
+        <label for="search">Поиск</label>
+        <input type="text" id="search" name="search" value="{{ search }}"
+          placeholder="Поиск по ID, товару, примечаниям">
+      </div>
+      <div class="form-row">
+        <label for="status">Статус</label>
+        <select id="status" name="status">
+          <option value="">Все статусы</option>
+          <option value="draft" {% if status=='draft' %}selected{% endif %}>Черновик</option>
+          <option value="submitted" {% if status=='submitted' %}selected{% endif %}>Отправлена</option>
+          <option value="completed" {% if status=='completed' %}selected{% endif %}>Завершена</option>
+          <option value="cancelled" {% if status=='cancelled' %}selected{% endif %}>Отменена</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="type">Тип операции</label>
+        <select id="type" name="type">
+          <option value="">Все типы</option>
+          <option value="receipt" {% if type=='receipt' %}selected{% endif %}>Поступление</option>
+          <option value="issue" {% if type=='issue' %}selected{% endif %}>Выдача</option>
+          <option value="transfer" {% if type=='transfer' %}selected{% endif %}>Перемещение</option>
+          <option value="adjustment" {% if type=='adjustment' %}selected{% endif %}>Корректировка</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="limit">На странице</label>
+        <select id="limit" name="limit">
+          <option value="10" {% if limit==10 %}selected{% endif %}>10</option>
+          <option value="20" {% if limit==20 %}selected{% endif %}>20</option>
+          <option value="50" {% if limit==50 %}selected{% endif %}>50</option>
+          <option value="100" {% if limit==100 %}selected{% endif %}>100</option>
+        </select>
+      </div>
+      <div class="form-row" style="grid-column: span 2;">
+        <div style="display: flex; gap: 8px;">
+          <button type="submit" class="btn btn-primary">Применить фильтры</button>
+          <a href="{% url 'operations:list' %}" class="btn btn-secondary">Сбросить</a>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- Таблица операций -->
+  <div class="card">
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Тип</th>
+            <th>Товар</th>
+            <th>Количество</th>
+            <th>Статус</th>
+            <th>Склад</th>
+            <th>Создано</th>
+            <th>Действия</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for op in operations %}
+          <tr>
+            <td>
+              <a href="{% url 'operations:detail' op.id %}">
+                {{ op.id|truncatechars:12 }}
+              </a>
+            </td>
+            <td>
+              <span class="badge
+                                {% if op.type == 'receipt' %}bg-success
+                                {% elif op.type == 'issue' %}bg-warning
+                                {% elif op.type == 'transfer' %}bg-info
+                                {% elif op.type == 'adjustment' %}bg-secondary
+                                {% else %}bg-light text-dark{% endif %}">
+                {{ op.type|default:"Не указан" }}
+              </span>
+            </td>
+            <td>{{ op.item_name|default:op.item_id|truncatechars:20 }}</td>
+            <td>{{ op.quantity|default:"0" }}</td>
+            <td>
+              <span class="badge
+                                {% if op.status == 'draft' %}bg-secondary
+                                {% elif op.status == 'submitted' %}bg-primary
+                                {% elif op.status == 'completed' %}bg-success
+                                {% elif op.status == 'cancelled' %}bg-danger
+                                {% else %}bg-warning{% endif %}">
+                {{ op.status|default:"Неизвестно" }}
+              </span>
+            </td>
+            <td>{{ op.site_id|truncatechars:15 }}</td>
+            <td>{{ op.created_at|default:"-" }}</td>
+            <td>
+              <div style="display: flex; gap: 4px;">
+                <a href="{% url 'operations:detail' op.id %}" class="btn btn-small" title="Просмотр">
+                  👁️
+                </a>
+                {% if op.status == 'draft' %}
+                <form method="post" action="{% url 'operations:submit' op.id %}" style="margin: 0;">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-small btn-success" title="Отправить">
+                    📤
+                  </button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="8" style="text-align: center; padding: 32px; color: var(--muted);">
+              Нет операций для отображения
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Пагинация -->
+    {% if operations %}
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+      <div class="text-muted">
+        Показано {{ operations|length }} операций
+      </div>
+      <div style="display: flex; gap: 8px;">
+        {% if offset > 0 %}
+        <a class="btn btn-secondary"
+          href="?search={{ search }}&status={{ status }}&type={{ type }}&limit={{ limit }}&offset={{ prev_offset }}">
+          ← Назад
+        </a>
+        {% endif %}
+        <a class="btn btn-secondary"
+          href="?search={{ search }}&status={{ status }}&type={{ type }}&limit={{ limit }}&offset={{ next_offset }}">
+          Вперёд →
+        </a>
+      </div>
+    </div>
+    {% endif %}
+  </div>
 </div>
-<div class="card">
-<table><tr><th>ID</th><th>Тип</th><th>Товар</th><th>Количество</th><th>Автор</th><th>Создано</th></tr>
-{% for op in operations %}<tr><td><a href="{% url 'operations:detail' op.id %}">{{ op.id }}</a></td><td>{{ op.operation_type|default:op.type }}</td><td>{{ op.item_name|default:op.item_id }}</td><td>{{ op.quantity }}</td><td>{{ op.created_by_name|default:op.created_by }}</td><td>{{ op.created_at }}</td></tr>{% empty %}<tr><td colspan="6">Нет данных.</td></tr>{% endfor %}
-</table>
-<div class="toolbar">
-  <a href="?search={{ search }}&limit={{ limit }}&offset={{ prev_offset }}">← Назад</a>
-  <a href="?search={{ search }}&limit={{ limit }}&offset={{ next_offset }}">Вперёд →</a>
-</div>
-</div>
+
+<style>
+  .badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .bg-secondary {
+    background: #6b7280;
+    color: white;
+  }
+
+  .bg-primary {
+    background: #1d4ed8;
+    color: white;
+  }
+
+  .bg-success {
+    background: #10b981;
+    color: white;
+  }
+
+  .bg-danger {
+    background: #dc2626;
+    color: white;
+  }
+
+  .bg-warning {
+    background: #f59e0b;
+    color: white;
+  }
+
+  .bg-info {
+    background: #0ea5e9;
+    color: white;
+  }
+
+  .bg-light {
+    background: #f3f4f6;
+    color: #1f2937;
+  }
+
+  .btn-success {
+    background: #10b981;
+    color: white;
+  }
+
+  .btn-success:hover {
+    background: #0da271;
+  }
+
+  .table-responsive {
+    overflow-x: auto;
+  }
+
+  .text-muted {
+    color: var(--muted);
+  }
+</style>
 {% endblock %}

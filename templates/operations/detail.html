@@ -1,15 +1,267 @@
 {% extends "base.html" %}
 {% block title %}Операция{% endblock %}
 {% block content %}
-<div class="card">
-  <h1>Операция {{ operation.id }}</h1>
+<div class="container">
+  <div class="mb-4">
+    <h1>Операция {{ operation.id }}</h1>
+    <nav class="breadcrumb">
+      <a href="{% url 'operations:list' %}" class="breadcrumb-item">Операции</a>
+      <span class="breadcrumb-item active">{{ operation.id|truncatechars:20 }}</span>
+    </nav>
+  </div>
   {% if operation %}
-  <p>Тип: {{ operation.operation_type|default:operation.type }}</p>
-  <p>Товар: {{ operation.item_name|default:operation.item_id }}</p>
-  <p>Количество: {{ operation.quantity }}</p>
-  <p>Статус: {{ operation.status }}</p>
+  <div class="grid-2">
+    <div>
+      <div class="card mb-4">
+        <h3>Основная информация</h3>
+        <div class="form-row">
+          <label>Тип операции:</label>
+          <div class="kpi">{{ operation.type|default:"Не указан" }}</div>
+        </div>
+        <div class="form-row">
+          <label>Статус:</label>
+          <div>
+            <span class="badge
+                            {% if operation.status == 'draft' %}bg-secondary
+                            {% elif operation.status == 'submitted' %}bg-primary
+                            {% elif operation.status == 'completed' %}bg-success
+                            {% elif operation.status == 'cancelled' %}bg-danger
+                            {% else %}bg-warning{% endif %}">
+              {{ operation.status|default:"Неизвестно" }}
+            </span>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>ID товара:</label>
+          <div>{{ operation.item_id|default:"Не указан" }}</div>
+        </div>
+        <div class="form-row">
+          <label>Количество:</label>
+          <div class="kpi">{{ operation.quantity|default:"0" }}</div>
+        </div>
+        <div class="form-row">
+          <label>Склад:</label>
+          <div>{{ operation.site_id|default:"Не указан" }}</div>
+        </div>
+        {% if operation.target_site_id %}
+        <div class="form-row">
+          <label>Целевой склад:</label>
+          <div>{{ operation.target_site_id }}</div>
+        </div>
+        {% endif %}
+        <div class="form-row">
+          <label>Единица измерения:</label>
+          <div>{{ operation.unit_id|default:"Не указана" }}</div>
+        </div>
+        <div class="form-row">
+          <label>Дата создания:</label>
+          <div>{{ operation.created_at|default:"Не указана" }}</div>
+        </div>
+        <div class="form-row">
+          <label>Дата обновления:</label>
+          <div>{{ operation.updated_at|default:"Не указана" }}</div>
+        </div>
+
+        {% if operation.notes %}
+        <div class="form-row">
+          <label>Примечания:</label>
+          <div class="text-muted">{{ operation.notes }}</div>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Дополнительные данные -->
+      {% if operation.metadata or operation.tags %}
+      <div class="card">
+        <h3>Дополнительная информация</h3>
+        {% if operation.metadata %}
+        <div class="form-row">
+          <label>Метаданные:</label>
+          <pre class="bg-light p-3">{{ operation.metadata|pprint }}</pre>
+        </div>
+        {% endif %}
+
+        {% if operation.tags %}
+        <div class="form-row">
+          <label>Теги:</label>
+          <div>
+            {% for tag in operation.tags %}
+            <span class="badge bg-info me-1">{{ tag }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div>
+      <!-- Действия -->
+      <div class="card mb-4">
+        <h3>Действия</h3>
+        <div class="form-row">
+          {% if operation.status == 'draft' %}
+          <form method="post" action="{% url 'operations:submit' operation.id %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary w-100 mb-2">
+              Отправить на обработку
+            </button>
+          </form>
+          {% endif %}
+
+          {% if operation.status == 'draft' or operation.status == 'submitted' %}
+          <form method="post" action="{% url 'operations:cancel' operation.id %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger w-100 mb-2"
+              onclick="return confirm('Вы уверены, что хотите отменить эту операцию?')">
+              Отменить операцию
+            </button>
+          </form>
+          {% endif %}
+
+          <a href="{% url 'operations:list' %}" class="btn btn-secondary w-100">
+            Вернуться к списку
+          </a>
+        </div>
+      </div>
+
+      <!-- Статус операции -->
+      <div class="card">
+        <h3>Статус операции</h3>
+        <div class="progress mb-3">
+          {% if operation.status == 'draft' %}
+          <div class="progress-bar bg-secondary" style="width: 25%">Черновик</div>
+          {% elif operation.status == 'submitted' %}
+          <div class="progress-bar bg-primary" style="width: 50%">Отправлена</div>
+          {% elif operation.status == 'completed' %}
+          <div class="progress-bar bg-success" style="width: 100%">Завершена</div>
+          {% elif operation.status == 'cancelled' %}
+          <div class="progress-bar bg-danger" style="width: 100%">Отменена</div>
+          {% endif %}
+        </div>
+
+        <ul class="list-unstyled">
+          <li class="mb-2">
+            <span class="badge bg-secondary me-2">●</span>
+            Черновик - операция создана, но не отправлена
+          </li>
+          <li class="mb-2">
+            <span class="badge bg-primary me-2">●</span>
+            Отправлена - операция отправлена на обработку
+          </li>
+          <li class="mb-2">
+            <span class="badge bg-success me-2">●</span>
+            Завершена - операция успешно выполнена
+          </li>
+          <li>
+            <span class="badge bg-danger me-2">●</span>
+            Отменена - операция отменена
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
   {% else %}
-  <p>Данные операции недоступны.</p>
+  <div class="card">
+    <h3>Данные операции недоступны</h3>
+    <p>Не удалось загрузить информацию об операции. Возможно, операция была удалена или у вас нет к ней доступа.</p>
+    <a href="{% url 'operations:list' %}" class="btn btn-secondary">Вернуться к списку операций</a>
+  </div>
   {% endif %}
 </div>
+
+<style>
+  .badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .bg-secondary {
+    background: #6b7280;
+    color: white;
+  }
+
+  .bg-primary {
+    background: #1d4ed8;
+    color: white;
+  }
+
+  .bg-success {
+    background: #10b981;
+    color: white;
+  }
+
+  .bg-danger {
+    background: #dc2626;
+    color: white;
+  }
+
+  .bg-warning {
+    background: #f59e0b;
+    color: white;
+  }
+
+  .bg-info {
+    background: #0ea5e9;
+    color: white;
+  }
+
+  .progress {
+    height: 20px;
+    background: #e5e7eb;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .progress-bar {
+    height: 100%;
+    text-align: center;
+    font-size: 12px;
+    line-height: 20px;
+    color: white;
+  }
+
+  .breadcrumb {
+    display: flex;
+    gap: 8px;
+    margin: 8px 0;
+  }
+
+  .breadcrumb-item {
+    color: var(--muted);
+  }
+
+  .breadcrumb-item.active {
+    color: var(--text);
+  }
+
+  .w-100 {
+    width: 100%;
+  }
+
+  .mb-2 {
+    margin-bottom: 8px;
+  }
+
+  .mb-3 {
+    margin-bottom: 12px;
+  }
+
+  .mb-4 {
+    margin-bottom: 16px;
+  }
+
+  .me-1 {
+    margin-right: 4px;
+  }
+
+  .me-2 {
+    margin-right: 8px;
+  }
+</style>
 {% endblock %}

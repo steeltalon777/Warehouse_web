@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}{{ form_title }}{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="mb-4">
+        <h1>{{ form_title }}</h1>
+        <nav class="breadcrumb">
+            <a href="{% url 'users:sites_list' %}" class="breadcrumb-item">Склады</a>
+            <span class="breadcrumb-item active">{{ form_title }}</span>
+        </nav>
+    </div>
+
+    <div class="card">
+        <form method="post" action="{{ action_url }}">
+            {% csrf_token %}
+            
+            {% if errors %}
+            <div class="alert alert-danger">
+                <h4>Ошибки:</h4>
+                <ul>
+                    {% for error in errors %}
+                    <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            
+            <div class="grid-2">
+                <!-- Основные поля -->
+                <div class="form-row">
+                    <label for="name">Название склада *</label>
+                    <input type="text" id="name" name="name" 
+                           value="{{ site.name|default:'' }}" 
+                           required placeholder="Основной склад">
+                    <small class="text-muted">Полное название склада</small>
+                </div>
+                
+                <div class="form-row">
+                    <label for="code">Код склада *</label>
+                    <input type="text" id="code" name="code" 
+                           value="{{ site.code|default:'' }}" 
+                           required placeholder="MAIN">
+                    <small class="text-muted">Короткий уникальный код склада</small>
+                </div>
+                
+                <div class="form-row" style="grid-column: span 2;">
+                    <label for="description">Описание</label>
+                    <textarea id="description" name="description" 
+                              rows="3" placeholder="Описание склада...">{{ site.description|default:'' }}</textarea>
+                    <small class="text-muted">Подробное описание склада</small>
+                </div>
+                
+                <div class="form-row" style="grid-column: span 2;">
+                    <label for="address">Адрес</label>
+                    <textarea id="address" name="address" 
+                              rows="2" placeholder="Адрес склада...">{{ site.address|default:'' }}</textarea>
+                    <small class="text-muted">Физический адрес склада</small>
+                </div>
+                
+                <div class="form-row">
+                    <label for="timezone">Часовой пояс</label>
+                    <select id="timezone" name="timezone">
+                        <option value="Europe/Moscow" {% if site.timezone == 'Europe/Moscow' %}selected{% endif %}>Москва (Europe/Moscow)</option>
+                        <option value="Europe/London" {% if site.timezone == 'Europe/London' %}selected{% endif %}>Лондон (Europe/London)</option>
+                        <option value="America/New_York" {% if site.timezone == 'America/New_York' %}selected{% endif %}>Нью-Йорк (America/New_York)</option>
+                        <option value="Asia/Tokyo" {% if site.timezone == 'Asia/Tokyo' %}selected{% endif %}>Токио (Asia/Tokyo)</option>
+                        <option value="Australia/Sydney" {% if site.timezone == 'Australia/Sydney' %}selected{% endif %}>Сидней (Australia/Sydney)</option>
+                    </select>
+                    <small class="text-muted">Часовой пояс для операций на складе</small>
+                </div>
+            </div>
+            
+            <div class="form-row" style="margin-top: 20px;">
+                <div style="display: flex; gap: 8px;">
+                    <button type="submit" class="btn btn-primary">
+                        {% if form_title == 'Создание склада' %}
+                        Создать склад
+                        {% else %}
+                        Сохранить изменения
+                        {% endif %}
+                    </button>
+                    <a href="{% url 'users:sites_list' %}" class="btn btn-secondary">Отмена</a>
+                </div>
+            </div>
+        </form>
+    </div>
+    
+    <!-- Справка по складам -->
+    <div class="card mt-4">
+        <h3>Справка по складам</h3>
+        <div class="grid-2">
+            <div>
+                <h4>Название и код</h4>
+                <ul>
+                    <li><strong>Название</strong> - полное название склада, отображается в интерфейсе</li>
+                    <li><strong>Код</strong> - короткий уникальный идентификатор (например, MAIN, WH1, STORE)</li>
+                    <li>Код используется в отчётах и API запросах</li>
+                </ul>
+            </div>
+            <div>
+                <h4>Часовой пояс</h4>
+                <ul>
+                    <li>Определяет временную зону для операций на складе</li>
+                    <li>Влияет на отображение времени в отчётах</li>
+                    <li>Рекомендуется использовать часовой пояс местоположения склада</li>
+                </ul>
+            </div>
+            <div style="grid-column: span 2;">
+                <h4>Описание и адрес</h4>
+                <ul>
+                    <li><strong>Описание</strong> - дополнительная информация о назначении склада</li>
+                    <li><strong>Адрес</strong> - физическое местоположение склада</li>
+                    <li>Эти поля используются для справочной информации и отчётов</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.alert-danger {
+    background: #fee2e2;
+    border: 1px solid #fca5a5;
+    color: #dc2626;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+.alert-danger h4 {
+    margin-top: 0;
+    margin-bottom: 8px;
+}
+.alert-danger ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.breadcrumb {
+    display: flex;
+    gap: 8px;
+    margin: 8px 0;
+}
+.breadcrumb-item {
+    color: var(--muted);
+}
+.breadcrumb-item.active {
+    color: var(--text);
+}
+
+.text-muted {
+    color: var(--muted);
+    font-size: 12px;
+    display: block;
+    margin-top: 4px;
+}
+
+textarea {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    background: #ffffff;
+    font-family: inherit;
+    resize: vertical;
+}
+
+.mt-4 {
+    margin-top: 16px;
+}
+</style>
+{% endblock %}

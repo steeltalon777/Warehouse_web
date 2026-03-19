@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}Switch Site - SyncServer{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1>Switch SyncServer Site</h1>
+    
+    {% if error %}
+    <div class="alert alert-error">
+        {{ error }}
+    </div>
+    {% endif %}
+    
+    <div class="user-info">
+        <p><strong>User:</strong> {{ identity.user_id }}</p>
+        <p><strong>Role:</strong> {{ identity.role }}</p>
+        <p><strong>Current Site:</strong> {{ identity.site_id|default:"Not set" }}</p>
+    </div>
+    
+    <h2>Available Sites</h2>
+    
+    {% if identity.available_sites %}
+    <form method="post" class="site-switch-form">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ next }}">
+        
+        <div class="site-list">
+            {% for site in identity.available_sites %}
+            <div class="site-option">
+                <label>
+                    <input type="radio" name="site_id" value="{{ site.id }}" 
+                           {% if site.id == identity.site_id %}checked{% endif %}>
+                    <div class="site-card">
+                        <h3>{{ site.name|default:site.id }}</h3>
+                        <p><strong>ID:</strong> {{ site.id }}</p>
+                        {% if site.code %}<p><strong>Code:</strong> {{ site.code }}</p>{% endif %}
+                        {% if site.description %}<p>{{ site.description }}</p>{% endif %}
+                    </div>
+                </label>
+            </div>
+            {% endfor %}
+        </div>
+        
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Switch to Selected Site</button>
+            <a href="{% if next %}{{ next }}{% else %}{% url 'client:dashboard' %}{% endif %}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+    {% else %}
+    <div class="alert alert-warning">
+        No sites available for your account.
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.site-switch-form {
+    margin-top: 2rem;
+}
+
+.site-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.site-option input[type="radio"] {
+    display: none;
+}
+
+.site-option input[type="radio"]:checked + .site-card {
+    border-color: #007bff;
+    background-color: #f8f9fa;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+}
+
+.site-card {
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    padding: 1.5rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background-color: white;
+}
+
+.site-card:hover {
+    border-color: #adb5bd;
+    transform: translateY(-2px);
+}
+
+.site-card h3 {
+    margin-top: 0;
+    color: #333;
+}
+
+.site-card p {
+    margin: 0.5rem 0;
+    color: #666;
+}
+
+.user-info {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 2rem;
+}
+
+.user-info p {
+    margin: 0.5rem 0;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+</style>
+{% endblock %}
