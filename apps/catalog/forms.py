@@ -16,12 +16,15 @@ class CategoryForm(forms.Form):
 
     def clean_parent_id(self):
         value = self.cleaned_data.get("parent_id")
-        return value or None
+        if value in (None, ""):
+            return None
+        return int(value)
 
 
 class UnitForm(forms.Form):
-    code = forms.CharField(max_length=20)
     name = forms.CharField(max_length=100)
+    symbol = forms.CharField(max_length=20)
+    sort_order = forms.IntegerField(required=False)
     is_active = forms.BooleanField(required=False, initial=True)
 
 
@@ -35,16 +38,30 @@ class ItemForm(forms.Form):
     def __init__(self, *args, categories=None, units=None, **kwargs):
         super().__init__(*args, **kwargs)
 
-        category_choices = [("", "— Без категории —")]
+        category_choices = [("", "— Автоматически: Без категории —")]
         category_choices.extend((str(item["id"]), item["name"]) for item in (categories or []))
         self.fields["category_id"].choices = category_choices
+        self.fields["category_id"].help_text = (
+            'Если категорию не выбрать, товар будет сохранён в системную категорию "Без категории".'
+        )
 
         unit_choices = [
-            (str(item["id"]), f'{item["code"]} — {item["name"]}')
+            (
+                str(item["id"]),
+                f'{item.get("symbol") or item.get("code") or "?"} — {item["name"]}',
+            )
             for item in (units or [])
         ]
         self.fields["unit_id"].choices = unit_choices
 
     def clean_category_id(self):
         value = self.cleaned_data.get("category_id")
-        return value or None
+        if value in (None, ""):
+            return None
+        return int(value)
+
+    def clean_unit_id(self):
+        value = self.cleaned_data.get("unit_id")
+        if value in (None, ""):
+            raise forms.ValidationError("Выберите единицу измерения.")
+        return int(value)

@@ -1,30 +1,5 @@
 """
-Balances API client module for SyncServer balances endpoints.
-
-This module provides high-level methods for interacting with SyncServer
-balances API using the base SyncServerClient.
-
-Balances represent current inventory quantities for items at specific sites.
-
-Usage:
-    from apps.sync_client.client import SyncServerClient
-    from apps.sync_client.balances_api import BalancesAPI
-    
-    client = SyncServerClient(user_id="user-123", site_id="site-456")
-    balances_api = BalancesAPI(client)
-    
-    # List balances with filters
-    balances = balances_api.list_balances(filters={
-        "item_id": "item-123",
-        "site_id": "site-456",
-        "min_quantity": 5
-    })
-    
-    # Get balances summary
-    summary = balances_api.get_balances_summary(filters={"site_id": "site-456"})
-    
-    # Get balances for specific item
-    item_balances = balances_api.get_balances_by_item("item-123")
+Balances API client for SyncServer v2 balances endpoints.
 """
 
 from __future__ import annotations
@@ -33,224 +8,129 @@ import logging
 from typing import Any, Optional
 
 from .client import SyncServerClient
-from .exceptions import SyncServerAPIError
 
 logger = logging.getLogger(__name__)
 
 
 class BalancesAPI:
-    """
-    High-level client for SyncServer balances API.
-    
-    This class provides convenient methods for inventory balance queries
-    including listing, summarization, and item-specific balances.
-    
-    Attributes:
-        client (SyncServerClient): Underlying HTTP client instance
-    """
-    
     def __init__(self, client: Optional[SyncServerClient] = None) -> None:
-        """
-        Initialize BalancesAPI client.
-        
-        Args:
-            client: Optional SyncServerClient instance. If not provided,
-                   a new instance will be created with default settings.
-        """
         self.client = client or SyncServerClient()
         logger.debug("BalancesAPI client initialized")
-    
+
     def list_balances(
         self,
         filters: Optional[dict[str, Any]] = None,
         *,
+        page: int = 1,
+        page_size: int = 100,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
-    ) -> list[dict[str, Any]]:
-        """
-        Get list of inventory balances with optional filtering.
-        
-        Endpoint: GET /balances
-        
-        Args:
-            filters: Optional filters for balances (e.g., item_id, site_id, min_quantity, max_quantity)
-            acting_user_id: Optional acting user ID override
-            acting_site_id: Optional acting site ID override
-            
-        Returns:
-            list: List of balance dictionaries
-            
-        Raises:
-            SyncAPIError: If the API request fails
-            
-        Example:
-            >>> balances_api = BalancesAPI()
-            >>> # Get all balances for specific site
-            >>> balances = balances_api.list_balances(filters={"site_id": "site-456"})
-            >>> # Get balances for specific item
-            >>> balances = balances_api.list_balances(filters={"item_id": "item-123"})
-            >>> # Get low stock items (quantity < 10)
-            >>> balances = balances_api.list_balances(filters={"max_quantity": 10})
-            >>> # Get well-stocked items (quantity > 50)
-            >>> balances = balances_api.list_balances(filters={"min_quantity": 50})
-        """
-        logger.debug(
-            "Fetching balances list",
-            extra={"filters": filters or {}}
-        )
-        
+    ) -> dict[str, Any]:
         params = self._build_filter_params(filters)
+        params["page"] = page
+        params["page_size"] = page_size
+
         response = self.client.get(
             "/balances",
             params=params,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
-        
-        # Handle different response formats
-        if isinstance(response, dict) and "balances" in response:
-            return response["balances"]
-        elif isinstance(response, list):
-            return response
-        else:
-            logger.warning(
-                "Unexpected response format from /balances",
-                extra={"response_type": type(response).__name__}
-            )
-            return []
-    
-    def get_balances_summary(
+        return self._normalize_list_response(response)
+
+    def by_site(
         self,
-        filters: Optional[dict[str, Any]] = None,
         *,
+        site_id: str | int,
+        only_positive: bool = False,
+        page: int = 1,
+        page_size: int = 100,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
     ) -> dict[str, Any]:
-        """
-        Get summary statistics for inventory balances.
-        
-        Endpoint: GET /balances/summary
-        
-        Args:
-            filters: Optional filters for summary (e.g., site_id)
-            acting_user_id: Optional acting user ID override
-            acting_site_id: Optional acting site ID override
-            
-        Returns:
-            dict: Balance summary information
-            
-        Raises:
-            SyncAPIError: If the API request fails
-            
-        Example:
-            >>> balances_api = BalancesAPI()
-            >>> # Get overall summary
-            >>> summary = balances_api.get_balances_summary()
-            >>> # Get summary for specific site
-            >>> summary = balances_api.get_balances_summary(filters={"site_id": "site-456"})
-            >>> # Summary might include:
-            >>> # {
-            >>> #     "total_items": 150,
-            >>> #     "total_quantity": 1250.5,
-            >>> #     "low_stock_items": 12,
-            >>> #     "out_of_stock_items": 3,
-            >>> #     "by_site": {...}
-            >>> # }
-        """
-        logger.debug(
-            "Fetching balances summary",
-            extra={"filters": filters or {}}
-        )
-        
-        params = self._build_filter_params(filters)
-        return self.client.get(
-            "/balances/summary",
+        params = {
+            "site_id": site_id,
+            "only_positive": only_positive,
+            "page": page,
+            "page_size": page_size,
+        }
+        response = self.client.get(
+            "/balances/by-site",
             params=params,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
-    
+        return self._normalize_list_response(response)
+
+    def get_balances_summary(
+        self,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        response = self.client.get(
+            "/balances/summary",
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+        return response if isinstance(response, dict) else {}
+
     def get_balances_by_item(
         self,
-        item_id: str,
+        item_id: str | int,
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
     ) -> list[dict[str, Any]]:
-        """
-        Get balances for specific item across all sites.
-        
-        Endpoint: GET /balances/items/{item_id}
-        
-        Args:
-            item_id: Item identifier
-            acting_user_id: Optional acting user ID override
-            acting_site_id: Optional acting site ID override
-            
-        Returns:
-            list: List of balance dictionaries for the item
-            
-        Raises:
-            SyncAPIError: If the API request fails
-            
-        Example:
-            >>> balances_api = BalancesAPI()
-            >>> # Get balances for specific item across all sites
-            >>> item_balances = balances_api.get_balances_by_item("item-123")
-            >>> for balance in item_balances:
-            ...     print(f"Site: {balance['site_id']}, Quantity: {balance['quantity']}")
-        """
-        logger.debug("Fetching balances by item", extra={"item_id": item_id})
         response = self.client.get(
             f"/balances/items/{item_id}",
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
-        
-        # Handle different response formats
+        if isinstance(response, dict) and "items" in response:
+            return response["items"]
         if isinstance(response, dict) and "balances" in response:
             return response["balances"]
-        elif isinstance(response, list):
+        if isinstance(response, list):
             return response
-        else:
-            logger.warning(
-                f"Unexpected response format from /balances/items/{item_id}",
-                extra={"response_type": type(response).__name__}
-            )
-            return []
-    
-    # ---------- HELPER METHODS ----------
-    
-    def _build_filter_params(self, filters: Optional[dict[str, Any]]) -> dict[str, Any]:
-        """
-        Build query parameters from filters dictionary.
-        
-        Args:
-            filters: Dictionary of filter criteria
-            
-        Returns:
-            dict: Query parameters for HTTP request
-        """
+        logger.warning(
+            "Unexpected response format from balances by item",
+            extra={"response_type": type(response).__name__},
+        )
+        return []
+
+    @staticmethod
+    def _build_filter_params(filters: Optional[dict[str, Any]]) -> dict[str, Any]:
         if not filters:
             return {}
-        
-        params = {}
-        for key, value in filters.items():
-            if value is not None:
-                params[key] = value
-        
-        return params
+        return {key: value for key, value in filters.items() if value is not None and value != ""}
+
+    @staticmethod
+    def _normalize_list_response(response: Any) -> dict[str, Any]:
+        if isinstance(response, dict):
+            if "items" in response:
+                return response
+            if "balances" in response:
+                balances = response["balances"]
+                return {
+                    "items": balances if isinstance(balances, list) else [],
+                    "total_count": len(balances) if isinstance(balances, list) else 0,
+                    "page": response.get("page", 1),
+                    "page_size": response.get("page_size", len(balances) if isinstance(balances, list) else 0),
+                }
+        if isinstance(response, list):
+            return {
+                "items": response,
+                "total_count": len(response),
+                "page": 1,
+                "page_size": len(response),
+            }
+        logger.warning(
+            "Unexpected balances list response format",
+            extra={"response_type": type(response).__name__},
+        )
+        return {"items": [], "total_count": 0, "page": 1, "page_size": 0}
 
 
-# Convenience function for quick usage
 def get_balances_api(client: Optional[SyncServerClient] = None) -> BalancesAPI:
-    """
-    Get a BalancesAPI instance.
-    
-    Args:
-        client: Optional SyncServerClient instance
-        
-    Returns:
-        BalancesAPI instance
-    """
     return BalancesAPI(client=client)

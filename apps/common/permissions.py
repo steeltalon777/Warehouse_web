@@ -34,6 +34,10 @@ def _get_role(user):
     return None
 
 
+def get_user_role(user):
+    return _get_role(user)
+
+
 def has_profile(user):
     return _get_profile(user) is not None
 
@@ -54,6 +58,12 @@ def is_storekeeper(user):
     if user.is_superuser:
         return True
     return user.is_authenticated and _get_role(user) == "storekeeper"
+
+
+def is_observer(user):
+    if user.is_superuser:
+        return False
+    return user.is_authenticated and _get_role(user) == "observer"
 
 
 def can_manage_catalog(user):

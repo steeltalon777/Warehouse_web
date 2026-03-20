@@ -32,14 +32,14 @@ class CatalogService:
             )
 
     def list_categories(self) -> ServiceResult:
-        return self._exec(self.catalog_api.list_categories, updated_after=None, limit=500)
+        return self._exec(self.catalog_api.list_categories, filters={"limit": 500})
 
     def list_units(self) -> ServiceResult:
-        return self._exec(self.catalog_api.list_units, updated_after=None, limit=500)
+        return self._exec(self.catalog_api.list_units, filters={"limit": 500})
 
     def list_items(self, *, category_id: str | None = None, search: str | None = None) -> ServiceResult:
         def _load():
-            items = self.catalog_api.list_items(updated_after=None, limit=500)
+            items = self.catalog_api.list_items(filters={"limit": 500})
 
             if category_id:
                 items = [i for i in items if str(i.get("category_id")) == str(category_id)]
@@ -51,6 +51,57 @@ class CatalogService:
             return items
 
         return self._exec(_load)
+
+    def browse_items(
+        self,
+        *,
+        category_id: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> ServiceResult:
+        filters = {
+            "search": search,
+            "category_id": category_id,
+            "page": page,
+            "page_size": page_size,
+        }
+        return self._exec(self.catalog_api.browse_items, filters=filters)
+
+    def browse_categories(
+        self,
+        *,
+        search: str | None = None,
+        parent_id: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        include: str | None = None,
+        items_preview_limit: int = 5,
+    ) -> ServiceResult:
+        filters = {
+            "search": search,
+            "parent_id": parent_id,
+            "page": page,
+            "page_size": page_size,
+            "include": include,
+            "items_preview_limit": items_preview_limit,
+        }
+        return self._exec(self.catalog_api.browse_categories, filters=filters)
+
+    def browse_category_items(
+        self,
+        category_id: str,
+        *,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> ServiceResult:
+        filters = {
+            "search": search,
+            "page": page,
+            "page_size": page_size,
+        }
+        return self._exec(self.catalog_api.browse_category_items, category_id, filters=filters)
 
     def categories_tree(self) -> ServiceResult:
         return self._exec(self.catalog_api.categories_tree)

@@ -27,12 +27,16 @@
 - root admin flows use the root token
 - per-user runtime flows use `SyncUserBinding.sync_user_token`
 - Django admin drives root-managed user and site operations
+- catalog browse pages use `/catalog/read/items` and `/catalog/read/categories`
+- nomenclature management uses separate Django routes under `/nomenclature/`
 
 ## Business Rules
 
 - Django must not implement warehouse business logic independently
-- catalog master data is currently global
-- `site_id` is currently an access context for catalog reads, not a real data partition
+- catalog master data is global for the whole organization
+- read-only catalog is separate from nomenclature management
+- nomenclature is a dedicated management section for chief/root
+- `site_id` in catalog browse calls is only access context, not a real data partition
 - final permission enforcement still happens in SyncServer
 
 ## Known Pitfalls

@@ -37,14 +37,8 @@ class SyncManagedUserAdminForm(UserChangeForm):
     )
     full_name = forms.CharField(label="ФИО", max_length=255, required=False)
     sync_role = forms.ChoiceField(label="Роль", choices=MANAGED_ROLE_CHOICES)
-    site_ids = forms.MultipleChoiceField(
-        label="Склады",
-        choices=[],
-        required=True,
-        widget=forms.SelectMultiple(attrs={"size": 8}),
-    )
     default_site_id = forms.ChoiceField(
-        label="Склад по умолчанию",
+        label="Склад",
         choices=[],
         required=True,
     )
@@ -67,7 +61,6 @@ class SyncManagedUserAdminForm(UserChangeForm):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.service = UserSyncService()
-        self.fields["site_ids"].choices = self.site_choices
         self.fields["default_site_id"].choices = self.site_choices
         self.fields["password"].help_text = ""
         self.fields["password"].initial = ""
@@ -77,7 +70,6 @@ class SyncManagedUserAdminForm(UserChangeForm):
         binding = self._get_binding()
         if binding:
             self.fields["sync_role"].initial = binding.sync_role
-            self.fields["site_ids"].initial = [str(site_id) for site_id in binding.site_ids]
             self.fields["default_site_id"].initial = str(binding.default_site_id or "")
             self.fields["sync_user_token"].initial = binding.sync_user_token
 
@@ -93,19 +85,16 @@ class SyncManagedUserAdminForm(UserChangeForm):
                 raise ValidationError("Пароли не совпадают.")
 
         role = cleaned_data.get("sync_role")
-        site_ids = [str(site_id) for site_id in cleaned_data.get("site_ids") or []]
         default_site_id = str(cleaned_data.get("default_site_id") or "")
 
         if not role:
             raise ValidationError("Роль обязательна.")
         if role == Role.ROOT:
             raise ValidationError("Root-пользователи не управляются через Django-admin.")
-        if not site_ids:
-            raise ValidationError("Нужно выбрать хотя бы один склад.")
         if not default_site_id:
-            raise ValidationError("Нужно выбрать склад по умолчанию.")
-        if default_site_id not in site_ids:
-            raise ValidationError("Склад по умолчанию должен входить в выбранные склады.")
+            raise ValidationError("Нужно выбрать склад.")
+
+        site_ids = [default_site_id]
 
         self.instance.username = cleaned_data.get("username") or self.instance.username
         self.instance.email = cleaned_data.get("email") or ""

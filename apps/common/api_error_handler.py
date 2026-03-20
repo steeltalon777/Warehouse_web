@@ -70,7 +70,7 @@ class APIErrorHandler:
             "status_code": error.status_code,
             "method": error.method,
             "path": error.path,
-            "message": str(error),
+            "error_message": str(error),
             **context,
         }
         
@@ -131,7 +131,7 @@ class APIErrorHandler:
         error_details = {
             "operation": operation,
             "error_type": error.__class__.__name__,
-            "message": str(error),
+            "error_message": str(error),
             **context,
         }
         
@@ -220,9 +220,20 @@ def handle_api_errors(
     """
     def decorator(view_func: F) -> F:
         @wraps(view_func)
-        def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        def wrapper(*args: Any, **kwargs: Any) -> HttpResponse:
             handler = APIErrorHandler()
             context = log_context or {}
+            request: HttpRequest | None = None
+
+            if args:
+                first = args[0]
+                if isinstance(first, HttpRequest):
+                    request = first
+                elif len(args) > 1 and isinstance(args[1], HttpRequest):
+                    request = args[1]
+
+            if request is None:
+                raise TypeError("handle_api_errors could not resolve HttpRequest argument")
             
             try:
                 # Apply retry logic if requested
@@ -231,9 +242,9 @@ def handle_api_errors(
                         view_func,
                         max_retries=max_retries
                     )
-                    return retry_func(request, *args, **kwargs)
+                    return retry_func(*args, **kwargs)
                 else:
-                    return view_func(request, *args, **kwargs)
+                    return view_func(*args, **kwargs)
                     
             except SyncServerAPIError as e:
                 # Handle SyncServer API errors

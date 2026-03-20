@@ -55,6 +55,12 @@ This layer orchestrates multi-step flows such as user sync, site sync, catalog C
 
 This layer owns HTTP transport, headers, exception mapping, and endpoint-specific wrappers.
 
+Catalog-specific split:
+
+- read-only catalog browse pages use SyncServer read-model endpoints under `/catalog/read/*`
+- nomenclature management pages use separate CRUD/admin catalog endpoints
+- Django does not build category trees for browse pages; SyncServer provides ready read models
+
 ### Models / Entities
 
 Local Django models are intentionally narrow:
@@ -105,6 +111,17 @@ Browser
   -> response mapped back to Django template
 ```
 
+Example catalog browse flow:
+
+```text
+Browser
+  -> Django browse view (`/catalog/items/` or `/catalog/categories/`)
+  -> CatalogService browse method
+  -> CatalogAPI `/catalog/read/*`
+  -> SyncServer read model
+  -> paginated SSR response
+```
+
 Example root admin user-management flow:
 
 ```text
@@ -122,6 +139,7 @@ Django admin form
 - Django must not become a second backend for catalog, sites, balances, or operations.
 - Views should stay thin and should not issue raw HTTP requests directly.
 - SyncServer communication must stay centralized in `apps/sync_client`.
+- Read-only catalog and nomenclature management are separate UI flows over the same remote domain.
 - Root-managed users and sites are administered through Django admin.
 - Non-root runtime calls use per-user tokens from `SyncUserBinding`.
 - Local mirrors and compatibility models must not drive domain truth.

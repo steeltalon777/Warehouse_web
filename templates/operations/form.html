@@ -1,14 +1,208 @@
 {% extends "base.html" %}
-{% block title %}Новая операция{% endblock %}
+{% load static %}
+{% block title %}Создать операцию{% endblock %}
 {% block content %}
-<div class="card">
-<h1>Создать операцию</h1>
-<form method="post">{% csrf_token %}
-    {% for field in form %}
-      <div class="form-row"><label>{{ field.label }}</label>{{ field }}{% if field.errors %}<div>{{ field.errors }}</div>{% endif %}</div>
-    {% endfor %}
-    {% if form.non_field_errors %}<div>{{ form.non_field_errors }}</div>{% endif %}
-    <button type="submit">Отправить в SyncServer</button>
-</form>
+<div class="operation-page-header">
+  <div>
+    <h1>Создать операцию</h1>
+    <p class="operation-page-note">Соберите строки ТМЦ, проверьте параметры документа и отправьте операцию в черновик.</p>
+  </div>
+  <a href="{% url 'operations:list' %}" class="btn btn-secondary">К журналу операций</a>
 </div>
+
+{% if not can_create_operations %}
+<div class="card operation-empty-card">
+  <h3>Создание операций недоступно</h3>
+  <p class="operation-page-note">У текущего пользователя нет складов с правом выполнения операций. Обратитесь к администратору или главному кладовщику.</p>
+</div>
+{% else %}
+<form
+  method="post"
+  data-loading-form
+  data-loading-scope="page"
+  data-loading-overlay-text="Создание операции..."
+  id="operation-create-form"
+>
+  {% csrf_token %}
+  {{ form.draft_payload }}
+
+  {% if form.non_field_errors %}
+  <ul class="messages">
+    {% for error in form.non_field_errors %}
+    <li>{{ error }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <div class="operation-create-layout">
+    <div>
+      <div class="card">
+        <div class="operation-section-head">
+          <div>
+            <h3>Тип операции</h3>
+            <p class="operation-page-note">От выбранного типа зависят обязательные поля и правила по количеству.</p>
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="operation-type-select">Тип операции</label>
+          <select id="operation-type-select">
+            {% for option in operation_type_options %}
+            <option value="{{ option.code }}" {% if not option.enabled %}disabled{% endif %}>
+              {{ option.label }}{% if not option.enabled %} (скоро){% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="operation-callout" id="operation-type-note"></div>
+      </div>
+
+      <div class="card">
+        <div class="operation-section-head">
+          <div>
+            <h3>Параметры операции</h3>
+            <p class="operation-page-note">Укажите склад, направление движения и дополнительные параметры документа.</p>
+          </div>
+        </div>
+        <div class="operation-params-grid">
+          <div class="form-row {% if can_choose_source_site %}operation-hidden{% endif %}" id="fixed-site-row">
+            <label for="fixed-site-value">Рабочий склад</label>
+            <div class="operation-fixed-site-value" id="fixed-site-value">
+              {% if fixed_operating_site %}
+              {{ fixed_operating_site.name }}
+              {% else %}
+              —
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="form-row" id="single-site-row">
+            <label for="site-select" id="single-site-label">Склад</label>
+            <select id="site-select">
+              <option value="">Выберите склад</option>
+              {% for site in operate_sites %}
+              <option value="{{ site.site_id }}">{{ site.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="form-row operation-hidden" id="source-site-row">
+            <label for="source-site-select">Склад-источник</label>
+            <select id="source-site-select">
+              <option value="">Выберите склад-источник</option>
+              {% for site in operate_sites %}
+              <option value="{{ site.site_id }}">{{ site.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="form-row operation-hidden" id="destination-site-row">
+            <label for="destination-site-select">Склад-получатель</label>
+            <select id="destination-site-select">
+              <option value="">Выберите склад-получатель</option>
+              {% for site in operate_sites %}
+              <option value="{{ site.site_id }}">{{ site.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="form-row operation-hidden" id="recipient-row">
+            <label for="issued-to-name-input">ФИО получателя</label>
+            <input id="issued-to-name-input" type="text" placeholder="Например, Иванов Сергей Петрович">
+          </div>
+
+          <div class="form-row operation-notes-row" id="notes-row">
+            <label for="notes-input" id="notes-label">Комментарий</label>
+            <textarea id="notes-input" rows="3" placeholder="Комментарий к операции"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="operation-section-head">
+          <div>
+            <h3>Добавить ТМЦ</h3>
+            <p class="operation-page-note">Найдите ТМЦ по названию или SKU, укажите количество и добавьте строку в черновик.</p>
+          </div>
+        </div>
+        <div class="operation-item-picker">
+          <div class="form-row operation-item-search-row">
+            <label for="item-search-input">ТМЦ</label>
+            <div class="operation-combobox" id="item-combobox">
+              <input id="item-search-input" type="text" placeholder="Начните вводить название или SKU">
+              <div class="operation-combobox-results operation-hidden" id="item-search-results"></div>
+            </div>
+            <div class="operation-selected-item operation-hidden" id="selected-item-box"></div>
+          </div>
+          <div class="form-row">
+            <label for="item-quantity-input">Количество</label>
+            <input id="item-quantity-input" type="number" step="1" value="1">
+            <small class="operation-field-hint" id="quantity-hint">Для большинства операций количество должно быть положительным целым числом.</small>
+          </div>
+          <div class="operation-picker-actions">
+            <button type="button" class="btn" id="add-item-button">Добавить строку</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="operation-section-head">
+          <div>
+            <h3>Строки операции</h3>
+            <p class="operation-page-note">Повторно добавленный ТМЦ объединяется в одну строку, количество суммируется.</p>
+          </div>
+        </div>
+        <div class="operation-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ТМЦ</th>
+                <th>SKU</th>
+                <th>Ед. изм.</th>
+                <th>Количество</th>
+                <th>Действия</th>
+              </tr>
+            </thead>
+            <tbody id="draft-items-body">
+              <tr id="draft-empty-row">
+                <td colspan="5" class="operation-empty-table">Пока нет строк. Добавьте первую позицию через блок выше.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <aside>
+      <div class="card operation-summary-card">
+        <h3>Черновик документа</h3>
+        <dl class="operation-summary-list">
+          <div>
+            <dt>Тип</dt>
+            <dd id="summary-type-label">Приход</dd>
+          </div>
+          <div>
+            <dt>Строк</dt>
+            <dd id="summary-line-count">0</dd>
+          </div>
+          <div>
+            <dt>Общее количество</dt>
+            <dd id="summary-qty-total">0</dd>
+          </div>
+        </dl>
+        <div class="operation-callout operation-callout-warning">
+          После создания вы перейдёте в карточку операции, где сможете подтвердить или отменить документ.
+        </div>
+        <button type="submit" class="btn operation-submit-button" data-loading-text="Создание...">Создать операцию</button>
+      </div>
+    </aside>
+  </div>
+</form>
+
+{{ draft|json_script:"operation-draft-data" }}
+{{ operation_type_options|json_script:"operation-type-options-data" }}
+<script id="operation-create-config" type="application/json">
+  {"itemSearchUrl":"{{ item_search_url|escapejs }}","canChooseSourceSite":{% if can_choose_source_site %}true{% else %}false{% endif %},"fixedOperatingSiteId":"{{ fixed_operating_site_id }}"}
+</script>
+<script src="{% static 'js/operations_create.js' %}"></script>
+{% endif %}
 {% endblock %}

@@ -24,5 +24,73 @@
         {% block content %}{% endblock %}
     </main>
 </div>
+<div class="page-loading-overlay" id="page-loading-overlay" hidden aria-hidden="true">
+    <div class="page-loading-overlay__content">
+        <span class="loading-spinner loading-spinner-lg" aria-hidden="true"></span>
+        <span class="page-loading-overlay__text">Загрузка...</span>
+    </div>
+</div>
+<script>
+(() => {
+  const overlay = document.getElementById("page-loading-overlay");
+
+  function showOverlay(text) {
+    if (!overlay) return;
+    const label = overlay.querySelector(".page-loading-overlay__text");
+    if (label && text) label.textContent = text;
+    overlay.hidden = false;
+    overlay.setAttribute("aria-hidden", "false");
+  }
+
+  function setButtonLoading(button, loadingText) {
+    if (!button || button.dataset.loadingApplied === "true") return;
+    button.dataset.loadingApplied = "true";
+    button.dataset.originalHtml = button.innerHTML;
+    button.disabled = true;
+    button.classList.add("is-loading");
+    button.innerHTML = `<span class="loading-spinner" aria-hidden="true"></span><span>${loadingText}</span>`;
+  }
+
+  function lockForm(form, submitter) {
+    if (!form || form.dataset.submitting === "true") return false;
+    form.dataset.submitting = "true";
+
+    const buttons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+    buttons.forEach((button) => {
+      if (button.tagName === "INPUT") {
+        button.disabled = true;
+        return;
+      }
+      if (button !== submitter) {
+        button.disabled = true;
+      }
+    });
+
+    if (submitter && submitter.tagName === "BUTTON") {
+      const loadingText = submitter.dataset.loadingText || form.dataset.loadingText || "Загрузка...";
+      setButtonLoading(submitter, loadingText);
+    } else if (submitter) {
+      submitter.disabled = true;
+    }
+
+    if (form.dataset.loadingScope === "page") {
+      showOverlay(form.dataset.loadingOverlayText || "Загрузка...");
+    }
+
+    return true;
+  }
+
+  document.addEventListener("submit", (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    if (!form.matches("[data-loading-form]")) return;
+
+    const submitter = event.submitter || form.querySelector('button[type="submit"], input[type="submit"]');
+    if (!lockForm(form, submitter)) {
+      event.preventDefault();
+    }
+  });
+})();
+</script>
 </body>
 </html>

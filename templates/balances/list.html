@@ -3,51 +3,46 @@
 {% block content %}
 <div class="container">
   <div class="mb-4">
-    <h1>Остатки товаров</h1>
-    <p class="text-muted">Текущие остатки товаров на складах</p>
+    <h1>Остатки</h1>
+    <p class="text-muted">Текущие остатки ТМЦ по доступным складам.</p>
     <div style="display: flex; justify-content: space-between; align-items: center;">
       <div></div>
       <div style="display: flex; gap: 8px;">
-        <a href="{% url 'balances:summary' %}" class="btn btn-info">
-          Сводка
-        </a>
-        <a href="{% url 'balances:by_site' %}" class="btn btn-secondary">
-          По складам
-        </a>
+        <a href="{% url 'balances:summary' %}" class="btn btn-info">Сводка</a>
+        <a href="{% url 'balances:by_site' %}" class="btn btn-secondary">По складу</a>
       </div>
     </div>
   </div>
 
-  <!-- Фильтры -->
   <div class="card mb-4">
     <h3>Фильтры</h3>
-    <form method="get" class="grid-2">
+    <form method="get" class="grid-2" data-loading-form data-loading-text="Загрузка..." data-loading-scope="page">
       <div class="form-row">
         <label for="search">Поиск</label>
-        <input type="text" id="search" name="search" value="{{ search }}" placeholder="Поиск по товару, складу">
+        <input type="text" id="search" name="search" value="{{ search }}" placeholder="Поиск по ТМЦ">
       </div>
       <div class="form-row">
-        <label for="item_id">ID товара</label>
-        <input type="text" id="item_id" name="item_id" value="{{ item_id }}" placeholder="ID товара">
+        <label for="item_id">ID ТМЦ</label>
+        <input type="text" id="item_id" name="item_id" value="{{ item_id }}" placeholder="Например, 15">
       </div>
       <div class="form-row">
-        <label for="min_quantity">Мин. количество</label>
-        <input type="number" id="min_quantity" name="min_quantity" value="{{ min_quantity }}" placeholder="0"
-          step="0.01">
+        <label for="site_id">ID склада</label>
+        <input type="text" id="site_id" name="site_id" value="{{ site_id }}" placeholder="Например, 2">
       </div>
       <div class="form-row">
-        <label for="max_quantity">Макс. количество</label>
-        <input type="number" id="max_quantity" name="max_quantity" value="{{ max_quantity }}" placeholder="1000"
-          step="0.01">
-      </div>
-      <div class="form-row">
-        <label for="limit">На странице</label>
-        <select id="limit" name="limit">
-          <option value="10" {% if limit==10 %}selected{% endif %}>10</option>
-          <option value="20" {% if limit==20 %}selected{% endif %}>20</option>
-          <option value="50" {% if limit==50 %}selected{% endif %}>50</option>
-          <option value="100" {% if limit==100 %}selected{% endif %}>100</option>
+        <label for="page_size">На странице</label>
+        <select id="page_size" name="page_size">
+          <option value="20" {% if page_size == 20 %}selected{% endif %}>20</option>
+          <option value="50" {% if page_size == 50 %}selected{% endif %}>50</option>
+          <option value="100" {% if page_size == 100 %}selected{% endif %}>100</option>
+          <option value="200" {% if page_size == 200 %}selected{% endif %}>200</option>
         </select>
+      </div>
+      <div class="form-row" style="grid-column: span 2;">
+        <label style="display: flex; gap: 8px; align-items: center;">
+          <input type="checkbox" name="only_positive" value="1" {% if only_positive %}checked{% endif %}>
+          Только положительные остатки
+        </label>
       </div>
       <div class="form-row" style="grid-column: span 2;">
         <div style="display: flex; gap: 8px;">
@@ -58,16 +53,14 @@
     </form>
   </div>
 
-  <!-- Таблица остатков -->
   <div class="card">
     <div class="table-responsive">
       <table>
         <thead>
           <tr>
-            <th>Товар</th>
+            <th>ТМЦ</th>
             <th>Склад</th>
             <th>Количество</th>
-            <th>Единица</th>
             <th>Статус</th>
             <th>Обновлено</th>
           </tr>
@@ -75,38 +68,22 @@
         <tbody>
           {% for b in balances %}
           <tr>
+            <td>{{ b.item_name|default:b.item_id|default:"-" }}</td>
+            <td>{{ b.site_name|default:b.site_id|default:"-" }}</td>
             <td>
-              <strong>{{ b.item_name|default:b.item_id|truncatechars:30 }}</strong>
-              {% if b.item_id %}
-              <br><small class="text-muted">{{ b.item_id|truncatechars:20 }}</small>
-              {% endif %}
-            </td>
-            <td>
-              {{ b.site_name|default:b.site_id|truncatechars:20 }}
-              {% if b.site_id %}
-              <br><small class="text-muted">{{ b.site_id|truncatechars:15 }}</small>
-              {% endif %}
-            </td>
-            <td>
-              <span
-                class="quantity {% if b.quantity <= 0 %}danger{% elif b.quantity < 10 %}warning{% else %}success{% endif %}">
+              <span class="quantity {{ b.status_tone }}">
                 {{ b.quantity|default:"0" }}
               </span>
             </td>
-            <td>{{ b.unit_name|default:b.unit_id|default:"-" }}</td>
             <td>
-              {% if b.quantity <= 0 %} <span class="badge bg-danger">Нет в наличии</span>
-                {% elif b.quantity < 10 %} <span class="badge bg-warning">Низкий запас</span>
-                  {% else %}
-                  <span class="badge bg-success">В наличии</span>
-                  {% endif %}
+              <span class="badge bg-{{ b.status_tone }}">{{ b.status_label }}</span>
             </td>
             <td>{{ b.updated_at|default:"-" }}</td>
           </tr>
           {% empty %}
           <tr>
-            <td colspan="6" style="text-align: center; padding: 32px; color: var(--muted);">
-              Нет данных об остатках
+            <td colspan="5" style="text-align: center; padding: 32px; color: var(--muted);">
+              Нет данных по остаткам.
             </td>
           </tr>
           {% endfor %}
@@ -114,26 +91,23 @@
       </table>
     </div>
 
-    <!-- Пагинация -->
-    {% if balances %}
     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
       <div class="text-muted">
-        Показано {{ balances|length }} позиций
+        Всего записей: {{ total_count }}
       </div>
       <div style="display: flex; gap: 8px;">
-        {% if offset > 0 %}
-        <a class="btn btn-secondary"
-          href="?search={{ search }}&item_id={{ item_id }}&min_quantity={{ min_quantity }}&max_quantity={{ max_quantity }}&limit={{ limit }}&offset={{ prev_offset }}">
+        {% if has_previous %}
+        <a class="btn btn-secondary" href="?search={{ search }}&item_id={{ item_id }}&site_id={{ site_id }}&page_size={{ page_size }}&page={{ prev_page }}{% if only_positive %}&only_positive=1{% endif %}">
           ← Назад
         </a>
         {% endif %}
-        <a class="btn btn-secondary"
-          href="?search={{ search }}&item_id={{ item_id }}&min_quantity={{ min_quantity }}&max_quantity={{ max_quantity }}&limit={{ limit }}&offset={{ next_offset }}">
+        {% if has_next %}
+        <a class="btn btn-secondary" href="?search={{ search }}&item_id={{ item_id }}&site_id={{ site_id }}&page_size={{ page_size }}&page={{ next_page }}{% if only_positive %}&only_positive=1{% endif %}">
           Вперёд →
         </a>
+        {% endif %}
       </div>
     </div>
-    {% endif %}
   </div>
 </div>
 
@@ -183,11 +157,6 @@
 
   .quantity.success {
     color: #10b981;
-  }
-
-  .btn-info {
-    background: #0ea5e9;
-    color: white;
   }
 
   .btn-info:hover {

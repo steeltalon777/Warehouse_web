@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}Каталог / Категории{% endblock %}
+
+{% block content %}
+    <h2>Каталог / Категории</h2>
+    <p>Глобальный справочник категорий компании.</p>
+
+    <form method="get" style="margin-bottom: 12px;" data-loading-form data-loading-scope="page" data-loading-overlay-text="Загрузка категорий...">
+        <label>Родитель:</label>
+        <select name="parent_id">
+            <option value="">Все</option>
+            {% for parent in parent_options %}
+                <option value="{{ parent.id }}" {% if selected_parent_id == parent.id|stringformat:"s" %}selected{% endif %}>{{ parent.name }}</option>
+            {% endfor %}
+        </select>
+        <label>Поиск:</label>
+        <input name="search" value="{{ search }}" placeholder="Поиск по имени" />
+        <button type="submit" data-loading-text="Загрузка...">Фильтровать</button>
+    </form>
+
+    {% if categories %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Категория</th>
+                    <th>Родитель</th>
+                    <th>Дочерние</th>
+                    <th>ТМЦ</th>
+                    <th>Детали</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for category in categories %}
+                    <tr>
+                        <td>{{ category.name }}</td>
+                        <td>
+                            {% if category.parent %}
+                                <a href="?parent_id={{ category.parent.id }}">{{ category.parent.name }}</a>
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        <td>{{ category.children_count|default:"0" }}</td>
+                        <td>{{ category.items_count|default:"0" }}</td>
+                        <td>
+                            <details>
+                                <summary>Открыть</summary>
+
+                                <p><strong>Код:</strong> {{ category.code|default:"—" }}</p>
+
+                                <p><strong>Цепочка родителей:</strong>
+                                    {% if category.parent_chain_summary %}
+                                        {% for ancestor in category.parent_chain_summary %}
+                                            <a href="?parent_id={{ ancestor.id }}">{{ ancestor.name }}</a>{% if not forloop.last %} / {% endif %}
+                                        {% endfor %}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </p>
+
+                                <p><strong>ТМЦ в категории:</strong></p>
+                                {% if category.items_preview %}
+                                    <ul>
+                                        {% for item in category.items_preview %}
+                                            <li>
+                                                <a href="{% url 'catalog:item_list' %}?category_id={{ category.id }}&search={{ item.name|urlencode }}">{{ item.name }}</a>
+                                            </li>
+                                        {% endfor %}
+                                    </ul>
+                                    <p><a href="{% url 'catalog:item_list' %}?category_id={{ category.id }}">Все товары категории</a></p>
+                                {% else %}
+                                    <p>Для этой категории активные ТМЦ не найдены.</p>
+                                {% endif %}
+                            </details>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>По текущим фильтрам категории не найдены.</p>
+    {% endif %}
+
+    {% if pagination.total_pages > 1 %}
+        <nav style="margin-top: 12px;">
+            {% if pagination.has_previous %}<a href="{{ pagination.previous_url }}">Назад</a>{% endif %}
+            {% for page_info in pagination.pages %}
+                {% if page_info.current %}
+                    <strong>{{ page_info.number }}</strong>
+                {% else %}
+                    <a href="{{ page_info.url }}">{{ page_info.number }}</a>
+                {% endif %}
+            {% endfor %}
+            {% if pagination.has_next %}<a href="{{ pagination.next_url }}">Вперёд</a>{% endif %}
+        </nav>
+    {% endif %}
+{% endblock %}

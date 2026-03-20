@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Номенклатура / Категории{% endblock %}
+
+{% block content %}
+    <h2>Номенклатура / Категории</h2>
+
+    <p>
+        <a href="{% url 'nomenclature:category_create' %}">Создать категорию</a>
+    </p>
+
+    {% if flat_categories %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Название</th>
+                    <th>Активна</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for category in flat_categories %}
+                    <tr>
+                        <td>{{ category.name }}</td>
+                        <td>{% if category.is_active %}Да{% else %}Нет{% endif %}</td>
+                        <td>
+                            <a href="{% url 'nomenclature:category_update' category.id %}">Редактировать</a>
+                            {% if category.is_active %}
+                                <a href="{% url 'nomenclature:category_delete' category.id %}">Деактивировать</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Категории пока не получены из SyncServer.</p>
+    {% endif %}
+{% endblock %}

@@ -217,7 +217,6 @@ class SyncManagedUserAdmin(BaseUserAdmin):
                     "password_confirm",
                     "full_name",
                     "sync_role",
-                    "site_ids",
                     "default_site_id",
                     "is_active",
                     "sync_user_token",
@@ -237,7 +236,6 @@ class SyncManagedUserAdmin(BaseUserAdmin):
                     "password_confirm",
                     "full_name",
                     "sync_role",
-                    "site_ids",
                     "default_site_id",
                     "sync_user_token",
                     "is_active",
@@ -313,7 +311,7 @@ class SyncManagedUserAdmin(BaseUserAdmin):
                 binding, _ = SyncUserBinding.objects.get_or_create(user=obj)
                 binding.sync_role = form.cleaned_data["sync_role"]
                 binding.default_site_id = str(form.cleaned_data["default_site_id"])
-                binding.site_ids = [str(site_id) for site_id in form.cleaned_data["site_ids"]]
+                binding.site_ids = [str(form.cleaned_data["default_site_id"])]
                 binding.sync_status = SyncStatus.PENDING
                 binding.last_sync_error = ""
                 binding.last_sync_at = timezone.now()
@@ -324,7 +322,7 @@ class SyncManagedUserAdmin(BaseUserAdmin):
                     binding=binding,
                     prepared=prepared,
                     role=form.cleaned_data["sync_role"],
-                    site_ids=[str(site_id) for site_id in form.cleaned_data["site_ids"]],
+                    site_ids=[str(form.cleaned_data["default_site_id"])],
                     default_site_id=str(form.cleaned_data["default_site_id"]),
                 )
         except Exception as exc:

@@ -37,7 +37,7 @@ Key rules:
 config/              Django settings, URL routing, ASGI/WSGI entrypoints
 apps/users/          local auth integration, SyncUserBinding, Django-admin sync flows
 apps/sync_client/    canonical SyncServer HTTP clients and API wrappers
-apps/catalog/        SSR catalog screens for categories, units, items
+apps/catalog/        SSR global catalog browse and nomenclature management screens
 apps/operations/     SSR operations screens
 apps/balances/       SSR balances screens
 apps/client/         dashboard and working pages
@@ -97,8 +97,8 @@ docker compose up --build
   - root admin client
   - catalog, balances, operations, access, and admin API wrappers
 - `apps/catalog`
-  - categories, units, and items screens
-  - categories use a tree-first UI backed by SyncServer
+  - global read-only catalog browse pages for items and categories
+  - separate nomenclature management pages for categories, items, and units
 - `apps/operations`
   - operations list, detail, and creation screens
 - `apps/balances`
@@ -113,6 +113,7 @@ Warehouse_web does not expose its own warehouse domain API. It consumes SyncServ
 - auth and sync identity endpoints
 - root admin endpoints for users, sites, scopes, devices, and token rotation
 - catalog endpoints for categories, items, and units
+- catalog read-model endpoints under `/catalog/read/*` for paginated browse pages
 - operations endpoints
 - balances endpoints
 
@@ -121,6 +122,7 @@ Warehouse_web does not expose its own warehouse domain API. It consumes SyncServ
 - superuser/root flows use `SYNC_ROOT_USER_TOKEN`
 - non-root runtime flows use per-user tokens from `SyncUserBinding`
 - catalog master data is API-driven; local catalog ORM models are legacy-only and not the source of truth
+- read-only catalog pages use SyncServer browse/read-model endpoints; nomenclature management is a separate UI flow
 - sites are mirrored locally only as an admin cache during transition
 
 ## Related Docs

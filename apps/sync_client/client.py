@@ -72,12 +72,46 @@ class SyncServerClient:
         acting_site_id: str | int | None = None,
     ) -> dict[str, str]:
         user_token = self._resolve_user_token(acting_user_id=acting_user_id)
-        return {
+        headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
             "X-Device-Token": self.device_token,
             "X-User-Token": user_token,
         }
+        site_id = self._resolve_site_id(acting_site_id=acting_site_id)
+        if site_id:
+            headers["X-Site-Id"] = site_id
+        return headers
+
+    def _resolve_site_id(self, *, acting_site_id: str | int | None = None) -> str:
+        candidates = [
+            acting_site_id,
+            self.default_site_id,
+        ]
+
+        request_session = getattr(self.request, "session", None)
+        if request_session is not None:
+            candidates.extend(
+                [
+                    request_session.get("active_site"),
+                    request_session.get("sync_default_site_id"),
+                    request_session.get("site_id"),
+                ]
+            )
+
+        request_user = getattr(self.request, "user", None)
+        if request_user is not None and getattr(request_user, "is_authenticated", False):
+            try:
+                candidates.append(request_user.sync_binding.default_site_id)
+            except Exception:
+                pass
+
+        for candidate in candidates:
+            if candidate in (None, ""):
+                continue
+            return str(candidate).strip()
+
+        return ""
 
     def _resolve_user_token(self, *, acting_user_id: str | int | None = None) -> str:
         if self.force_root:

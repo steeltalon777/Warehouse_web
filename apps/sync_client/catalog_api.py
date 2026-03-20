@@ -122,6 +122,40 @@ class CatalogAPI:
                 extra={"response_type": type(response).__name__}
             )
             return []
+
+    def browse_items(
+        self,
+        filters: Optional[dict[str, Any]] = None,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get paginated read-model item list for browse pages.
+
+        Endpoint: GET /catalog/read/items
+        """
+        logger.debug(
+            "Fetching catalog browse items",
+            extra={"filters": filters or {}}
+        )
+
+        params = self._build_filter_params(filters)
+        response = self.client.get(
+            "/catalog/read/items",
+            params=params,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+        if isinstance(response, dict):
+            return response
+
+        logger.warning(
+            "Unexpected response format from /catalog/read/items",
+            extra={"response_type": type(response).__name__}
+        )
+        return {"items": [], "total_count": 0, "page": 1, "page_size": params.get("page_size", 20)}
     
     def list_categories(
         self,
@@ -177,6 +211,138 @@ class CatalogAPI:
                 extra={"response_type": type(response).__name__}
             )
             return []
+
+    def browse_categories(
+        self,
+        filters: Optional[dict[str, Any]] = None,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get paginated read-model category list for browse pages.
+
+        Endpoint: GET /catalog/read/categories
+        """
+        logger.debug(
+            "Fetching catalog browse categories",
+            extra={"filters": filters or {}}
+        )
+
+        params = self._build_filter_params(filters)
+        response = self.client.get(
+            "/catalog/read/categories",
+            params=params,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+        if isinstance(response, dict):
+            return response
+
+        logger.warning(
+            "Unexpected response format from /catalog/read/categories",
+            extra={"response_type": type(response).__name__}
+        )
+        return {"categories": [], "total_count": 0, "page": 1, "page_size": params.get("page_size", 20)}
+
+    def browse_category_items(
+        self,
+        category_id: str,
+        filters: Optional[dict[str, Any]] = None,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get paginated read-model item list for a single category.
+
+        Endpoint: GET /catalog/read/categories/{category_id}/items
+        """
+        logger.debug(
+            "Fetching browse items for category",
+            extra={"category_id": category_id, "filters": filters or {}}
+        )
+
+        params = self._build_filter_params(filters)
+        response = self.client.get(
+            f"/catalog/read/categories/{category_id}/items",
+            params=params,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+        if isinstance(response, dict):
+            return response
+
+        logger.warning(
+            "Unexpected response format from /catalog/read/categories/{category_id}/items",
+            extra={"response_type": type(response).__name__}
+        )
+        return {"items": [], "total_count": 0, "page": 1, "page_size": params.get("page_size", 20)}
+
+    def browse_category_children(
+        self,
+        category_id: str,
+        filters: Optional[dict[str, Any]] = None,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get paginated read-model child categories for a single category.
+
+        Endpoint: GET /catalog/read/categories/{category_id}/children
+        """
+        logger.debug(
+            "Fetching browse category children",
+            extra={"category_id": category_id, "filters": filters or {}}
+        )
+
+        params = self._build_filter_params(filters)
+        response = self.client.get(
+            f"/catalog/read/categories/{category_id}/children",
+            params=params,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+        if isinstance(response, dict):
+            return response
+
+        logger.warning(
+            "Unexpected response format from /catalog/read/categories/{category_id}/children",
+            extra={"response_type": type(response).__name__}
+        )
+        return {"categories": [], "total_count": 0, "page": 1, "page_size": params.get("page_size", 20)}
+
+    def browse_category_parent_chain(
+        self,
+        category_id: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get parent chain summary for a single category.
+
+        Endpoint: GET /catalog/read/categories/{category_id}/parent-chain
+        """
+        logger.debug("Fetching category parent chain", extra={"category_id": category_id})
+        response = self.client.get(
+            f"/catalog/read/categories/{category_id}/parent-chain",
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+        if isinstance(response, dict):
+            return response
+
+        logger.warning(
+            "Unexpected response format from /catalog/read/categories/{category_id}/parent-chain",
+            extra={"response_type": type(response).__name__}
+        )
+        return {"category_id": category_id, "parent_chain_summary": []}
     
     def get_categories_tree(
         self,
@@ -481,11 +647,9 @@ class CatalogAPI:
             >>> catalog_api = CatalogAPI()
             >>> new_unit = catalog_api.create_unit({
             ...     "name": "Kilogram",
-            ...     "code": "kg",
             ...     "symbol": "kg",
-            ...     "is_active": True,
-            ...     "is_base": True,
-            ...     "conversion_factor": 1.0
+            ...     "sort_order": 10,
+            ...     "is_active": True
             ... })
             >>> print(new_unit["id"])
         """
@@ -530,6 +694,7 @@ class CatalogAPI:
             >>> updated_unit = catalog_api.update_unit("unit-456", {
             ...     "name": "Kilogram Updated",
             ...     "symbol": "KG",
+            ...     "sort_order": 20,
             ...     "is_active": False  # deactivate
             ... })
             >>> print(updated_unit["name"])

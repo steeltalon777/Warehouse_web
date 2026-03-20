@@ -112,6 +112,18 @@ class SyncClient:
             if not user_token:
                 user_token = request.session.get('user_token')
 
+            # Fall back to Django-authenticated user binding/root token.
+            if not user_token and hasattr(request, 'user'):
+                request_user = request.user
+                if getattr(request_user, 'is_authenticated', False):
+                    if getattr(request_user, 'is_superuser', False):
+                        user_token = getattr(settings, "SYNC_ROOT_USER_TOKEN", "").strip()
+                    else:
+                        try:
+                            user_token = str(request_user.sync_binding.sync_user_token or "").strip()
+                        except Exception:
+                            user_token = ""
+
             if user_token:
                 headers["X-User-Token"] = str(user_token)
         

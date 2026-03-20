@@ -1,19 +1,15 @@
 {% if user.is_authenticated %}
 
-    <div class="section">Рабочее</div>
-
     <a href="{% url 'client:dashboard' %}">Главная</a>
-    <a href="{% url 'client:storekeeper_catalog' %}">Каталог</a>
+    <a href="{% url 'catalog:home' %}">Каталог</a>
     <a href="{% url 'balances:list' %}">Остатки</a>
     <a href="{% url 'operations:list' %}">Операции</a>
-    <a href="{% url 'operations:create' %}">Новая операция</a>
 
-    <div class="section">Справочники</div>
-
-    <a href="{% url 'catalog:home' %}">Номенклатура</a>
+    {% if user.is_superuser or user.sync_binding.sync_role == "chief_storekeeper" %}
+        <a href="{% url 'nomenclature:home' %}">Номенклатура</a>
+    {% endif %}
 
     {% if user.is_superuser %}
-
         <div class="section">Администрирование</div>
 
         <a href="{% url 'admin:index' %}">Django Admin</a>

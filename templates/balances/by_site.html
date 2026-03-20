@@ -1,17 +1,82 @@
 {% extends "base.html" %}
-{% block title %}Остатки по складам{% endblock %}
+{% block title %}Остатки по складу{% endblock %}
 {% block content %}
-<div class="card"><h1>Остатки по складам</h1></div>
-<div class="card">
-<table>
-<tr><th>Склад</th><th>Товар</th><th>Количество</th></tr>
-{% for r in records %}
-<tr><td>{{ r.site_name|default:r.site_id }}</td><td>{{ r.item_name|default:r.item_id }}</td><td>{{ r.quantity }}</td></tr>
-{% empty %}<tr><td colspan="3">Нет данных.</td></tr>{% endfor %}
-</table>
-<div class="toolbar">
-  <a href="?limit={{ limit }}&offset={{ prev_offset }}">← Назад</a>
-  <a href="?limit={{ limit }}&offset={{ next_offset }}">Вперёд →</a>
-</div>
+<div class="container">
+  <div class="mb-4">
+    <h1>Остатки по складу</h1>
+    <p class="text-muted">Фильтр по одному складу для быстрого просмотра остатков.</p>
+  </div>
+
+  <div class="card mb-4">
+    <h3>Параметры</h3>
+    <form method="get" class="grid-2" data-loading-form data-loading-text="Загрузка..." data-loading-scope="page">
+      <div class="form-row">
+        <label for="site_id">ID склада</label>
+        <input type="text" id="site_id" name="site_id" value="{{ site_id }}" placeholder="Например, 2">
+      </div>
+      <div class="form-row">
+        <label for="page_size">На странице</label>
+        <select id="page_size" name="page_size">
+          <option value="20" {% if page_size == 20 %}selected{% endif %}>20</option>
+          <option value="50" {% if page_size == 50 %}selected{% endif %}>50</option>
+          <option value="100" {% if page_size == 100 %}selected{% endif %}>100</option>
+          <option value="200" {% if page_size == 200 %}selected{% endif %}>200</option>
+        </select>
+      </div>
+      <div class="form-row" style="grid-column: span 2;">
+        <label style="display: flex; gap: 8px; align-items: center;">
+          <input type="checkbox" name="only_positive" value="1" {% if only_positive %}checked{% endif %}>
+          Только положительные остатки
+        </label>
+      </div>
+      <div class="form-row" style="grid-column: span 2;">
+        <div style="display: flex; gap: 8px;">
+          <button type="submit" class="btn btn-primary">Показать</button>
+          <a href="{% url 'balances:by_site' %}" class="btn btn-secondary">Сбросить</a>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>Склад</th>
+            <th>ТМЦ</th>
+            <th>Количество</th>
+            <th>Обновлено</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in records %}
+          <tr>
+            <td>{{ r.site_name|default:r.site_id|default:"-" }}</td>
+            <td>{{ r.item_name|default:r.item_id|default:"-" }}</td>
+            <td>{{ r.quantity|default:"0" }}</td>
+            <td>{{ r.updated_at|default:"-" }}</td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="4" style="text-align: center; padding: 32px; color: var(--muted);">Нет данных.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+      <div class="text-muted">Всего записей: {{ total_count }}</div>
+      <div style="display: flex; gap: 8px;">
+        {% if has_previous %}
+        <a class="btn btn-secondary" href="?site_id={{ site_id }}&page_size={{ page_size }}&page={{ prev_page }}{% if only_positive %}&only_positive=1{% endif %}">← Назад</a>
+        {% endif %}
+        {% if has_next %}
+        <a class="btn btn-secondary" href="?site_id={{ site_id }}&page_size={{ page_size }}&page={{ next_page }}{% if only_positive %}&only_positive=1{% endif %}">Вперёд →</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}

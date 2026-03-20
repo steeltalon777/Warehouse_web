@@ -127,7 +127,9 @@ class OperationsAPI:
         )
         
         # Handle different response formats
-        if isinstance(response, dict) and "operations" in response:
+        if isinstance(response, dict) and "items" in response:
+            return response["items"]
+        elif isinstance(response, dict) and "operations" in response:
             return response["operations"]
         elif isinstance(response, list):
             return response
@@ -137,6 +139,49 @@ class OperationsAPI:
                 extra={"response_type": type(response).__name__}
             )
             return []
+
+    def list_operations_page(
+        self,
+        filters: Optional[dict[str, Any]] = None,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        logger.debug(
+            "Fetching operations page",
+            extra={"filters": filters or {}}
+        )
+
+        params = self._build_filter_params(filters)
+        response = self.client.get(
+            "/operations",
+            params=params,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+        if isinstance(response, dict):
+            if "operations" in response and "items" not in response:
+                response = {**response, "items": response.get("operations", [])}
+            response.setdefault("items", [])
+            response.setdefault("total_count", len(response.get("items", [])))
+            response.setdefault("page", params.get("page", 1))
+            response.setdefault("page_size", params.get("page_size", len(response.get("items", [])) or 20))
+            return response
+
+        if isinstance(response, list):
+            return {
+                "items": response,
+                "total_count": len(response),
+                "page": params.get("page", 1),
+                "page_size": params.get("page_size", len(response) or 20),
+            }
+
+        logger.warning(
+            "Unexpected response format from /operations",
+            extra={"response_type": type(response).__name__}
+        )
+        return {"items": [], "total_count": 0, "page": 1, "page_size": params.get("page_size", 20)}
     
     def get_operation(
         self,
@@ -270,6 +315,7 @@ class OperationsAPI:
         self,
         operation_id: str,
         *,
+        payload: Optional[dict[str, Any]] = None,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
     ) -> dict[str, Any]:
@@ -297,6 +343,7 @@ class OperationsAPI:
         logger.debug("Submitting operation", extra={"operation_id": operation_id})
         return self.client.post(
             f"/operations/{operation_id}/submit",
+            json=payload or {"submit": True},
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
@@ -305,6 +352,7 @@ class OperationsAPI:
         self,
         operation_id: str,
         *,
+        payload: Optional[dict[str, Any]] = None,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
     ) -> dict[str, Any]:
@@ -332,6 +380,7 @@ class OperationsAPI:
         logger.debug("Cancelling operation", extra={"operation_id": operation_id})
         return self.client.post(
             f"/operations/{operation_id}/cancel",
+            json=payload or {"cancel": True},
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )

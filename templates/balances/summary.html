@@ -1,193 +1,43 @@
 {% extends "base.html" %}
-{% load static %}
-
-{% block title %}Сводка балансов{% endblock %}
-
+{% block title %}Сводка остатков{% endblock %}
 {% block content %}
--<div class="container-fluid">
-    - <div class="row mb-4">
-        - <div class="col">
-            +<div class="container">
-                + <div class="mb-4">
-                    <h1>Сводка балансов</h1>
-                    <p class="text-muted">Общая статистика по остаткам на складах</p>
-                    -
-                </div>
-            </div>
+<div class="container">
+  <div class="mb-4">
+    <h1>Сводка остатков</h1>
+    <p class="text-muted">Краткая статистика по остаткам на доступных складах.</p>
+  </div>
 
-            <!-- Фильтры -->
-            <div class="card mb-4">
-                - <div class="card-header">
-                    - <h5 class="mb-0">Фильтры</h5>
-                    - </div>
-                - <div class="card-body">
-                    - <form method="get" class="row g-3">
-                        - <div class="col-md-4">
-                            - <label for="site_id" class="form-label">Склад</label>
-                            + <h3>Фильтры</h3>
-                            + <form method="get" class="grid-2">
-                                + <div class="form-row">
-                                    + <label for="site_id">Склад</label>
-                                    <input type="text" class="form-control" id="site_id" name="site_id"
-                                        value="{{ site_id }}" placeholder="ID склада">
-                                    -
-                                </div>
-                                - <div class="col-md-12">
-                                    - <button type="submit" class="btn btn-primary">Применить фильтры</button>
-                                    - <a href="{% url 'balances:summary' %}" class="btn btn-secondary">Сбросить</a>
-                                    - </div>
-                                + </div>
-                        + <div class="form-row" style="grid-column: span 2;">
-                            + <div style="display: flex; gap: 8px;">
-                                + <button type="submit" class="btn btn-primary">Применить фильтры</button>
-                                + <a href="{% url 'balances:summary' %}" class="btn btn-secondary">Сбросить</a>
-                                + </div>
-                            + </div>
-                    </form>
-                    - </div>
-            </div>
+  <div class="grid-2 mb-4">
+    <div class="card" style="background: var(--brand); color: white;">
+      <h3>Доступно складов</h3>
+      <div class="kpi">{{ accessible_sites_count|default:"0" }}</div>
+    </div>
+    <div class="card" style="background: #10b981; color: white;">
+      <h3>Всего строк остатков</h3>
+      <div class="kpi">{{ summary.rows_count|default:"0" }}</div>
+    </div>
+    <div class="card" style="background: #0ea5e9; color: white;">
+      <h3>Складов в сводке</h3>
+      <div class="kpi">{{ summary.sites_count|default:"0" }}</div>
+    </div>
+    <div class="card" style="background: #f59e0b; color: white;">
+      <h3>Общее количество</h3>
+      <div class="kpi">{{ summary.total_quantity|default:"0" }}</div>
+    </div>
+  </div>
 
-            {% if summary %}
-            <!-- Общая статистика -->
-            - <div class="row mb-4">
-                - <div class="col-md-3">
-                    - <div class="card text-white bg-primary">
-                        - <div class="card-body">
-                            - <h5 class="card-title">Всего позиций</h5>
-                            - <p class="card-text display-6">{{ summary.total_items|default:"0" }}</p>
-                            - </div>
-                        + <div class="grid-2 mb-4">
-                            + <div class="card" style="background: var(--brand); color: white;">
-                                + <h3>Всего позиций</h3>
-                                + <div class="kpi">{{ summary.total_items|default:"0" }}</div>
-                                + </div>
-                            + <div class="card" style="background: #10b981; color: white;">
-                                + <h3>Общее количество</h3>
-                                + <div class="kpi">{{ summary.total_quantity|default:"0" }}</div>
-                                + </div>
-                            + <div class="card" style="background: #f59e0b; color: white;">
-                                + <h3>Низкий запас</h3>
-                                + <div class="kpi">{{ summary.low_stock_items|default:"0" }}</div>
-                                + </div>
-                            + <div class="card" style="background: #dc2626; color: white;">
-                                + <h3>Нет в наличии</h3>
-                                + <div class="kpi">{{ summary.out_of_stock_items|default:"0" }}</div>
-                                + </div>
-                            - </div>
-                        - <div class="col-md-3">
-                            - <div class="card text-white bg-success">
-                                - <div class="card-body">
-                                    - <h5 class="card-title">Общее количество</h5>
-                                    - <p class="card-text display-6">{{ summary.total_quantity|default:"0" }}</p>
-                                    - </div>
-                                - </div>
-                            - </div>
-                        - <div class="col-md-3">
-                            - <div class="card text-white bg-warning">
-                                - <div class="card-body">
-                                    - <h5 class="card-title">Низкий запас</h5>
-                                    - <p class="card-text display-6">{{ summary.low_stock_items|default:"0" }}</p>
-                                    - </div>
-                                - </div>
-                            - </div>
-                        - <div class="col-md-3">
-                            - <div class="card text-white bg-danger">
-                                - <div class="card-body">
-                                    - <h5 class="card-title">Нет в наличии</h5>
-                                    - <p class="card-text display-6">{{ summary.out_of_stock_items|default:"0" }}</p>
-                                    - </div>
-                                - </div>
-                            - </div>
-                    </div>
+  <div class="card">
+    <h3>Что это значит</h3>
+    <p>Сводка берётся напрямую из SyncServer и показывает агрегированные данные по остаткам в пределах прав текущего пользователя.</p>
+    <a href="{% url 'balances:list' %}" class="btn btn-secondary">Вернуться к остаткам</a>
+  </div>
+</div>
 
-                    <!-- Статистика по складам -->
-                    {% if summary.by_site %}
-                    <div class="card">
-                        - <div class="card-header">
-                            - <h5 class="mb-0">Статистика по складам</h5>
-                            - </div>
-                        - <div class="card-body">
-                            + <h3>Статистика по складам</h3>
-                            <div class="table-responsive">
-                                - <table class="table table-hover">
-                                    + <table>
-                                        <thead>
-                                            <tr>
-                                                <th>Склад</th>
-                                                <th>Позиций</th>
-                                                <th>Количество</th>
-                                                <th>Низкий запас</th>
-                                                <th>Нет в наличии</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {% for site_id, site_data in summary.by_site.items %}
-                                            <tr>
-                                                <td>{{ site_id }}</td>
-                                                <td>{{ site_data.total_items|default:"0" }}</td>
-                                                <td>{{ site_data.total_quantity|default:"0" }}</td>
-                                                <td>{{ site_data.low_stock_items|default:"0" }}</td>
-                                                <td>{{ site_data.out_of_stock_items|default:"0" }}</td>
-                                            </tr>
-                                            {% endfor %}
-                                        </tbody>
-                                    </table>
-                            </div>
-                            -
-                        </div>
-                    </div>
-                    {% endif %}
-
-                    <!-- Детальная информация -->
-                    {% if summary.details %}
-                    <div class="card mt-4">
-                        - <div class="card-header">
-                            - <h5 class="mb-0">Детальная информация</h5>
-                            - </div>
-                        - <div class="card-body">
-                            -
-                            <pre>{{ summary.details|pprint }}</pre>
-                            -
-                        </div>
-                        + <h3>Детальная информация</h3>
-                        +
-                        <pre
-                            style="background: #f3f4f6; padding: 16px; border-radius: 8px; overflow: auto;">{{ summary.details|pprint }}</pre>
-                    </div>
-                    {% endif %}
-
-                    {% else %}
-                    - <div class="alert alert-info">
-                        - <p class="mb-0">Нет данных для отображения. Проверьте подключение к серверу синхронизации.</p>
-                        + <div class="card">
-                            + <h3>Нет данных для отображения</h3>
-                            + <p>Проверьте подключение к серверу синхронизации.</p>
-                            + <a href="{% url 'balances:list' %}" class="btn btn-secondary">Вернуться к списку
-                                остатков</a>
-                        </div>
-                        {% endif %}
-                    </div>
-
-                    +<style>
-                        +.kpi {
-                            +font-size: 32px;
-                            +font-weight: 700;
-                            +line-height: 1.1;
-                            +
-                        }
-
-                        ++.table-responsive {
-                            +overflow-x: auto;
-                            +
-                        }
-
-                        ++pre {
-                            +font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-                            +font-size: 12px;
-                            +line-height: 1.4;
-                            +
-                        }
-
-                        +
-                    </style>
-                    {% endblock %}
+<style>
+  .kpi {
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+</style>
+{% endblock %}

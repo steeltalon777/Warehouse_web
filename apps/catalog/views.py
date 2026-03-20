@@ -11,26 +11,34 @@ from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import TemplateView
 
+from apps.catalog.constants import UNCATEGORIZED_CATEGORY_CODE, UNCATEGORIZED_CATEGORY_NAME
 from apps.catalog.forms import CategoryForm, ItemForm, UnitForm
 from apps.catalog.services import CatalogService
 from apps.common.permissions import can_manage_catalog, can_use_client
 from apps.sync_client.client import SyncServerClient
 
 
-def _resolve_site_id(request):
-    return (
+def _resolve_site_id(request) -> str:
+    binding_site_id = ""
+    try:
+        binding_site_id = str(request.user.sync_binding.default_site_id or "").strip()
+    except Exception:
+        binding_site_id = ""
+
+    return str(
         request.session.get("active_site")
         or request.session.get("sync_default_site_id")
         or request.session.get("site_id")
+        or binding_site_id
         or getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
-    )
+        or ""
+    ).strip()
 
 
 def _build_catalog_service(request) -> CatalogService:
-    site_id = _resolve_site_id(request)
     client = SyncServerClient(
         user_id=request.user.id,
-        site_id=site_id,
+        site_id=_resolve_site_id(request) or None,
         request=request,
     )
     return CatalogService(client)
@@ -41,21 +49,6 @@ def _first_present(data: dict, *keys, default=None):
         if key in data and data[key] not in (None, ""):
             return data[key]
     return default
-
-
-def _normalize_scalar_id(value):
-    if value in (None, "", 0, "0"):
-        return None
-    if isinstance(value, dict):
-        nested = _first_present(
-            value,
-            "id",
-            "category_id",
-            "parent_id",
-            "parent_category_id",
-        )
-        return str(nested) if nested not in (None, "", 0, "0") else None
-    return str(value)
 
 
 def _extract_parent_payload(category: dict) -> dict | None:
@@ -78,11 +71,7 @@ def _extract_parent_id(category: dict) -> str | None:
         if nested_id not in (None, "", 0, "0"):
             return str(nested_id)
 
-    direct_parent_id = _first_present(
-        category,
-        "parent_id",
-        "parent_category_id",
-    )
+    direct_parent_id = _first_present(category, "parent_id", "parent_category_id")
     if direct_parent_id not in (None, "", 0, "0"):
         return str(direct_parent_id)
 
@@ -92,9 +81,7 @@ def _extract_parent_id(category: dict) -> str | None:
 def _extract_parent_name(category: dict) -> str:
     parent = _extract_parent_payload(category)
     if parent:
-        return str(
-            _first_present(parent, "name", "title", "label", default="")
-        ).strip()
+        return str(_first_present(parent, "name", "title", "label", default="")).strip()
 
     return str(
         _first_present(
@@ -108,148 +95,71 @@ def _extract_parent_name(category: dict) -> str:
 
 def _normalize_category(category: dict) -> dict:
     raw = deepcopy(category)
-
     category_id = _first_present(raw, "id", "category_id")
-    if category_id in (None, ""):
-        category_id = ""
-
     name = str(_first_present(raw, "name", "title", "label", default="")).strip()
     parent_id = _extract_parent_id(raw)
     parent_name = _extract_parent_name(raw)
 
-    normalized = {
+    return {
         **raw,
-        "id": str(category_id),
+        "id": str(category_id or ""),
         "name": name,
         "parent_id": parent_id,
         "parent_name": parent_name,
-        "children": [],
-        "_raw": raw,
+        "parent": _extract_parent_payload(raw) or (
+            {"id": parent_id, "name": parent_name} if parent_id else None
+        ),
     }
-
-    parent_payload = _extract_parent_payload(raw)
-    if parent_payload:
-        normalized["parent"] = parent_payload
-    elif parent_id:
-        normalized["parent"] = {
-            "id": parent_id,
-            "name": parent_name,
-        }
-    else:
-        normalized["parent"] = None
-
-    return normalized
 
 
 def _normalize_categories(categories: list[dict]) -> list[dict]:
     normalized = [_normalize_category(category) for category in categories if isinstance(category, dict)]
-    by_id = {category["id"]: category for category in normalized if category.get("id")}
-
-    for category in normalized:
-        if category["parent_id"] and not category["parent_name"]:
-            parent = by_id.get(category["parent_id"])
-            if parent:
-                category["parent_name"] = parent.get("name", "")
-                category["parent"] = {
-                    "id": parent["id"],
-                    "name": parent.get("name", ""),
-                }
-
     normalized.sort(
-        key=lambda x: (
-            x.get("parent_id") is not None,
-            x.get("parent_name", "").lower(),
-            x.get("name", "").lower(),
-            x.get("id", ""),
+        key=lambda item: (
+            item.get("parent_name", "").lower(),
+            item.get("name", "").lower(),
+            item.get("id", ""),
         )
     )
     return normalized
 
 
-def _build_category_tree_from_flat(categories: list[dict]) -> list[dict]:
-    normalized = [_normalize_category(category) for category in categories if isinstance(category, dict)]
-    nodes = {}
-
-    for category in normalized:
-        node = {**category, "children": []}
-        nodes[category["id"]] = node
-
-    roots = []
-
-    for category in normalized:
-        node = nodes[category["id"]]
-        parent_id = category.get("parent_id")
-
-        if parent_id and parent_id in nodes and parent_id != category["id"]:
-            parent_node = nodes[parent_id]
-            node["parent_name"] = node.get("parent_name") or parent_node.get("name", "")
-            node["parent"] = {
-                "id": parent_node.get("id"),
-                "name": parent_node.get("name", ""),
-            }
-            parent_node.setdefault("children", []).append(node)
-        else:
-            roots.append(node)
-
-    def _sort_branch(branch: list[dict]):
-        branch.sort(key=lambda x: (x.get("name", "").lower(), x.get("id", "")))
-        for item in branch:
-            children = item.get("children") or []
-            if children:
-                _sort_branch(children)
-
-    _sort_branch(roots)
-    return roots
+def _is_uncategorized_category(category: dict) -> bool:
+    code = str(category.get("code") or "").strip()
+    name = str(category.get("name") or "").strip()
+    return code == UNCATEGORIZED_CATEGORY_CODE or name == UNCATEGORIZED_CATEGORY_NAME
 
 
-def _flatten_tree(tree: list[dict]) -> list[dict]:
-    result = []
-
-    def _walk(nodes: list[dict], parent: dict | None = None):
-        for node in nodes:
-            normalized = _normalize_category(node)
-            children = node.get("children") or normalized.get("children") or []
-
-            if parent and not normalized.get("parent_id"):
-                normalized["parent_id"] = parent.get("id")
-                normalized["parent_name"] = parent.get("name", "")
-                normalized["parent"] = {
-                    "id": parent.get("id"),
-                    "name": parent.get("name", ""),
-                }
-
-            result.append(normalized)
-            if children:
-                _walk(children, normalized)
-
-    _walk(tree)
-    return _normalize_categories(result)
+def _filter_manage_categories(categories: list[dict]) -> list[dict]:
+    return [category for category in categories if not _is_uncategorized_category(category)]
 
 
-def _looks_like_tree_payload(data) -> bool:
-    if not isinstance(data, list) or not data:
-        return False
-    return any(isinstance(item, dict) and "children" in item for item in data)
+def _normalize_item_payload(payload: dict, all_categories: list[dict]) -> tuple[dict, str | None]:
+    normalized = dict(payload)
+    if normalized.get("category_id") not in (None, ""):
+        return normalized, None
+
+    uncategorized = _find_uncategorized_category(all_categories)
+    if not uncategorized or uncategorized.get("id") in (None, ""):
+        return normalized, 'В SyncServer не найдена служебная категория "Без категории".'
+
+    normalized["category_id"] = int(uncategorized["id"])
+    return normalized, None
 
 
 class CatalogHomeView(LoginRequiredMixin, TemplateView):
     template_name = "catalog/home.html"
 
     def dispatch(self, request, *args, **kwargs):
-        if not can_use_client(request.user):
+        if not can_manage_catalog(request.user):
             return HttpResponseForbidden("Нет доступа")
         return super().dispatch(request, *args, **kwargs)
 
 
-class CatalogReadAccessMixin(LoginRequiredMixin):
+class CatalogManageAccessMixin(LoginRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
-        if not can_use_client(request.user):
+        if not can_use_client(request.user) or not can_manage_catalog(request.user):
             return HttpResponseForbidden("Нет доступа")
-
-        site_id = _resolve_site_id(request)
-        if not site_id:
-            messages.error(request, "Не выбран активный склад для работы со справочниками.")
-            return redirect("catalog:home")
 
         self.service = _build_catalog_service(request)
         return super().dispatch(request, *args, **kwargs)
@@ -260,118 +170,28 @@ class CatalogReadAccessMixin(LoginRequiredMixin):
             return [], result
         return _normalize_categories(result.data or []), result
 
-    def _get_categories_tree(self) -> tuple[list[dict], object]:
-        tree_result = self.service.categories_tree()
-        if tree_result.ok and isinstance(tree_result.data, list):
-            if _looks_like_tree_payload(tree_result.data):
-                return tree_result.data, tree_result
-
-            flat_from_tree = _normalize_categories(tree_result.data)
-            if flat_from_tree:
-                return _build_category_tree_from_flat(flat_from_tree), tree_result
-
-        flat_categories, flat_result = self._get_categories_flat()
-        if flat_result.ok:
-            return _build_category_tree_from_flat(flat_categories), flat_result
-
-        return [], tree_result if not tree_result.ok else flat_result
+    def _get_manage_categories_flat(self) -> tuple[list[dict], object]:
+        categories, result = self._get_categories_flat()
+        return _filter_manage_categories(categories), result
 
 
-class CatalogManageAccessMixin(CatalogReadAccessMixin):
-    def dispatch(self, request, *args, **kwargs):
-        if not can_manage_catalog(request.user):
-            return HttpResponseForbidden("Нет доступа")
-        return super().dispatch(request, *args, **kwargs)
-
-
-def _find_category_in_tree(nodes: list[dict], category_id: str) -> dict | None:
-    for node in nodes:
-        if str(node.get("id")) == str(category_id):
-            return node
-        children = node.get("children") or []
-        found = _find_category_in_tree(children, category_id)
-        if found is not None:
-            return found
-    return None
-
-
-def _filter_category_tree(nodes: list[dict], term: str) -> list[dict]:
-    if not term:
-        return nodes
-
-    lowered = term.lower()
-    filtered: list[dict] = []
-    for node in nodes:
-        children = node.get("children") or []
-        filtered_children = _filter_category_tree(children, term)
-        haystack = f'{node.get("name", "")} {node.get("code", "")}'.lower()
-        if lowered in haystack or filtered_children:
-            filtered.append({**node, "children": filtered_children})
-    return filtered
-
-
-def _flatten_category_ids(nodes: list[dict]) -> list[str]:
-    result: list[str] = []
-    for node in nodes:
-        node_id = str(node.get("id") or "")
-        if node_id:
-            result.append(node_id)
-        result.extend(_flatten_category_ids(node.get("children") or []))
-    return result
-
-
-class CategoryListView(CatalogReadAccessMixin, TemplateView):
-    template_name = "catalog/category_list.html"
+class CategoryListView(CatalogManageAccessMixin, TemplateView):
+    template_name = "catalog/manage_category_list.html"
 
     def get(self, request, *args, **kwargs):
-        tree, result = self._get_categories_tree()
+        categories, result = self._get_manage_categories_flat()
         if not result.ok:
             messages.error(request, result.form_error)
 
-        search = (request.GET.get("search") or "").strip()
-        filtered_tree = _filter_category_tree(tree, search)
-        flat_categories = _flatten_tree(tree)
-        visible_ids = set(_flatten_category_ids(filtered_tree))
-        visible_categories = [
-            category for category in flat_categories
-            if category.get("id") in visible_ids
-        ] if search else flat_categories
-
-        selected_id = str(request.GET.get("category_id") or "").strip()
-        selected_category = _find_category_in_tree(tree, selected_id) if selected_id else None
-        if selected_category is None and visible_categories:
-            selected_category = visible_categories[0]
-
-        create_initial = {"is_active": True}
-        if selected_category is not None:
-            create_initial["parent_id"] = selected_category.get("id")
-
-        return render(
-            request,
-            self.template_name,
-            {
-                "categories": filtered_tree,
-                "flat_categories": flat_categories,
-                "selected_category": selected_category,
-                "selected_category_id": str(selected_category.get("id")) if selected_category else "",
-                "search": search,
-                "site_context_id": _resolve_site_id(request),
-                "catalog_is_global": True,
-                "can_manage_catalog": can_manage_catalog(request.user),
-                "create_form": CategoryForm(
-                    initial=create_initial,
-                    category_choices=flat_categories,
-                ),
-            },
-        )
+        return render(request, self.template_name, {"flat_categories": categories})
 
 
 class CategoryCreateView(CatalogManageAccessMixin, View):
     template_name = "catalog/category_form.html"
-    success_url = reverse_lazy("catalog:category_list")
+    success_url = reverse_lazy("nomenclature:category_list")
 
     def get(self, request):
-        categories, result = self._get_categories_flat()
+        categories, result = self._get_manage_categories_flat()
         if not result.ok:
             messages.error(request, result.form_error)
 
@@ -384,8 +204,7 @@ class CategoryCreateView(CatalogManageAccessMixin, View):
         return render(request, self.template_name, {"form": form, "mode": "create"})
 
     def post(self, request):
-        categories, _ = self._get_categories_flat()
-
+        categories, _ = self._get_manage_categories_flat()
         form = CategoryForm(request.POST, category_choices=categories)
         if form.is_valid():
             result = self.service.create_category(form.cleaned_data)
@@ -399,10 +218,10 @@ class CategoryCreateView(CatalogManageAccessMixin, View):
 
 class CategoryUpdateView(CatalogManageAccessMixin, View):
     template_name = "catalog/category_form.html"
-    success_url = reverse_lazy("catalog:category_list")
+    success_url = reverse_lazy("nomenclature:category_list")
 
     def _get_category(self, pk: str):
-        categories, result = self._get_categories_flat()
+        categories, result = self._get_manage_categories_flat()
         if not result.ok:
             return None, result, categories
 
@@ -418,11 +237,7 @@ class CategoryUpdateView(CatalogManageAccessMixin, View):
                 messages.error(request, result.form_error)
             raise Http404("Категория не найдена")
 
-        initial = {
-            **category,
-            "parent_id": category.get("parent_id") or "",
-        }
-
+        initial = {**category, "parent_id": category.get("parent_id") or ""}
         form = CategoryForm(
             initial=initial,
             category_choices=[c for c in categories if str(c["id"]) != str(pk)],
@@ -431,7 +246,6 @@ class CategoryUpdateView(CatalogManageAccessMixin, View):
 
     def post(self, request, pk):
         _, _, categories = self._get_category(pk)
-
         form = CategoryForm(
             request.POST,
             category_choices=[c for c in categories if str(c["id"]) != str(pk)],
@@ -450,12 +264,31 @@ class CategoryUpdateView(CatalogManageAccessMixin, View):
 
 class CategoryDeleteView(CatalogManageAccessMixin, View):
     template_name = "catalog/category_confirm_delete.html"
-    success_url = reverse_lazy("catalog:category_list")
+    success_url = reverse_lazy("nomenclature:category_list")
+
+    def _get_category(self, pk: str):
+        categories, result = self._get_manage_categories_flat()
+        if not result.ok:
+            return None, result
+        for category in categories:
+            if str(category["id"]) == str(pk):
+                return category, result
+        return None, result
 
     def get(self, request, pk):
+        category, result = self._get_category(pk)
+        if category is None:
+            if result and not result.ok:
+                messages.error(request, result.form_error)
+            raise Http404("РљР°С‚РµРіРѕСЂРёСЏ РЅРµ РЅР°Р№РґРµРЅР°")
         return render(request, self.template_name, {"category_id": pk})
 
     def post(self, request, pk):
+        category, result = self._get_category(pk)
+        if category is None:
+            if result and not result.ok:
+                messages.error(request, result.form_error)
+            raise Http404("РљР°С‚РµРіРѕСЂРёСЏ РЅРµ РЅР°Р№РґРµРЅР°")
         result = self.service.update_category(str(pk), {"is_active": False})
         if result.ok:
             messages.success(request, "Категория деактивирована.")
@@ -466,15 +299,15 @@ class CategoryDeleteView(CatalogManageAccessMixin, View):
         return render(request, self.template_name, {"category_id": pk})
 
 
-class CategoryTreeView(CatalogReadAccessMixin, TemplateView):
+class CategoryTreeView(CatalogManageAccessMixin, TemplateView):
     template_name = "catalog/category_tree.html"
 
     def get(self, request, *args, **kwargs):
-        return redirect("catalog:category_list")
+        return redirect("nomenclature:category_list")
 
 
 class UnitListView(CatalogManageAccessMixin, TemplateView):
-    template_name = "catalog/unit_list.html"
+    template_name = "catalog/manage_unit_list.html"
 
     def get(self, request, *args, **kwargs):
         result = self.service.list_units()
@@ -488,7 +321,7 @@ class UnitListView(CatalogManageAccessMixin, TemplateView):
 
 class UnitCreateView(CatalogManageAccessMixin, View):
     template_name = "catalog/unit_form.html"
-    success_url = reverse_lazy("catalog:unit_list")
+    success_url = reverse_lazy("nomenclature:unit_list")
 
     def get(self, request):
         return render(request, self.template_name, {"form": UnitForm(), "mode": "create"})
@@ -506,7 +339,7 @@ class UnitCreateView(CatalogManageAccessMixin, View):
 
 class UnitUpdateView(CatalogManageAccessMixin, View):
     template_name = "catalog/unit_form.html"
-    success_url = reverse_lazy("catalog:unit_list")
+    success_url = reverse_lazy("nomenclature:unit_list")
 
     def _find_unit(self, pk: str):
         result = self.service.list_units()
@@ -540,7 +373,7 @@ class UnitUpdateView(CatalogManageAccessMixin, View):
 
 
 class ItemListView(CatalogManageAccessMixin, TemplateView):
-    template_name = "catalog/item_list.html"
+    template_name = "catalog/manage_item_list.html"
 
     def get(self, request, *args, **kwargs):
         category_id = request.GET.get("category_id") or None
@@ -572,30 +405,27 @@ class ItemListView(CatalogManageAccessMixin, TemplateView):
 
 class ItemCreateView(CatalogManageAccessMixin, View):
     template_name = "catalog/item_form.html"
-    success_url = reverse_lazy("catalog:item_list")
+    success_url = reverse_lazy("nomenclature:item_list")
 
     def _catalog_data(self):
         categories, categories_result = self._get_categories_flat()
         units_result = self.service.list_units()
-
         units = units_result.data if units_result.ok else []
-
-        return categories, units, categories_result, units_result
+        return categories, _filter_manage_categories(categories), units, categories_result, units_result
 
     def get(self, request):
-        categories, units, categories_result, units_result = self._catalog_data()
-
+        all_categories, form_categories, units, categories_result, units_result = self._catalog_data()
         if not categories_result.ok:
             messages.error(request, categories_result.form_error)
         if not units_result.ok:
             messages.error(request, units_result.form_error)
 
-        form = ItemForm(categories=categories, units=units)
+        form = ItemForm(categories=form_categories, units=units)
         return render(request, self.template_name, {"form": form, "mode": "create"})
 
     def post(self, request):
-        categories, units, _, _ = self._catalog_data()
-        form = ItemForm(request.POST, categories=categories, units=units)
+        _, form_categories, units, _, _ = self._catalog_data()
+        form = ItemForm(request.POST, categories=form_categories, units=units)
         if form.is_valid():
             result = self.service.create_item(form.cleaned_data)
             if result.ok:
@@ -607,7 +437,7 @@ class ItemCreateView(CatalogManageAccessMixin, View):
 
 class ItemUpdateView(CatalogManageAccessMixin, View):
     template_name = "catalog/item_form.html"
-    success_url = reverse_lazy("catalog:item_list")
+    success_url = reverse_lazy("nomenclature:item_list")
 
     def _find_item(self, pk: str):
         result = self.service.list_items()
@@ -634,20 +464,12 @@ class ItemUpdateView(CatalogManageAccessMixin, View):
                 messages.error(request, result.form_error)
             raise Http404("ТМЦ не найдена")
 
-        form = ItemForm(initial=item, categories=categories, units=units)
+        form = ItemForm(initial=item, categories=_filter_manage_categories(categories), units=units)
         return render(request, self.template_name, {"form": form, "mode": "update"})
 
     def post(self, request, pk):
-        categories, categories_result = self._get_categories_flat()
-        units_result = self.service.list_units()
-        units = units_result.data if units_result.ok else []
-
-        if not categories_result.ok:
-            messages.error(request, categories_result.form_error)
-        if not units_result.ok:
-            messages.error(request, units_result.form_error)
-
-        form = ItemForm(request.POST, categories=categories, units=units)
+        _, form_categories, units, _, _ = self._catalog_data()
+        form = ItemForm(request.POST, categories=form_categories, units=units)
         if form.is_valid():
             result = self.service.update_item(str(pk), form.cleaned_data)
             if result.ok:
@@ -656,12 +478,23 @@ class ItemUpdateView(CatalogManageAccessMixin, View):
             if result.not_found:
                 raise Http404("ТМЦ не найдена")
             form.add_error(None, result.form_error)
-
         return render(request, self.template_name, {"form": form, "mode": "update"})
+
+    def _catalog_data(self):
+        categories, categories_result = self._get_categories_flat()
+        units_result = self.service.list_units()
+        units = units_result.data if units_result.ok else []
+
+        if not categories_result.ok:
+            messages.error(self.request, categories_result.form_error)
+        if not units_result.ok:
+            messages.error(self.request, units_result.form_error)
+
+        return categories, _filter_manage_categories(categories), units, categories_result, units_result
 
 
 class ItemDeactivateView(CatalogManageAccessMixin, View):
-    success_url = reverse_lazy("catalog:item_list")
+    success_url = reverse_lazy("nomenclature:item_list")
 
     def post(self, request, pk):
         result = self.service.update_item(str(pk), {"is_active": False})

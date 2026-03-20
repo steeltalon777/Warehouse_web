@@ -6,15 +6,15 @@
     <div class="card catalog-form-card">
         <h2>{% if mode == "update" %}Редактировать категорию{% else %}Создать категорию{% endif %}</h2>
         <p class="catalog-page-note">
-            Категории хранятся в SyncServer. Активный склад используется как контекст доступа.
+            Категории хранятся в SyncServer и относятся к глобальной номенклатуре компании.
         </p>
 
-        <form method="post">
+        <form method="post" data-loading-form data-loading-scope="page" data-loading-overlay-text="{% if mode == 'update' %}Сохранение категории...{% else %}Создание категории...{% endif %}">
             {% csrf_token %}
             {{ form.as_p }}
             <div class="catalog-actions">
-                <button type="submit">Сохранить</button>
-                <a class="btn btn-secondary" href="{% url 'catalog:category_list' %}">Назад к категориям</a>
+                <button type="submit" data-loading-text="{% if mode == 'update' %}Сохранение...{% else %}Создание...{% endif %}">Сохранить</button>
+                <a class="btn btn-secondary" href="{% url 'nomenclature:category_list' %}">Назад к категориям</a>
             </div>
         </form>
     </div>

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Каталог / ТМЦ{% endblock %}
+
+{% block content %}
+    <h2>Каталог / ТМЦ</h2>
+    <p>Глобальный справочник товаров компании.</p>
+
+    <form method="get" style="margin-bottom: 12px;" data-loading-form data-loading-scope="page" data-loading-overlay-text="Загрузка каталога...">
+        <label>Категория:</label>
+        <select name="category_id">
+            <option value="">Все</option>
+            {% for category in categories %}
+                <option value="{{ category.id }}" {% if selected_category_id == category.id|stringformat:"s" %}selected{% endif %}>{{ category.name }}</option>
+            {% endfor %}
+        </select>
+        <label>Поиск:</label>
+        <input name="search" value="{{ search }}" placeholder="Поиск по имени" />
+        <button type="submit" data-loading-text="Загрузка...">Фильтровать</button>
+    </form>
+
+    {% if items %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Название</th>
+                    <th>SKU</th>
+                    <th>Категория</th>
+                    <th>Ед.</th>
+                    <th>Описание</th>
+                    <th>Обновлено</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                    <tr>
+                        <td>{{ item.name }}</td>
+                        <td>{{ item.sku|default:"—" }}</td>
+                        <td>{{ item.category_name|default:"—" }}</td>
+                        <td>{{ item.unit_symbol|default:"—" }}</td>
+                        <td>{{ item.description|default:"—" }}</td>
+                        <td>{{ item.updated_at|default:"—" }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>По текущим фильтрам ТМЦ не найдены.</p>
+    {% endif %}
+
+    {% if pagination.total_pages > 1 %}
+        <nav style="margin-top: 12px;">
+            {% if pagination.has_previous %}<a href="{{ pagination.previous_url }}">Назад</a>{% endif %}
+            {% for page_info in pagination.pages %}
+                {% if page_info.current %}
+                    <strong>{{ page_info.number }}</strong>
+                {% else %}
+                    <a href="{{ page_info.url }}">{{ page_info.number }}</a>
+                {% endif %}
+            {% endfor %}
+            {% if pagination.has_next %}<a href="{{ pagination.next_url }}">Вперёд</a>{% endif %}
+        </nav>
+    {% endif %}
+{% endblock %}

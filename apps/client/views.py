@@ -1,30 +1,13 @@
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.conf import settings
 from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
 
-from apps.catalog.services import CatalogService
 from apps.client.forms import OperationCreateForm
 from apps.client.services import DomainService
 from apps.common.permissions import can_manage_catalog, is_storekeeper
 from apps.sync_client.client import SyncServerClient
-
-
-def _build_catalog_service(request) -> CatalogService:
-    site_id = (
-        request.session.get("active_site")
-        or request.session.get("sync_default_site_id")
-        or request.session.get("site_id")
-        or getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
-    )
-
-    client = SyncServerClient(
-        user_id=request.user.id,
-        site_id=site_id,
-        request=request,
-    )
-    return CatalogService(client)
 
 
 def _build_domain_service(request) -> DomainService:
@@ -136,19 +119,4 @@ def operation_create(request):
 def storekeeper_catalog(request):
     if not (is_storekeeper(request.user) or can_manage_catalog(request.user) or request.user.is_superuser):
         return HttpResponseForbidden("Нет доступа")
-
-    catalog_service = _build_catalog_service(request)
-
-    search = request.GET.get("search") or None
-    items_result = catalog_service.list_items(search=search)
-    if not items_result.ok:
-        messages.error(request, items_result.form_error)
-
-    return render(
-        request,
-        "client/storekeeper_catalog.html",
-        {
-            "items": items_result.data or [],
-            "search": search or "",
-        },
-    )
+    return redirect("catalog:item_list")

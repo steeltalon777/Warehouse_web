@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block title %}Каталог{% endblock %}
+
+{% block content %}
+    <h2>Каталог</h2>
+    <p>Глобальный read-only каталог компании.</p>
+
+    <ul>
+        <li><a href="{% url 'catalog:item_list' %}">ТМЦ</a></li>
+        <li><a href="{% url 'catalog:category_list' %}">Категории</a></li>
+    </ul>
+{% endblock %}
