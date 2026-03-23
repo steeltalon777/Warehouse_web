@@ -22,7 +22,8 @@
   const quantityHint = document.getElementById("quantity-hint");
   const typeNote = document.getElementById("operation-type-note");
   const itemSearchInput = document.getElementById("item-search-input");
-  const itemSearchResults = document.getElementById("item-search-results");
+  const itemSearchResultsBody = document.getElementById("item-search-results-body");
+  const itemSearchStatus = document.getElementById("item-search-status");
   const selectedItemBox = document.getElementById("selected-item-box");
   const quantityInput = document.getElementById("item-quantity-input");
   const addItemButton = document.getElementById("add-item-button");
@@ -37,6 +38,7 @@
   const config = JSON.parse(configNode.textContent || "{}");
   const typeMetaByCode = Object.fromEntries(typeOptions.map((item) => [item.code, item]));
   let selectedItem = null;
+  let currentSearchResults = [];
   let searchTimer = null;
 
   function ensureStateDefaults() {
@@ -64,6 +66,26 @@
   function syncDraftPayload() {
     if (!draftInput) return;
     draftInput.value = JSON.stringify(state);
+  }
+
+  function isQuantityValid() {
+    const quantity = Number(quantityInput.value);
+    const allowNegative = Boolean((currentTypeMeta() || {}).allow_negative_qty);
+    if (!Number.isInteger(quantity) || quantity === 0) {
+      return false;
+    }
+    if (!allowNegative && quantity < 0) {
+      return false;
+    }
+    return true;
+  }
+
+  function updateAddButtonState() {
+    addItemButton.disabled = !(selectedItem && isQuantityValid());
+  }
+
+  function setSearchStatus(text) {
+    itemSearchStatus.textContent = text;
   }
 
   function renderTypeSection() {
@@ -95,20 +117,24 @@
     }
 
     recipientRow.classList.toggle("operation-hidden", !meta.requires_recipient);
+    updateAddButtonState();
   }
 
   function renderSelectedItem() {
     if (!selectedItem) {
       selectedItemBox.classList.add("operation-hidden");
       selectedItemBox.textContent = "";
+      updateAddButtonState();
       return;
     }
+
     selectedItemBox.classList.remove("operation-hidden");
     selectedItemBox.innerHTML = `
-      <strong>${selectedItem.name}</strong>
+      <strong>Выбрано:</strong> ${selectedItem.name}
       <span>SKU: ${selectedItem.sku || "—"}</span>
       <span>Ед. изм.: ${selectedItem.unit_symbol || "—"}</span>
     `;
+    updateAddButtonState();
   }
 
   function renderItemsTable() {
@@ -158,10 +184,12 @@
 
   function resetPicker() {
     selectedItem = null;
+    currentSearchResults = [];
     itemSearchInput.value = "";
     quantityInput.value = "1";
     renderSelectedItem();
     renderSearchResults([]);
+    setSearchStatus("Введите минимум 2 символа, чтобы увидеть результаты.");
     itemSearchInput.focus();
   }
 
@@ -208,51 +236,90 @@
     resetPicker();
   }
 
+  function buildEmptyResultsRow(message) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="4" class="operation-empty-table">${message}</td>`;
+    return row;
+  }
+
   function renderSearchResults(items) {
-    itemSearchResults.innerHTML = "";
+    itemSearchResultsBody.innerHTML = "";
     if (!items.length) {
-      itemSearchResults.classList.add("operation-hidden");
+      const emptyMessage = itemSearchInput.value.trim().length < 2
+        ? "Введите минимум 2 символа, чтобы увидеть результаты."
+        : "По запросу ничего не найдено.";
+      itemSearchResultsBody.appendChild(buildEmptyResultsRow(emptyMessage));
       return;
     }
 
     items.forEach((item) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "operation-combobox-item";
-      button.innerHTML = `
-        <strong>${item.name}</strong>
-        <span>SKU: ${item.sku || "—"}</span>
-        <span>Ед. изм.: ${item.unit_symbol || "—"}</span>
+      const row = document.createElement("tr");
+      row.className = "operation-search-result-row";
+      if (selectedItem && Number(selectedItem.id) === Number(item.id)) {
+        row.classList.add("is-selected");
+      }
+
+      row.innerHTML = `
+        <td><strong>${item.name}</strong></td>
+        <td>${item.sku || "—"}</td>
+        <td>${item.unit_symbol || "—"}</td>
+        <td>${item.category_name || "—"}</td>
       `;
-      button.addEventListener("click", function () {
+
+      row.addEventListener("click", function () {
         selectedItem = item;
         renderSelectedItem();
-        renderSearchResults([]);
+        renderSearchResults(currentSearchResults);
         quantityInput.focus();
       });
-      itemSearchResults.appendChild(button);
-    });
 
-    itemSearchResults.classList.remove("operation-hidden");
+      itemSearchResultsBody.appendChild(row);
+    });
   }
 
   function fetchSearchResults(query) {
+    setSearchStatus("Ищем совпадения...");
     window.fetch(`${config.itemSearchUrl}?q=${encodeURIComponent(query)}`, {
       headers: { "X-Requested-With": "XMLHttpRequest" },
     })
-      .then((response) => response.json())
-      .then((payload) => {
-        renderSearchResults(Array.isArray(payload.items) ? payload.items : []);
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || "Не удалось загрузить результаты поиска.");
+        }
+        if (payload && payload.error) {
+          throw new Error(payload.error);
+        }
+        return payload;
       })
-      .catch(() => {
+      .then((payload) => {
+        currentSearchResults = Array.isArray(payload.items) ? payload.items : [];
+        renderSearchResults(currentSearchResults);
+        setSearchStatus(
+          currentSearchResults.length
+            ? `Найдено позиций: ${currentSearchResults.length}`
+            : "По запросу ничего не найдено."
+        );
+      })
+      .catch((error) => {
+        currentSearchResults = [];
         renderSearchResults([]);
+        if (error instanceof Error && error.message) {
+          setSearchStatus(error.message);
+          return;
+        }
+        setSearchStatus("Не удалось загрузить результаты поиска.");
       });
   }
 
   function onSearchInput() {
     const query = itemSearchInput.value.trim();
+    selectedItem = null;
+    renderSelectedItem();
     if (query.length < 2) {
+      currentSearchResults = [];
       renderSearchResults([]);
+      setSearchStatus("Введите минимум 2 символа, чтобы увидеть результаты.");
       return;
     }
 
@@ -331,6 +398,9 @@
   renderTypeSection();
   renderSelectedItem();
   renderItemsTable();
+  renderSearchResults([]);
+  setSearchStatus("Введите минимум 2 символа, чтобы увидеть результаты.");
+  updateAddButtonState();
 
   typeSelect.addEventListener("change", function () {
     updateStateFromFields();
@@ -343,6 +413,7 @@
   issuedToNameInput.addEventListener("input", updateStateFromFields);
   notesInput.addEventListener("input", updateStateFromFields);
   itemSearchInput.addEventListener("input", onSearchInput);
+  quantityInput.addEventListener("input", updateAddButtonState);
   addItemButton.addEventListener("click", addSelectedItem);
   draftItemsBody.addEventListener("click", handleDraftTableClick);
   draftItemsBody.addEventListener("change", handleDraftTableChange);
@@ -353,9 +424,4 @@
     }
   });
   form.addEventListener("submit", validateBeforeSubmit);
-  document.addEventListener("click", function (event) {
-    if (!event.target.closest("#item-combobox")) {
-      renderSearchResults([]);
-    }
-  });
 })();

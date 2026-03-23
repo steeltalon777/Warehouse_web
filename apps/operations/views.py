@@ -6,6 +6,7 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.db import DatabaseError
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -189,7 +190,7 @@ class OperationsListView(SyncContextMixin, TemplateView):
         try:
             page_data = api.list_operations_page(filters=filters)
         except SyncServerAPIError as exc:
-            messages.error(request, str(exc) or "Не удалось загрузить операции.")
+            messages.error(request, str(exc) or "?? ??????? ????????? ????????.")
 
         try:
             operations = service.present_operations(page_data.get("items", []))
@@ -259,8 +260,17 @@ class OperationItemSearchView(SyncContextMixin, View):
 
         try:
             items = service.search_items(query, limit=12)
+        except DatabaseError:
+            logger.exception("Local catalog cache is not ready for item search.")
+            return JsonResponse(
+                {
+                    "items": [],
+                    "error": "????????? ??? ???????? ??? ?? ???????????. ????????? migrate ? sync_catalog_cache.",
+                },
+                status=503,
+            )
         except SyncServerAPIError as exc:
-            return JsonResponse({"items": [], "error": str(exc) or "Не удалось загрузить ТМЦ."}, status=502)
+            return JsonResponse({"items": [], "error": str(exc) or "?? ??????? ????????? ???."}, status=502)
 
         return JsonResponse({"items": items})
 

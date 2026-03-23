@@ -39,31 +39,24 @@
       <div class="card">
         <div class="operation-section-head">
           <div>
-            <h3>Тип операции</h3>
-            <p class="operation-page-note">От выбранного типа зависят обязательные поля и правила по количеству.</p>
+            <h3>Параметры документа</h3>
+            <p class="operation-page-note">Выберите тип операции, укажите склад и заполните комментарий к документу.</p>
           </div>
         </div>
-        <div class="form-row">
-          <label for="operation-type-select">Тип операции</label>
-          <select id="operation-type-select">
-            {% for option in operation_type_options %}
-            <option value="{{ option.code }}" {% if not option.enabled %}disabled{% endif %}>
-              {{ option.label }}{% if not option.enabled %} (скоро){% endif %}
-            </option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="operation-callout" id="operation-type-note"></div>
-      </div>
+        <div class="operation-document-grid">
+          <div class="form-row operation-document-type-row">
+            <label for="operation-type-select">Тип операции</label>
+            <select id="operation-type-select">
+              {% for option in operation_type_options %}
+              <option value="{{ option.code }}" {% if not option.enabled %}disabled{% endif %}>
+                {{ option.label }}{% if not option.enabled %} (скоро){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
 
-      <div class="card">
-        <div class="operation-section-head">
-          <div>
-            <h3>Параметры операции</h3>
-            <p class="operation-page-note">Укажите склад, направление движения и дополнительные параметры документа.</p>
-          </div>
-        </div>
-        <div class="operation-params-grid">
+          <div class="operation-callout operation-document-note-row" id="operation-type-note"></div>
+
           <div class="form-row {% if can_choose_source_site %}operation-hidden{% endif %}" id="fixed-site-row">
             <label for="fixed-site-value">Рабочий склад</label>
             <div class="operation-fixed-site-value" id="fixed-site-value">
@@ -112,7 +105,7 @@
 
           <div class="form-row operation-notes-row" id="notes-row">
             <label for="notes-input" id="notes-label">Комментарий</label>
-            <textarea id="notes-input" rows="3" placeholder="Комментарий к операции"></textarea>
+            <textarea id="notes-input" rows="2" placeholder="Комментарий к операции"></textarea>
           </div>
         </div>
       </div>
@@ -121,25 +114,46 @@
         <div class="operation-section-head">
           <div>
             <h3>Добавить ТМЦ</h3>
-            <p class="operation-page-note">Найдите ТМЦ по названию или SKU, укажите количество и добавьте строку в черновик.</p>
+            <p class="operation-page-note">Введите поиск, выберите ТМЦ в таблице результатов, укажите количество и добавьте строку в документ.</p>
           </div>
         </div>
         <div class="operation-item-picker">
-          <div class="form-row operation-item-search-row">
-            <label for="item-search-input">ТМЦ</label>
-            <div class="operation-combobox" id="item-combobox">
-              <input id="item-search-input" type="text" placeholder="Начните вводить название или SKU">
-              <div class="operation-combobox-results operation-hidden" id="item-search-results"></div>
+          <div class="operation-search-toolbar">
+            <div class="form-row operation-item-search-row">
+              <label for="item-search-input">Поиск ТМЦ</label>
+              <input id="item-search-input" type="text" placeholder="Название или SKU">
             </div>
-            <div class="operation-selected-item operation-hidden" id="selected-item-box"></div>
+
+            <div class="form-row operation-item-quantity-row">
+              <label for="item-quantity-input">Количество</label>
+              <input id="item-quantity-input" type="number" step="1" value="1">
+            </div>
+
+            <div class="operation-picker-actions">
+              <button type="button" class="btn" id="add-item-button" disabled>Добавить строку</button>
+            </div>
           </div>
-          <div class="form-row">
-            <label for="item-quantity-input">Количество</label>
-            <input id="item-quantity-input" type="number" step="1" value="1">
-            <small class="operation-field-hint" id="quantity-hint">Для большинства операций количество должно быть положительным целым числом.</small>
-          </div>
-          <div class="operation-picker-actions">
-            <button type="button" class="btn" id="add-item-button">Добавить строку</button>
+
+          <div class="operation-search-status" id="item-search-status">Введите минимум 2 символа, чтобы увидеть результаты.</div>
+          <div class="operation-selected-item operation-hidden" id="selected-item-box"></div>
+          <small class="operation-field-hint" id="quantity-hint">Для большинства операций количество должно быть положительным целым числом.</small>
+
+          <div class="operation-table-wrap operation-search-results-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Наименование</th>
+                  <th>SKU</th>
+                  <th>Ед. изм.</th>
+                  <th>Категория</th>
+                </tr>
+              </thead>
+              <tbody id="item-search-results-body">
+                <tr id="item-search-empty-row">
+                  <td colspan="4" class="operation-empty-table">Введите минимум 2 символа, чтобы увидеть результаты.</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -203,6 +217,6 @@
 <script id="operation-create-config" type="application/json">
   {"itemSearchUrl":"{{ item_search_url|escapejs }}","canChooseSourceSite":{% if can_choose_source_site %}true{% else %}false{% endif %},"fixedOperatingSiteId":"{{ fixed_operating_site_id }}"}
 </script>
-<script src="{% static 'js/operations_create.js' %}"></script>
+<script src="{% static 'js/operations_create.js' %}?v=20260323-1"></script>
 {% endif %}
 {% endblock %}

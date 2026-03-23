@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "apps.users",
     "apps.catalog",
+    "apps.catalog_cache",
     "apps.client",
     "apps.documents",
     "apps.common",

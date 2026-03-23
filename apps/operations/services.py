@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from apps.catalog_cache.services import CatalogLookupService
 from apps.catalog.services import CatalogService
 from apps.common.permissions import get_user_role, is_observer
 from apps.operations.constants import OPERATION_STATUS_META, OPERATION_TYPE_LABELS, OPERATION_TYPE_META
@@ -13,6 +14,7 @@ class OperationPageService:
         self.client = client
         self.request = request
         self.catalog = CatalogService(client)
+        self.catalog_lookup = CatalogLookupService()
 
     def get_available_sites(self) -> list[dict[str, Any]]:
         response = self.client.get("/auth/sites")
@@ -60,29 +62,7 @@ class OperationPageService:
         return self.get_current_role() in {"root", "chief_storekeeper"}
 
     def search_items(self, query: str, *, limit: int = 12) -> list[dict[str, Any]]:
-        result = self.catalog.browse_items(search=query, page=1, page_size=limit)
-        if not result.ok:
-            return []
-
-        payload = result.data if isinstance(result.data, dict) else {}
-        items = payload.get("items", [])
-        normalized: list[dict[str, Any]] = []
-        for item in items:
-            try:
-                item_id = int(item.get("id"))
-            except (TypeError, ValueError):
-                continue
-            normalized.append(
-                {
-                    "id": item_id,
-                    "name": str(item.get("name") or item.get("sku") or item_id),
-                    "sku": str(item.get("sku") or ""),
-                    "unit_symbol": str(item.get("unit_symbol") or ""),
-                    "category_name": str(item.get("category_name") or ""),
-                    "is_active": bool(item.get("is_active", True)),
-                }
-            )
-        return normalized
+        return self.catalog_lookup.search_items(query, limit=limit)
 
     def get_items_index(self) -> dict[int, dict[str, Any]]:
         result = self.catalog.list_items()
