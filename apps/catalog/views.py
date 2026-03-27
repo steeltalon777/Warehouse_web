@@ -1,21 +1,26 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from math import ceil
 
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
 from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import TemplateView
 
+from apps.catalog_cache.services import CatalogCacheSyncService
 from apps.catalog.constants import UNCATEGORIZED_CATEGORY_CODE, UNCATEGORIZED_CATEGORY_NAME
 from apps.catalog.forms import CategoryForm, ItemForm, UnitForm
 from apps.catalog.services import CatalogService
+from apps.catalog.tree import build_category_item_tree, normalize_tree_item
 from apps.common.permissions import can_manage_catalog, can_use_client
 from apps.sync_client.client import SyncServerClient
+from apps.sync_client.exceptions import SyncServerAPIError
 
 
 def _resolve_site_id(request) -> str:
@@ -124,6 +129,51 @@ def _normalize_categories(categories: list[dict]) -> list[dict]:
     return normalized
 
 
+def _normalize_item(item: dict) -> dict:
+    normalized_tree_item = normalize_tree_item(item)
+    return {
+        **item,
+        **normalized_tree_item,
+        "unit_name": str(item.get("unit_name") or item.get("unit") or "").strip(),
+        "category_name": str(item.get("category_name") or "").strip(),
+    }
+
+
+def _normalize_items(items: list[dict]) -> list[dict]:
+    normalized = [_normalize_item(item) for item in items if isinstance(item, dict)]
+    normalized.sort(
+        key=lambda item: (
+            item.get("name", "").lower(),
+            item.get("sku", "").lower(),
+            item.get("id", ""),
+        )
+    )
+    return normalized
+
+
+def _normalize_units(units: list[dict]) -> list[dict]:
+    normalized: list[dict] = []
+    for unit in units:
+        if not isinstance(unit, dict):
+            continue
+        normalized.append(
+            {
+                **unit,
+                "id": str(_first_present(unit, "id", "unit_id", default="") or ""),
+                "name": str(_first_present(unit, "name", "title", "label", default="")).strip(),
+                "symbol": str(unit.get("symbol") or "").strip(),
+            }
+        )
+    normalized.sort(
+        key=lambda item: (
+            item.get("name", "").lower(),
+            item.get("symbol", "").lower(),
+            item.get("id", ""),
+        )
+    )
+    return normalized
+
+
 def _is_uncategorized_category(category: dict) -> bool:
     code = str(category.get("code") or "").strip()
     name = str(category.get("name") or "").strip()
@@ -134,17 +184,75 @@ def _filter_manage_categories(categories: list[dict]) -> list[dict]:
     return [category for category in categories if not _is_uncategorized_category(category)]
 
 
-def _normalize_item_payload(payload: dict, all_categories: list[dict]) -> tuple[dict, str | None]:
-    normalized = dict(payload)
-    if normalized.get("category_id") not in (None, ""):
-        return normalized, None
+def _matches_item_search(item: dict, search: str) -> bool:
+    search_term = search.casefold()
+    return (
+        search_term in str(item.get("name") or "").casefold()
+        or search_term in str(item.get("sku") or "").casefold()
+    )
 
-    uncategorized = _find_uncategorized_category(all_categories)
-    if not uncategorized or uncategorized.get("id") in (None, ""):
-        return normalized, 'В SyncServer не найдена служебная категория "Без категории".'
 
-    normalized["category_id"] = int(uncategorized["id"])
-    return normalized, None
+def _matches_unit_search(unit: dict, search: str) -> bool:
+    search_term = search.casefold()
+    return (
+        search_term in str(unit.get("name") or "").casefold()
+        or search_term in str(unit.get("symbol") or "").casefold()
+    )
+
+
+def _parse_page(raw_value, *, default: int = 1) -> int:
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def _parse_page_size(raw_value, *, default: int = 20) -> int:
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return default
+    return min(max(value, 1), 100)
+
+
+def _build_manage_pagination(
+    request,
+    *,
+    total_count: int,
+    page: int,
+    page_size: int,
+    page_key: str = "page",
+) -> dict:
+    total_pages = max(1, ceil(total_count / page_size)) if page_size else 1
+    page = min(max(page, 1), total_pages)
+    window_start = max(1, page - 2)
+    window_end = min(total_pages, page + 2)
+
+    def build_url(page_number: int) -> str:
+        query = request.GET.copy()
+        query[page_key] = str(page_number)
+        query["page_size"] = str(page_size)
+        return f"?{query.urlencode()}"
+
+    return {
+        "page": page,
+        "page_size": page_size,
+        "total_count": total_count,
+        "total_pages": total_pages,
+        "has_previous": page > 1,
+        "has_next": page < total_pages,
+        "previous_url": build_url(page - 1) if page > 1 else "",
+        "next_url": build_url(page + 1) if page < total_pages else "",
+        "pages": [
+            {
+                "number": page_number,
+                "url": build_url(page_number),
+                "current": page_number == page,
+            }
+            for page_number in range(window_start, window_end + 1)
+        ],
+    }
 
 
 class CatalogHomeView(LoginRequiredMixin, TemplateView):
@@ -155,8 +263,13 @@ class CatalogHomeView(LoginRequiredMixin, TemplateView):
             return HttpResponseForbidden("Нет доступа")
         return super().dispatch(request, *args, **kwargs)
 
+    def get(self, request, *args, **kwargs):
+        return redirect("nomenclature:tree")
+
 
 class CatalogManageAccessMixin(LoginRequiredMixin):
+    page_size_options = [10, 20, 50, 100]
+
     def dispatch(self, request, *args, **kwargs):
         if not can_use_client(request.user) or not can_manage_catalog(request.user):
             return HttpResponseForbidden("Нет доступа")
@@ -175,15 +288,124 @@ class CatalogManageAccessMixin(LoginRequiredMixin):
         return _filter_manage_categories(categories), result
 
 
+class CatalogManageTreeMixin(CatalogManageAccessMixin):
+    def _build_tree_context(
+        self,
+        request,
+        *,
+        selected_category_id: str | int | None = None,
+        selected_item_id: str | int | None = None,
+    ) -> dict:
+        categories, categories_result = self._get_manage_categories_flat()
+        items_result = self.service.browse_all_items()
+        items = _normalize_items(items_result.data or []) if items_result.ok else []
+
+        if not categories_result.ok:
+            messages.error(request, categories_result.form_error)
+        if not items_result.ok:
+            messages.error(request, items_result.form_error)
+
+        selected_kind = None
+        selected_id = None
+        if selected_item_id not in (None, ""):
+            selected_kind = "item"
+            selected_id = str(selected_item_id)
+        elif selected_category_id not in (None, ""):
+            selected_kind = "category"
+            selected_id = str(selected_category_id)
+
+        tree_nodes = build_category_item_tree(
+            categories=categories,
+            items=items,
+            category_url_builder=lambda category: reverse(
+                "nomenclature:category_update",
+                kwargs={"pk": int(category["id"])},
+            ),
+            item_url_builder=lambda item: reverse(
+                "nomenclature:item_update",
+                kwargs={"pk": int(item["id"])},
+            ),
+            selected_kind=selected_kind,
+            selected_id=selected_id,
+        )
+
+        return {
+            "tree_nodes": tree_nodes,
+            "cache_sync_next_url": request.get_full_path(),
+        }
+
+
+class NomenclatureTreeView(CatalogManageTreeMixin, TemplateView):
+    template_name = "catalog/home.html"
+
+    def get(self, request, *args, **kwargs):
+        return render(
+            request,
+            self.template_name,
+            self._build_tree_context(request),
+        )
+
+
 class CategoryListView(CatalogManageAccessMixin, TemplateView):
     template_name = "catalog/manage_category_list.html"
 
     def get(self, request, *args, **kwargs):
+        search = (request.GET.get("search") or "").strip()
+        page = _parse_page(request.GET.get("page"), default=1)
+        page_size = _parse_page_size(request.GET.get("page_size"), default=20)
         categories, result = self._get_manage_categories_flat()
         if not result.ok:
             messages.error(request, result.form_error)
 
-        return render(request, self.template_name, {"flat_categories": categories})
+        if search:
+            search_term = search.casefold()
+            categories = [
+                category
+                for category in categories
+                if search_term in str(category.get("name") or "").casefold()
+            ]
+
+        paginator = Paginator(categories, page_size)
+        page_obj = paginator.get_page(page)
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "flat_categories": list(page_obj.object_list),
+                "search": search,
+                "page_size": page_size,
+                "page_size_options": [10, 20, 50, 100],
+                "pagination": _build_manage_pagination(
+                    request,
+                    total_count=paginator.count,
+                    page=page_obj.number,
+                    page_size=page_size,
+                ),
+            },
+        )
+
+
+class CatalogCacheSyncView(CatalogManageAccessMixin, View):
+    success_url = reverse_lazy("nomenclature:tree")
+
+    def post(self, request, *args, **kwargs):
+        next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or str(self.success_url)
+
+        try:
+            stats = CatalogCacheSyncService().sync_items()
+        except SyncServerAPIError as exc:
+            messages.error(request, str(exc) or "Не удалось синхронизировать кэш номенклатуры.")
+        except Exception:
+            messages.error(request, "Не удалось синхронизировать кэш номенклатуры.")
+        else:
+            messages.success(
+                request,
+                "Кэш поиска операций обновлён: "
+                f"страниц {stats.pages}, загружено {stats.fetched}, сохранено {stats.upserted}.",
+            )
+
+        return redirect(next_url)
 
 
 class CategoryCreateView(CatalogManageAccessMixin, View):
@@ -201,7 +423,17 @@ class CategoryCreateView(CatalogManageAccessMixin, View):
             initial["parent_id"] = parent_id
 
         form = CategoryForm(initial=initial, category_choices=categories)
-        return render(request, self.template_name, {"form": form, "mode": "create"})
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "mode": "create",
+                "page_title": "Новая категория",
+                "page_note": "Категория будет добавлена в общую иерархию номенклатуры.",
+                "back_url": reverse("nomenclature:category_list"),
+            },
+        )
 
     def post(self, request):
         categories, _ = self._get_manage_categories_flat()
@@ -213,7 +445,17 @@ class CategoryCreateView(CatalogManageAccessMixin, View):
                 return redirect(self.success_url)
             form.add_error(None, result.form_error)
 
-        return render(request, self.template_name, {"form": form, "mode": "create"})
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "mode": "create",
+                "page_title": "Новая категория",
+                "page_note": "Категория будет добавлена в общую иерархию номенклатуры.",
+                "back_url": reverse("nomenclature:category_list"),
+            },
+        )
 
 
 class CategoryUpdateView(CatalogManageAccessMixin, View):
@@ -242,7 +484,17 @@ class CategoryUpdateView(CatalogManageAccessMixin, View):
             initial=initial,
             category_choices=[c for c in categories if str(c["id"]) != str(pk)],
         )
-        return render(request, self.template_name, {"form": form, "mode": "update"})
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "mode": "update",
+                "page_title": "Редактирование категории",
+                "page_note": "Изменения применяются к общей иерархии номенклатуры.",
+                "back_url": reverse("nomenclature:category_list"),
+            },
+        )
 
     def post(self, request, pk):
         _, _, categories = self._get_category(pk)
@@ -259,7 +511,17 @@ class CategoryUpdateView(CatalogManageAccessMixin, View):
                 raise Http404("Категория не найдена")
             form.add_error(None, result.form_error)
 
-        return render(request, self.template_name, {"form": form, "mode": "update"})
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "mode": "update",
+                "page_title": "Редактирование категории",
+                "page_note": "Изменения применяются к общей иерархии номенклатуры.",
+                "back_url": reverse("nomenclature:category_list"),
+            },
+        )
 
 
 class CategoryDeleteView(CatalogManageAccessMixin, View):
@@ -280,15 +542,24 @@ class CategoryDeleteView(CatalogManageAccessMixin, View):
         if category is None:
             if result and not result.ok:
                 messages.error(request, result.form_error)
-            raise Http404("РљР°С‚РµРіРѕСЂРёСЏ РЅРµ РЅР°Р№РґРµРЅР°")
-        return render(request, self.template_name, {"category_id": pk})
+            raise Http404("Категория не найдена")
+        return render(
+            request,
+            self.template_name,
+            {
+                "category_id": pk,
+                "page_title": "Деактивация категории",
+                "page_note": "Категория останется в истории, но будет выключена для активной работы.",
+                "back_url": reverse("nomenclature:category_list"),
+            },
+        )
 
     def post(self, request, pk):
         category, result = self._get_category(pk)
         if category is None:
             if result and not result.ok:
                 messages.error(request, result.form_error)
-            raise Http404("РљР°С‚РµРіРѕСЂРёСЏ РЅРµ РЅР°Р№РґРµРЅР°")
+            raise Http404("Категория не найдена")
         result = self.service.update_category(str(pk), {"is_active": False})
         if result.ok:
             messages.success(request, "Категория деактивирована.")
@@ -296,27 +567,60 @@ class CategoryDeleteView(CatalogManageAccessMixin, View):
         if result.not_found:
             raise Http404("Категория не найдена")
         messages.error(request, result.form_error)
-        return render(request, self.template_name, {"category_id": pk})
+        return render(
+            request,
+            self.template_name,
+            {
+                "category_id": pk,
+                "page_title": "Деактивация категории",
+                "page_note": "Категория останется в истории, но будет выключена для активной работы.",
+                "back_url": reverse("nomenclature:category_list"),
+            },
+        )
 
 
 class CategoryTreeView(CatalogManageAccessMixin, TemplateView):
     template_name = "catalog/category_tree.html"
 
     def get(self, request, *args, **kwargs):
-        return redirect("nomenclature:category_list")
+        return redirect("nomenclature:tree")
 
 
 class UnitListView(CatalogManageAccessMixin, TemplateView):
     template_name = "catalog/manage_unit_list.html"
 
     def get(self, request, *args, **kwargs):
+        search = (request.GET.get("search") or "").strip()
+        page = _parse_page(request.GET.get("page"), default=1)
+        page_size = _parse_page_size(request.GET.get("page_size"), default=20)
         result = self.service.list_units()
         if not result.ok:
             messages.error(request, result.form_error)
             units = []
         else:
-            units = result.data
-        return render(request, self.template_name, {"units": units})
+            units = _normalize_units(result.data or [])
+
+        if search:
+            units = [unit for unit in units if _matches_unit_search(unit, search)]
+
+        paginator = Paginator(units, page_size)
+        page_obj = paginator.get_page(page)
+        return render(
+            request,
+            self.template_name,
+            {
+                "units": list(page_obj.object_list),
+                "search": search,
+                "page_size": page_size,
+                "page_size_options": self.page_size_options,
+                "pagination": _build_manage_pagination(
+                    request,
+                    total_count=paginator.count,
+                    page=page_obj.number,
+                    page_size=page_size,
+                ),
+            },
+        )
 
 
 class UnitCreateView(CatalogManageAccessMixin, View):
@@ -324,7 +628,17 @@ class UnitCreateView(CatalogManageAccessMixin, View):
     success_url = reverse_lazy("nomenclature:unit_list")
 
     def get(self, request):
-        return render(request, self.template_name, {"form": UnitForm(), "mode": "create"})
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": UnitForm(),
+                "mode": "create",
+                "page_title": "Новая единица измерения",
+                "page_note": "Создайте единицу, которая будет доступна в карточках ТМЦ.",
+                "back_url": reverse("nomenclature:unit_list"),
+            },
+        )
 
     def post(self, request):
         form = UnitForm(request.POST)
@@ -334,7 +648,17 @@ class UnitCreateView(CatalogManageAccessMixin, View):
                 messages.success(request, "Единица создана.")
                 return redirect(self.success_url)
             form.add_error(None, result.form_error)
-        return render(request, self.template_name, {"form": form, "mode": "create"})
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "mode": "create",
+                "page_title": "Новая единица измерения",
+                "page_note": "Создайте единицу, которая будет доступна в карточках ТМЦ.",
+                "back_url": reverse("nomenclature:unit_list"),
+            },
+        )
 
 
 class UnitUpdateView(CatalogManageAccessMixin, View):
@@ -357,7 +681,17 @@ class UnitUpdateView(CatalogManageAccessMixin, View):
                 messages.error(request, result.form_error)
             raise Http404("Единица не найдена")
         form = UnitForm(initial=unit)
-        return render(request, self.template_name, {"form": form, "mode": "update"})
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "mode": "update",
+                "page_title": "Редактирование единицы измерения",
+                "page_note": "Изменения сразу отражаются в справочнике единиц измерения.",
+                "back_url": reverse("nomenclature:unit_list"),
+            },
+        )
 
     def post(self, request, pk):
         form = UnitForm(request.POST)
@@ -369,59 +703,106 @@ class UnitUpdateView(CatalogManageAccessMixin, View):
             if result.not_found:
                 raise Http404("Единица не найдена")
             form.add_error(None, result.form_error)
-        return render(request, self.template_name, {"form": form, "mode": "update"})
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "mode": "update",
+                "page_title": "Редактирование единицы измерения",
+                "page_note": "Изменения сразу отражаются в справочнике единиц измерения.",
+                "back_url": reverse("nomenclature:unit_list"),
+            },
+        )
 
 
 class ItemListView(CatalogManageAccessMixin, TemplateView):
     template_name = "catalog/manage_item_list.html"
 
     def get(self, request, *args, **kwargs):
-        category_id = request.GET.get("category_id") or None
-        search = request.GET.get("search") or None
+        category_id = (request.GET.get("category_id") or "").strip() or None
+        search = (request.GET.get("search") or "").strip()
+        page = _parse_page(request.GET.get("page"), default=1)
+        page_size = _parse_page_size(request.GET.get("page_size"), default=20)
 
-        items_result = self.service.list_items(category_id=category_id, search=search)
+        items_result = self.service.browse_all_items(category_id=category_id)
         categories, categories_result = self._get_categories_flat()
 
         if not items_result.ok:
             messages.error(request, items_result.form_error)
             items = []
         else:
-            items = items_result.data
+            items = _normalize_items(items_result.data or [])
+
+        if search:
+            items = [item for item in items if _matches_item_search(item, search)]
 
         if not categories_result.ok:
             messages.error(request, categories_result.form_error)
+
+        paginator = Paginator(items, page_size)
+        page_obj = paginator.get_page(page)
+        create_item_url = reverse("nomenclature:item_create")
+        if category_id:
+            create_item_url = f"{create_item_url}?category_id={category_id}"
 
         return render(
             request,
             self.template_name,
             {
-                "items": items,
-                "categories": categories,
+                "items": list(page_obj.object_list),
+                "categories": _filter_manage_categories(categories),
                 "selected_category_id": category_id or "",
-                "search": search or "",
+                "search": search,
+                "page_size": page_size,
+                "page_size_options": self.page_size_options,
+                "create_item_url": create_item_url,
+                "pagination": _build_manage_pagination(
+                    request,
+                    total_count=paginator.count,
+                    page=page_obj.number,
+                    page_size=page_size,
+                ),
             },
         )
 
 
-class ItemCreateView(CatalogManageAccessMixin, View):
-    template_name = "catalog/item_form.html"
-    success_url = reverse_lazy("nomenclature:item_list")
-
+class ItemFormCatalogMixin(CatalogManageAccessMixin):
     def _catalog_data(self):
         categories, categories_result = self._get_categories_flat()
         units_result = self.service.list_units()
-        units = units_result.data if units_result.ok else []
+        units = _normalize_units(units_result.data or []) if units_result.ok else []
         return categories, _filter_manage_categories(categories), units, categories_result, units_result
 
+
+class ItemCreateView(ItemFormCatalogMixin, View):
+    template_name = "catalog/item_form.html"
+    success_url = reverse_lazy("nomenclature:item_list")
+
     def get(self, request):
-        all_categories, form_categories, units, categories_result, units_result = self._catalog_data()
+        _, form_categories, units, categories_result, units_result = self._catalog_data()
         if not categories_result.ok:
             messages.error(request, categories_result.form_error)
         if not units_result.ok:
             messages.error(request, units_result.form_error)
 
-        form = ItemForm(categories=form_categories, units=units)
-        return render(request, self.template_name, {"form": form, "mode": "create"})
+        initial = {}
+        category_id = (request.GET.get("category_id") or "").strip()
+        if category_id:
+            initial["category_id"] = category_id
+
+        form = ItemForm(initial=initial, categories=form_categories, units=units)
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "mode": "create",
+                "page_title": "Новая ТМЦ",
+                "page_note": "Заполните карточку и при необходимости выберите категорию через поиск.",
+                "back_url": reverse("nomenclature:item_list"),
+            },
+        )
 
     def post(self, request):
         _, form_categories, units, _, _ = self._catalog_data()
@@ -432,26 +813,31 @@ class ItemCreateView(CatalogManageAccessMixin, View):
                 messages.success(request, "ТМЦ создана.")
                 return redirect(self.success_url)
             form.add_error(None, result.form_error)
-        return render(request, self.template_name, {"form": form, "mode": "create"})
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "mode": "create",
+                "page_title": "Новая ТМЦ",
+                "page_note": "Заполните карточку и при необходимости выберите категорию через поиск.",
+                "back_url": reverse("nomenclature:item_list"),
+            },
+        )
 
 
-class ItemUpdateView(CatalogManageAccessMixin, View):
+class ItemUpdateView(ItemFormCatalogMixin, View):
     template_name = "catalog/item_form.html"
     success_url = reverse_lazy("nomenclature:item_list")
 
     def _find_item(self, pk: str):
-        result = self.service.list_items()
+        result = self.service.get_item(str(pk))
         if not result.ok:
             return None, result
-        for item in result.data:
-            if str(item["id"]) == str(pk):
-                return item, result
-        return None, None
+        return result.data, result
 
     def get(self, request, pk):
-        categories, categories_result = self._get_categories_flat()
-        units_result = self.service.list_units()
-        units = units_result.data if units_result.ok else []
+        categories, form_categories, units, categories_result, units_result = self._catalog_data()
 
         if not categories_result.ok:
             messages.error(request, categories_result.form_error)
@@ -465,7 +851,17 @@ class ItemUpdateView(CatalogManageAccessMixin, View):
             raise Http404("ТМЦ не найдена")
 
         form = ItemForm(initial=item, categories=_filter_manage_categories(categories), units=units)
-        return render(request, self.template_name, {"form": form, "mode": "update"})
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "mode": "update",
+                "page_title": "Редактирование ТМЦ",
+                "page_note": "Измените карточку ТМЦ на отдельной форме.",
+                "back_url": reverse("nomenclature:item_list"),
+            },
+        )
 
     def post(self, request, pk):
         _, form_categories, units, _, _ = self._catalog_data()
@@ -478,19 +874,17 @@ class ItemUpdateView(CatalogManageAccessMixin, View):
             if result.not_found:
                 raise Http404("ТМЦ не найдена")
             form.add_error(None, result.form_error)
-        return render(request, self.template_name, {"form": form, "mode": "update"})
-
-    def _catalog_data(self):
-        categories, categories_result = self._get_categories_flat()
-        units_result = self.service.list_units()
-        units = units_result.data if units_result.ok else []
-
-        if not categories_result.ok:
-            messages.error(self.request, categories_result.form_error)
-        if not units_result.ok:
-            messages.error(self.request, units_result.form_error)
-
-        return categories, _filter_manage_categories(categories), units, categories_result, units_result
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "mode": "update",
+                "page_title": "Редактирование ТМЦ",
+                "page_note": "Измените карточку ТМЦ на отдельной форме.",
+                "back_url": reverse("nomenclature:item_list"),
+            },
+        )
 
 
 class ItemDeactivateView(CatalogManageAccessMixin, View):

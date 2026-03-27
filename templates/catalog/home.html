@@ -1,14 +1,29 @@
 {% extends "base.html" %}
 
-{% block title %}Номенклатура{% endblock %}
+{% block title %}Номенклатура / Дерево{% endblock %}
 
 {% block content %}
-    <h2>Номенклатура</h2>
-    <p>Раздел создания, редактирования и архивации номенклатуры.</p>
+    <div class="workspace-page-header">
+        <div>
+            <h1>Номенклатура</h1>
+            <p class="catalog-page-note">Дерево категорий и ТМЦ для быстрого перехода к редактированию.</p>
+        </div>
+    </div>
 
-    <ul>
-        <li><a href="{% url 'nomenclature:category_list' %}">Категории</a></li>
-        <li><a href="{% url 'nomenclature:item_list' %}">ТМЦ</a></li>
-        <li><a href="{% url 'nomenclature:unit_list' %}">Единицы измерения</a></li>
-    </ul>
+    <form method="post" action="{% url 'nomenclature:cache_sync' %}" class="catalog-actions" data-loading-form data-loading-scope="page" data-loading-overlay-text="Синхронизация кэша номенклатуры...">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ cache_sync_next_url }}">
+        <button type="submit" class="btn btn-secondary" data-loading-text="Синхронизация...">Обновить кэш поиска операций</button>
+    </form>
+    <p class="catalog-page-note">Используйте синхронизацию после массовой загрузки ТМЦ, чтобы быстрее обновить локальный кэш поиска операций.</p>
+
+    <div class="card">
+        <div class="workspace-panel-head">
+            <div>
+                <h2>Дерево номенклатуры</h2>
+                <p class="catalog-page-note">Шеврон раскрывает ветку, название открывает отдельную форму редактирования категории или ТМЦ.</p>
+            </div>
+        </div>
+        {% include "catalog/partials/entity_tree.html" with tree_nodes=tree_nodes tree_mode="edit" only %}
+    </div>
 {% endblock %}

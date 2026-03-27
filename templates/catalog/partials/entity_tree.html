@@ -1,0 +1,9 @@
+{% if tree_nodes %}
+    <ul class="entity-tree">
+        {% for node in tree_nodes %}
+            {% include "catalog/partials/entity_tree_node.html" with node=node tree_mode=tree_mode only %}
+        {% endfor %}
+    </ul>
+{% else %}
+    <p class="catalog-empty-state">Дерево пока пусто.</p>
+{% endif %}

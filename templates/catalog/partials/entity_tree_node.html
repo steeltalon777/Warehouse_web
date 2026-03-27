@@ -1,0 +1,34 @@
+<li class="entity-tree-node entity-tree-node-{{ node.node_type }}">
+    <div class="entity-tree-row {% if node.selected %}is-active{% endif %} {% if not node.is_active %}is-muted{% endif %}">
+        {% if node.children %}
+            <button
+                type="button"
+                class="entity-tree-toggle {% if node.expanded %}is-open{% endif %}"
+                data-tree-toggle="{{ node.uid }}-children"
+                aria-expanded="{% if node.expanded %}true{% else %}false{% endif %}"
+                aria-controls="{{ node.uid }}-children"
+            >
+                <span class="entity-tree-chevron" aria-hidden="true"></span>
+            </button>
+        {% else %}
+            <span class="entity-tree-toggle-placeholder" aria-hidden="true"></span>
+        {% endif %}
+
+        <span class="entity-tree-icon entity-tree-icon-{{ node.node_type }}" aria-hidden="true"></span>
+
+        <a href="{{ node.href }}" class="entity-tree-link">
+            <span class="entity-tree-label">{{ node.name }}</span>
+            {% if node.meta %}
+                <span class="entity-tree-meta">{{ node.meta }}</span>
+            {% endif %}
+        </a>
+    </div>
+
+    {% if node.children %}
+        <ul id="{{ node.uid }}-children" class="entity-tree-children" {% if not node.expanded %}hidden{% endif %}>
+            {% for node in node.children %}
+                {% include "catalog/partials/entity_tree_node.html" with node=node tree_mode=tree_mode only %}
+            {% endfor %}
+        </ul>
+    {% endif %}
+</li>

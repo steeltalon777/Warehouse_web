@@ -1,20 +1,22 @@
 {% extends "base.html" %}
 
-{% block title %}{% if mode == "update" %}Редактировать категорию{% else %}Создать категорию{% endif %}{% endblock %}
+{% block title %}{{ page_title }}{% endblock %}
 
 {% block content %}
-    <div class="card catalog-form-card">
-        <h2>{% if mode == "update" %}Редактировать категорию{% else %}Создать категорию{% endif %}</h2>
-        <p class="catalog-page-note">
-            Категории хранятся в SyncServer и относятся к глобальной номенклатуре компании.
-        </p>
+    <div class="workspace-page-header">
+        <div>
+            <h1>{{ page_title }}</h1>
+            <p class="catalog-page-note">{{ page_note }}</p>
+        </div>
+    </div>
 
+    <div class="card catalog-form-card">
         <form method="post" data-loading-form data-loading-scope="page" data-loading-overlay-text="{% if mode == 'update' %}Сохранение категории...{% else %}Создание категории...{% endif %}">
             {% csrf_token %}
             {{ form.as_p }}
             <div class="catalog-actions">
                 <button type="submit" data-loading-text="{% if mode == 'update' %}Сохранение...{% else %}Создание...{% endif %}">Сохранить</button>
-                <a class="btn btn-secondary" href="{% url 'nomenclature:category_list' %}">Назад к категориям</a>
+                <a class="btn btn-secondary" href="{{ back_url }}">Назад к категориям</a>
             </div>
         </form>
     </div>

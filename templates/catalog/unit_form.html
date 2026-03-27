@@ -1,16 +1,23 @@
 {% extends "base.html" %}
 
-{% block title %}{% if mode == "update" %}Редактировать единицу{% else %}Создать единицу{% endif %}{% endblock %}
+{% block title %}{{ page_title }}{% endblock %}
 
 {% block content %}
-    <h2>{% if mode == "update" %}Редактировать единицу{% else %}Создать единицу{% endif %}</h2>
-
-    <form method="post" data-loading-form data-loading-scope="page" data-loading-overlay-text="{% if mode == 'update' %}Сохранение единицы...{% else %}Создание единицы...{% endif %}">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <div class="catalog-actions">
-            <button type="submit" data-loading-text="{% if mode == 'update' %}Сохранение...{% else %}Создание...{% endif %}">Сохранить</button>
-            <a class="btn btn-secondary" href="{% url 'nomenclature:unit_list' %}">Назад к единицам</a>
+    <div class="workspace-page-header">
+        <div>
+            <h1>{{ page_title }}</h1>
+            <p class="catalog-page-note">{{ page_note }}</p>
         </div>
-    </form>
+    </div>
+
+    <div class="card catalog-form-card">
+        <form method="post" data-loading-form data-loading-scope="page" data-loading-overlay-text="{% if mode == 'update' %}Сохранение единицы...{% else %}Создание единицы...{% endif %}">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <div class="catalog-actions">
+                <button type="submit" data-loading-text="{% if mode == 'update' %}Сохранение...{% else %}Создание...{% endif %}">Сохранить</button>
+                <a class="btn btn-secondary" href="{{ back_url }}">Назад к единицам</a>
+            </div>
+        </form>
+    </div>
 {% endblock %}

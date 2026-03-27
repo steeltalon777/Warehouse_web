@@ -35,6 +35,16 @@ class CatalogCacheSyncService:
         self.client = client or SyncServerClient(force_root=True)
         self.catalog_api = CatalogAPI(self.client)
 
+    def upsert_items(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        synced_at=None,
+    ) -> int:
+        if synced_at is None:
+            synced_at = timezone.now()
+        return self._upsert_items(items, synced_at=synced_at)
+
     def sync_items(
         self,
         *,
@@ -56,7 +66,7 @@ class CatalogCacheSyncService:
 
             stats.pages += 1
             stats.fetched += len(items)
-            batch_upserted = self._upsert_items(items, synced_at=synced_at)
+            batch_upserted = self.upsert_items(items, synced_at=synced_at)
             stats.upserted += batch_upserted
             stats.skipped += max(len(items) - batch_upserted, 0)
 

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Номенклатура / {{ workspace_section_title }}{% endblock %}
+
+{% block content %}
+    <div class="workspace-page-header">
+        <div>
+            <h1>Номенклатура</h1>
+            <p class="catalog-page-note">Управление ТМЦ, категориями и единицами измерения в одном рабочем пространстве.</p>
+        </div>
+        <div class="workspace-page-actions">
+            {% for action in workspace_primary_actions %}
+                <a href="{{ action.url }}" class="btn {% if action.tone == 'secondary' %}btn-secondary{% endif %}">{{ action.label }}</a>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="workspace-layout">
+        <aside class="workspace-sidebar">
+            <div class="card workspace-tree-card">
+                <div class="workspace-panel-head">
+                    <div>
+                        <h3>Дерево номенклатуры</h3>
+                        <p class="catalog-page-note">Категории и ТМЦ. Шеврон раскрывает ветку, название открывает редактирование.</p>
+                    </div>
+                </div>
+                {% include "catalog/partials/entity_tree.html" with tree_nodes=workspace_tree_nodes tree_mode="edit" only %}
+            </div>
+
+            <div class="card workspace-service-card">
+                <div class="workspace-panel-head">
+                    <div>
+                        <h3>Сервисные действия</h3>
+                        <p class="catalog-page-note">Второстепенные операции, не мешающие основному сценарию работы.</p>
+                    </div>
+                </div>
+                <form method="post" action="{% url 'nomenclature:cache_sync' %}" data-loading-form data-loading-scope="page" data-loading-overlay-text="Синхронизация кэша номенклатуры...">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ cache_sync_next_url }}">
+                    <button type="submit" class="btn btn-secondary" data-loading-text="Синхронизация...">Обновить кэш поиска операций</button>
+                </form>
+                <p class="workspace-service-note">Используйте после массовой загрузки ТМЦ, чтобы ускорить поиск в операциях.</p>
+            </div>
+        </aside>
+
+        <section class="workspace-main">
+            <div class="card workspace-content-card">
+                <div class="workspace-panel-head">
+                    <div>
+                        <h2>{{ workspace_section_title }}</h2>
+                        <p class="catalog-page-note">{{ workspace_section_note }}</p>
+                    </div>
+                </div>
+                {% block workspace_content %}{% endblock %}
+            </div>
+        </section>
+    </div>
+{% endblock %}

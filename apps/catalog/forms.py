@@ -13,6 +13,12 @@ class CategoryForm(forms.Form):
         choices = [("", "— Без родителя —")]
         choices.extend((str(item["id"]), item["name"]) for item in (category_choices or []))
         self.fields["parent_id"].choices = choices
+        self.fields["parent_id"].widget.attrs.update(
+            {
+                "data-searchable-select": "true",
+                "data-placeholder": "Начните вводить категорию...",
+            }
+        )
 
     def clean_parent_id(self):
         value = self.cleaned_data.get("parent_id")
@@ -41,6 +47,12 @@ class ItemForm(forms.Form):
         category_choices = [("", "— Автоматически: Без категории —")]
         category_choices.extend((str(item["id"]), item["name"]) for item in (categories or []))
         self.fields["category_id"].choices = category_choices
+        self.fields["category_id"].widget.attrs.update(
+            {
+                "data-searchable-select": "true",
+                "data-placeholder": "Начните вводить категорию...",
+            }
+        )
         self.fields["category_id"].help_text = (
             'Если категорию не выбрать, товар будет сохранён в системную категорию "Без категории".'
         )
@@ -53,6 +65,12 @@ class ItemForm(forms.Form):
             for item in (units or [])
         ]
         self.fields["unit_id"].choices = unit_choices
+        self.fields["unit_id"].widget.attrs.update(
+            {
+                "data-searchable-select": "true",
+                "data-placeholder": "Начните вводить единицу измерения...",
+            }
+        )
 
     def clean_category_id(self):
         value = self.cleaned_data.get("category_id")

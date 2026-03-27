@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-from apps.catalog_cache.services import CatalogLookupService
+from apps.catalog_cache.services import CatalogCacheSyncService, CatalogLookupService
 from apps.catalog.services import CatalogService
 from apps.common.permissions import get_user_role, is_observer
 from apps.operations.constants import OPERATION_STATUS_META, OPERATION_TYPE_LABELS, OPERATION_TYPE_META
 from apps.sync_client.client import SyncServerClient
+
+logger = logging.getLogger(__name__)
 
 
 class OperationPageService:
@@ -62,7 +65,16 @@ class OperationPageService:
         return self.get_current_role() in {"root", "chief_storekeeper"}
 
     def search_items(self, query: str, *, limit: int = 12) -> list[dict[str, Any]]:
-        return self.catalog_lookup.search_items(query, limit=limit)
+        normalized_limit = max(int(limit or 12), 1)
+        cached_items = self.catalog_lookup.search_items(query, limit=normalized_limit)
+        if len(cached_items) >= normalized_limit:
+            return cached_items
+
+        remote_items = self._search_remote_items(query, limit=normalized_limit)
+        if remote_items:
+            self._warm_catalog_cache(remote_items)
+
+        return self._merge_search_items(cached_items, remote_items, limit=normalized_limit)
 
     def get_items_index(self) -> dict[int, dict[str, Any]]:
         result = self.catalog.list_items()
@@ -97,6 +109,65 @@ class OperationPageService:
             self._present_operation(operation, items_index=items_index, sites_index=sites_index)
             for operation in operations
         ]
+
+    def _search_remote_items(self, query: str, *, limit: int) -> list[dict[str, Any]]:
+        result = self.catalog.browse_items(search=query, page=1, page_size=max(limit, 25))
+        if not result.ok:
+            return []
+
+        payload = result.data if isinstance(result.data, dict) else {}
+        items = payload.get("items", []) if isinstance(payload, dict) else []
+        serialized_items: list[dict[str, Any]] = []
+        for item in items:
+            serialized = self._serialize_search_item(item)
+            if serialized is None or not serialized["is_active"]:
+                continue
+            serialized_items.append(serialized)
+            if len(serialized_items) >= limit:
+                break
+        return serialized_items
+
+    def _warm_catalog_cache(self, items: list[dict[str, Any]]) -> None:
+        try:
+            CatalogCacheSyncService(client=self.client).upsert_items(items)
+        except Exception:
+            logger.exception("Failed to warm local catalog cache from remote item search results.")
+
+    @classmethod
+    def _merge_search_items(
+        cls,
+        cached_items: list[dict[str, Any]],
+        remote_items: list[dict[str, Any]],
+        *,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        merged: list[dict[str, Any]] = []
+        seen_ids: set[int] = set()
+        for item in [*cached_items, *remote_items]:
+            item_id = cls._to_int(item.get("id") or item.get("item_id"))
+            if item_id is None or item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
+            merged.append(item)
+            if len(merged) >= limit:
+                break
+        return merged
+
+    @classmethod
+    def _serialize_search_item(cls, item: dict[str, Any]) -> dict[str, Any] | None:
+        item_id = cls._to_int(item.get("id") or item.get("item_id"))
+        if item_id is None:
+            return None
+
+        return {
+            "id": item_id,
+            "name": str(item.get("name") or item.get("sku") or item_id),
+            "sku": str(item.get("sku") or ""),
+            "unit_symbol": str(item.get("unit_symbol") or item.get("unit_name") or item.get("unit") or ""),
+            "category_name": str(item.get("category_name") or ""),
+            "category_id": str(item.get("category_id") or ""),
+            "is_active": bool(item.get("is_active", True)),
+        }
 
     def _present_operation(
         self,

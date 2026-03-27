@@ -6,6 +6,8 @@ app_name = "nomenclature"
 
 urlpatterns = [
     path("", views.CatalogHomeView.as_view(), name="home"),
+    path("tree/", views.NomenclatureTreeView.as_view(), name="tree"),
+    path("cache/sync/", views.CatalogCacheSyncView.as_view(), name="cache_sync"),
     path("categories/", views.CategoryListView.as_view(), name="category_list"),
     path("categories/create/", views.CategoryCreateView.as_view(), name="category_create"),
     path("categories/<int:pk>/edit/", views.CategoryUpdateView.as_view(), name="category_update"),

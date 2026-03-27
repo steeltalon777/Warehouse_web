@@ -7,11 +7,12 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.views import View
-from django.views.generic import TemplateView
 
-from apps.catalog.constants import UNCATEGORIZED_CATEGORY_CODE, UNCATEGORIZED_CATEGORY_NAME
 from apps.catalog.services import CatalogService
+from apps.catalog.tree import build_category_item_tree
+from apps.catalog.views import _filter_manage_categories, _normalize_categories, _normalize_items
 from apps.common.permissions import can_use_client
 from apps.sync_client.client import SyncServerClient
 
@@ -85,22 +86,17 @@ def _build_pagination(request, payload: dict, *, page_key: str = "page") -> dict
     }
 
 
-def _active_categories(categories: list[dict]) -> list[dict]:
-    return [
-        category
-        for category in categories
-        if isinstance(category, dict) and category.get("is_active", True)
-    ]
-
-
-def _is_uncategorized_category(category: dict) -> bool:
-    code = str(category.get("code") or "").strip()
-    name = str(category.get("name") or "").strip()
-    return code == UNCATEGORIZED_CATEGORY_CODE or name == UNCATEGORIZED_CATEGORY_NAME
-
-
-def _filter_visible_categories(categories: list[dict]) -> list[dict]:
-    return [category for category in categories if not _is_uncategorized_category(category)]
+def _build_catalog_home_url(request, **overrides) -> str:
+    query = request.GET.copy()
+    query["page"] = "1"
+    for key, value in overrides.items():
+        if value in (None, "", False):
+            query.pop(key, None)
+        else:
+            query[key] = str(value)
+    encoded = query.urlencode()
+    base_url = reverse("catalog:home")
+    return f"{base_url}?{encoded}" if encoded else base_url
 
 
 class CatalogAccessMixin(LoginRequiredMixin):
@@ -112,85 +108,107 @@ class CatalogAccessMixin(LoginRequiredMixin):
         return super().dispatch(request, *args, **kwargs)
 
 
-class CatalogHomeView(CatalogAccessMixin, TemplateView):
+class CatalogHomeView(CatalogAccessMixin, View):
     template_name = "catalog/browse_home.html"
+
+    def get(self, request, *args, **kwargs):
+        search = (request.GET.get("search") or "").strip() or None
+        selected_category_id = (request.GET.get("category_id") or "").strip() or None
+        selected_item_id = (request.GET.get("item_id") or "").strip() or None
+        page = _parse_page(request.GET.get("page"), default=1)
+        page_size = 20
+
+        categories_result = self.service.list_categories(limit=1000)
+        tree_items_result = self.service.browse_all_items()
+
+        if not categories_result.ok:
+            messages.error(request, categories_result.form_error)
+        if not tree_items_result.ok:
+            messages.error(request, tree_items_result.form_error)
+
+        categories = (
+            _filter_manage_categories(_normalize_categories(categories_result.data or []))
+            if categories_result.ok
+            else []
+        )
+        tree_items = _normalize_items(tree_items_result.data or []) if tree_items_result.ok else []
+
+        selected_item = None
+        if selected_item_id:
+            selected_item = next((item for item in tree_items if str(item.get("id")) == str(selected_item_id)), None)
+            if selected_item and not selected_category_id:
+                selected_category_id = str(selected_item.get("category_id") or "")
+
+        selected_category = None
+        if selected_category_id:
+            selected_category = next(
+                (category for category in categories if str(category.get("id")) == str(selected_category_id)),
+                None,
+            )
+
+        tree_nodes = build_category_item_tree(
+            categories=categories,
+            items=tree_items,
+            category_url_builder=lambda category: _build_catalog_home_url(
+                request,
+                category_id=category["id"],
+                item_id=None,
+            ),
+            item_url_builder=lambda item: _build_catalog_home_url(
+                request,
+                category_id=item.get("category_id"),
+                item_id=item["id"],
+            ),
+            selected_kind="item" if selected_item else ("category" if selected_category_id else None),
+            selected_id=(selected_item_id if selected_item else selected_category_id),
+        )
+
+        items_payload: dict = {"items": [], "page": page, "page_size": page_size, "total_count": 0}
+        if not selected_item:
+            items_result = self.service.browse_items(
+                search=search,
+                category_id=selected_category_id,
+                page=page,
+                page_size=page_size,
+            )
+            if not items_result.ok:
+                messages.error(request, items_result.form_error)
+            elif isinstance(items_result.data, dict):
+                items_payload = items_result.data
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "search": search or "",
+                "selected_category_id": selected_category_id or "",
+                "selected_item_id": selected_item_id or "",
+                "selected_category": selected_category,
+                "selected_item": selected_item,
+                "tree_nodes": tree_nodes,
+                "items": _normalize_items(items_payload.get("items", [])),
+                "pagination": _build_pagination(request, items_payload),
+                "catalog_reset_url": reverse("catalog:home"),
+            },
+        )
 
 
 class BrowseItemListView(CatalogAccessMixin, View):
-    template_name = "catalog/browse_item_list.html"
-
     def get(self, request, *args, **kwargs):
-        search = (request.GET.get("search") or "").strip() or None
-        category_id = (request.GET.get("category_id") or "").strip() or None
-        page = _parse_page(request.GET.get("page"), default=1)
-        page_size = 20
-
-        items_result = self.service.browse_items(
-            search=search,
-            category_id=category_id,
-            page=page,
-            page_size=page_size,
-        )
-        categories_result = self.service.list_categories()
-
-        if not items_result.ok:
-            messages.error(request, items_result.form_error)
-        if not categories_result.ok:
-            messages.error(request, categories_result.form_error)
-
-        items_payload = items_result.data if items_result.ok and isinstance(items_result.data, dict) else {}
-        categories = _active_categories(categories_result.data or []) if categories_result.ok else []
-
-        return render(
+        next_url = _build_catalog_home_url(
             request,
-            self.template_name,
-            {
-                "items": items_payload.get("items", []),
-                "categories": categories,
-                "selected_category_id": category_id or "",
-                "search": search or "",
-                "pagination": _build_pagination(request, items_payload or {"page": page, "page_size": page_size}),
-            },
+            category_id=(request.GET.get("category_id") or "").strip() or None,
+            item_id=(request.GET.get("item_id") or "").strip() or None,
         )
+        return redirect(next_url)
 
 
 class BrowseCategoryListView(CatalogAccessMixin, View):
-    template_name = "catalog/browse_category_list.html"
-
     def get(self, request, *args, **kwargs):
-        search = (request.GET.get("search") or "").strip() or None
-        parent_id = (request.GET.get("parent_id") or "").strip() or None
-        page = _parse_page(request.GET.get("page"), default=1)
-        page_size = 20
-
-        categories_result = self.service.browse_categories(
-            search=search,
-            parent_id=parent_id,
-            page=page,
-            page_size=page_size,
-            include="parent,parent_chain_summary,items_preview",
-            items_preview_limit=5,
-        )
-        parent_options_result = self.service.list_categories()
-
-        if not categories_result.ok:
-            messages.error(request, categories_result.form_error)
-        if not parent_options_result.ok:
-            messages.error(request, parent_options_result.form_error)
-
-        categories_payload = (
-            categories_result.data if categories_result.ok and isinstance(categories_result.data, dict) else {}
-        )
-        parent_options = _active_categories(parent_options_result.data or []) if parent_options_result.ok else []
-
-        return render(
+        next_url = _build_catalog_home_url(
             request,
-            self.template_name,
-            {
-                "categories": _filter_visible_categories(categories_payload.get("categories", [])),
-                "parent_options": _filter_visible_categories(parent_options),
-                "selected_parent_id": parent_id or "",
-                "search": search or "",
-                "pagination": _build_pagination(request, categories_payload or {"page": page, "page_size": page_size}),
-            },
+            category_id=(request.GET.get("category_id") or request.GET.get("parent_id") or "").strip() or None,
+            item_id=None,
+            parent_id=None,
         )
+        return redirect(next_url)

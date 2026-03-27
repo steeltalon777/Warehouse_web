@@ -3,11 +3,120 @@
 {% block title %}Каталог{% endblock %}
 
 {% block content %}
-    <h2>Каталог</h2>
-    <p>Глобальный read-only каталог компании.</p>
+    <div class="workspace-page-header">
+        <div>
+            <h1>Каталог</h1>
+            <p class="catalog-page-note">Просмотр номенклатуры в режиме навигации: дерево слева, список и карточка справа.</p>
+        </div>
+    </div>
 
-    <ul>
-        <li><a href="{% url 'catalog:item_list' %}">ТМЦ</a></li>
-        <li><a href="{% url 'catalog:category_list' %}">Категории</a></li>
-    </ul>
+    <div class="workspace-layout">
+        <aside class="workspace-sidebar">
+            <div class="card workspace-tree-card">
+                <div class="workspace-panel-head">
+                    <div>
+                        <h3>Дерево каталога</h3>
+                        <p class="catalog-page-note">Категории и ТМЦ. В этом режиме дерево только фильтрует и показывает содержимое.</p>
+                    </div>
+                </div>
+                {% include "catalog/partials/entity_tree.html" with tree_nodes=tree_nodes tree_mode="view" only %}
+            </div>
+        </aside>
+
+        <section class="workspace-main">
+            <div class="card workspace-content-card">
+                <div class="workspace-panel-head">
+                    <div>
+                        {% if selected_item %}
+                            <h2>{{ selected_item.name }}</h2>
+                            <p class="catalog-page-note">Карточка выбранной ТМЦ.</p>
+                        {% elif selected_category %}
+                            <h2>{{ selected_category.name }}</h2>
+                            <p class="catalog-page-note">Список ТМЦ в выбранной категории.</p>
+                        {% else %}
+                            <h2>Все ТМЦ</h2>
+                            <p class="catalog-page-note">Выберите узел в дереве или найдите нужную позицию по названию.</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <form method="get" class="workspace-filters" data-loading-form data-loading-scope="page" data-loading-overlay-text="Загрузка каталога...">
+                    {% if selected_category_id %}
+                        <input type="hidden" name="category_id" value="{{ selected_category_id }}">
+                    {% endif %}
+                    <div class="form-row">
+                        <label for="catalog-search">Поиск по названию</label>
+                        <input id="catalog-search" type="search" name="search" value="{{ search }}" placeholder="Например, Кабель" />
+                    </div>
+                    <div class="form-row workspace-filter-actions">
+                        <button type="submit" data-loading-text="Загрузка...">Найти</button>
+                        <a href="{{ catalog_reset_url }}" class="btn btn-secondary">Сбросить</a>
+                    </div>
+                </form>
+
+                {% if selected_item %}
+                    <dl class="catalog-detail-grid">
+                        <div>
+                            <dt>SKU</dt>
+                            <dd>{{ selected_item.sku|default:"—" }}</dd>
+                        </div>
+                        <div>
+                            <dt>Категория</dt>
+                            <dd>{{ selected_item.category_name|default:"—" }}</dd>
+                        </div>
+                        <div>
+                            <dt>Ед. изм.</dt>
+                            <dd>{{ selected_item.unit_symbol|default:"—" }}</dd>
+                        </div>
+                        <div>
+                            <dt>Статус</dt>
+                            <dd>{% if selected_item.is_active %}Активна{% else %}Неактивна{% endif %}</dd>
+                        </div>
+                    </dl>
+                {% elif items %}
+                    <div class="workspace-table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Название</th>
+                                    <th>SKU</th>
+                                    <th>Категория</th>
+                                    <th>Ед.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in items %}
+                                    <tr>
+                                        <td><a href="?{% if search %}search={{ search|urlencode }}&{% endif %}category_id={{ item.category_id|default:'' }}&item_id={{ item.id }}">{{ item.name }}</a></td>
+                                        <td>{{ item.sku|default:"—" }}</td>
+                                        <td>{{ item.category_name|default:"—" }}</td>
+                                        <td>{{ item.unit_symbol|default:"—" }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="catalog-empty-state">По текущим условиям ТМЦ не найдены.</p>
+                {% endif %}
+
+                {% if not selected_item and pagination.total_pages > 1 %}
+                    <nav class="workspace-pagination">
+                        <span class="operation-row-meta">Всего: {{ pagination.total_count }}</span>
+                        <div class="operation-pagination-actions">
+                            {% if pagination.has_previous %}<a href="{{ pagination.previous_url }}" class="btn btn-secondary">Назад</a>{% endif %}
+                            {% for page_info in pagination.pages %}
+                                {% if page_info.current %}
+                                    <strong>{{ page_info.number }}</strong>
+                                {% else %}
+                                    <a href="{{ page_info.url }}">{{ page_info.number }}</a>
+                                {% endif %}
+                            {% endfor %}
+                            {% if pagination.has_next %}<a href="{{ pagination.next_url }}" class="btn btn-secondary">Вперёд</a>{% endif %}
+                        </div>
+                    </nav>
+                {% endif %}
+            </div>
+        </section>
+    </div>
 {% endblock %}

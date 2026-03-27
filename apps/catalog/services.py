@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import ceil
 from typing import Any
 
 from apps.sync_client.catalog_api import CatalogAPI
@@ -31,15 +32,21 @@ class CatalogService:
                 not_found=exc.status_code == 404,
             )
 
-    def list_categories(self) -> ServiceResult:
-        return self._exec(self.catalog_api.list_categories, filters={"limit": 500})
+    def list_categories(self, *, limit: int = 1000) -> ServiceResult:
+        return self._exec(self.catalog_api.list_categories, filters={"limit": limit})
 
-    def list_units(self) -> ServiceResult:
-        return self._exec(self.catalog_api.list_units, filters={"limit": 500})
+    def list_units(self, *, limit: int = 1000) -> ServiceResult:
+        return self._exec(self.catalog_api.list_units, filters={"limit": limit})
 
-    def list_items(self, *, category_id: str | None = None, search: str | None = None) -> ServiceResult:
+    def list_items(
+        self,
+        *,
+        category_id: str | None = None,
+        search: str | None = None,
+        limit: int = 500,
+    ) -> ServiceResult:
         def _load():
-            items = self.catalog_api.list_items(filters={"limit": 500})
+            items = self.catalog_api.list_items(filters={"limit": limit})
 
             if category_id:
                 items = [i for i in items if str(i.get("category_id")) == str(category_id)]
@@ -60,13 +67,73 @@ class CatalogService:
         page: int = 1,
         page_size: int = 20,
     ) -> ServiceResult:
-        filters = {
-            "search": search,
-            "category_id": category_id,
-            "page": page,
-            "page_size": page_size,
-        }
-        return self._exec(self.catalog_api.browse_items, filters=filters)
+        return self._exec(
+            self._browse_items_page,
+            category_id=category_id,
+            search=search,
+            page=page,
+            page_size=page_size,
+        )
+
+    def browse_all_items(
+        self,
+        *,
+        category_id: str | None = None,
+        search: str | None = None,
+        page_size: int = 100,
+    ) -> ServiceResult:
+        def _load():
+            page = 1
+            items: list[dict[str, Any]] = []
+
+            while True:
+                payload = self._browse_items_page(
+                    category_id=category_id,
+                    search=search,
+                    page=page,
+                    page_size=page_size,
+                )
+                page_items = payload.get("items", []) if isinstance(payload, dict) else []
+                if not isinstance(page_items, list):
+                    page_items = []
+                items.extend(page_items)
+
+                total_pages = _resolve_total_pages(payload, default_page_size=page_size)
+                if page >= total_pages or not page_items:
+                    break
+                page += 1
+
+            return items
+
+        return self._exec(_load)
+
+    def get_item(self, item_id: str, *, page_size: int = 100) -> ServiceResult:
+        try:
+            page = 1
+            normalized_item_id = str(item_id)
+
+            while True:
+                payload = self._browse_items_page(page=page, page_size=page_size)
+                page_items = payload.get("items", []) if isinstance(payload, dict) else []
+                if not isinstance(page_items, list):
+                    page_items = []
+
+                for item in page_items:
+                    if str(item.get("id")) == normalized_item_id:
+                        return ServiceResult(ok=True, data=item)
+
+                total_pages = _resolve_total_pages(payload, default_page_size=page_size)
+                if page >= total_pages or not page_items:
+                    break
+                page += 1
+        except SyncServerAPIError as exc:
+            return ServiceResult(
+                ok=False,
+                form_error=str(exc),
+                not_found=exc.status_code == 404,
+            )
+
+        return ServiceResult(ok=False, form_error="ТМЦ не найдена", not_found=True)
 
     def browse_categories(
         self,
@@ -106,6 +173,22 @@ class CatalogService:
     def categories_tree(self) -> ServiceResult:
         return self._exec(self.catalog_api.categories_tree)
 
+    def _browse_items_page(
+        self,
+        *,
+        category_id: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        filters = {
+            "search": search,
+            "category_id": category_id,
+            "page": page,
+            "page_size": page_size,
+        }
+        return self.catalog_api.browse_items(filters=filters)
+
     def create_category(self, payload: dict[str, Any]) -> ServiceResult:
         return self._exec(self.catalog_api.create_category, payload)
 
@@ -123,3 +206,29 @@ class CatalogService:
 
     def update_item(self, item_id: str, payload: dict[str, Any]) -> ServiceResult:
         return self._exec(self.catalog_api.update_item, item_id, payload)
+
+
+def _resolve_total_pages(payload: dict[str, Any] | None, *, default_page_size: int) -> int:
+    if not isinstance(payload, dict):
+        return 1
+
+    try:
+        total_pages = int(payload.get("total_pages") or 0)
+    except (TypeError, ValueError):
+        total_pages = 0
+    if total_pages > 0:
+        return total_pages
+
+    try:
+        total_count = int(payload.get("total_count") or 0)
+    except (TypeError, ValueError):
+        total_count = 0
+
+    try:
+        page_size = int(payload.get("page_size") or default_page_size or 1)
+    except (TypeError, ValueError):
+        page_size = default_page_size or 1
+
+    if total_count <= 0 or page_size <= 0:
+        return 1
+    return max(1, ceil(total_count / page_size))

@@ -1,21 +1,26 @@
+{% load permission_tags %}
 {% if user.is_authenticated %}
+    {% with namespace=request.resolver_match.namespace url_name=request.resolver_match.url_name %}
+        <a href="{% url 'client:dashboard' %}" class="{% if namespace == 'client' and url_name == 'dashboard' %}sidebar-link-active{% endif %}">Главная</a>
+        <a href="{% url 'catalog:home' %}" class="{% if namespace == 'catalog' %}sidebar-link-active{% endif %}">Каталог</a>
+        <a href="{% url 'balances:list' %}" class="{% if namespace == 'balances' %}sidebar-link-active{% endif %}">Остатки</a>
+        <a href="{% url 'operations:list' %}" class="{% if namespace == 'operations' %}sidebar-link-active{% endif %}">Операции</a>
 
-    <a href="{% url 'client:dashboard' %}">Главная</a>
-    <a href="{% url 'catalog:home' %}">Каталог</a>
-    <a href="{% url 'balances:list' %}">Остатки</a>
-    <a href="{% url 'operations:list' %}">Операции</a>
+        {% if user|can_manage_catalog %}
+            <div class="section">Номенклатура</div>
+            <div class="sidebar-subnav">
+                <a href="{% url 'nomenclature:tree' %}" class="{% if namespace == 'nomenclature' and url_name == 'tree' or namespace == 'nomenclature' and url_name == 'home' or namespace == 'nomenclature' and url_name == 'category_tree' %}sidebar-link-active{% endif %}">Дерево номенклатуры</a>
+                <a href="{% url 'nomenclature:item_list' %}" class="{% if namespace == 'nomenclature' and url_name == 'item_list' or namespace == 'nomenclature' and url_name == 'item_create' or namespace == 'nomenclature' and url_name == 'item_update' or namespace == 'nomenclature' and url_name == 'item_deactivate' %}sidebar-link-active{% endif %}">ТМЦ</a>
+                <a href="{% url 'nomenclature:category_list' %}" class="{% if namespace == 'nomenclature' and url_name == 'category_list' or namespace == 'nomenclature' and url_name == 'category_create' or namespace == 'nomenclature' and url_name == 'category_update' or namespace == 'nomenclature' and url_name == 'category_delete' %}sidebar-link-active{% endif %}">Категории</a>
+                <a href="{% url 'nomenclature:unit_list' %}" class="{% if namespace == 'nomenclature' and url_name == 'unit_list' or namespace == 'nomenclature' and url_name == 'unit_create' or namespace == 'nomenclature' and url_name == 'unit_update' %}sidebar-link-active{% endif %}">Единицы измерения</a>
+            </div>
+        {% endif %}
 
-    {% if user.is_superuser or user.sync_binding.sync_role == "chief_storekeeper" %}
-        <a href="{% url 'nomenclature:home' %}">Номенклатура</a>
-    {% endif %}
-
-    {% if user.is_superuser %}
-        <div class="section">Администрирование</div>
-
-        <a href="{% url 'admin:index' %}">Django Admin</a>
-        <a href="{% url 'admin_panel:devices' %}">Устройства</a>
-        <a href="{% url 'admin_panel:access' %}">Доступы</a>
-
-    {% endif %}
-
+        {% if user.is_superuser %}
+            <div class="section">Администрирование</div>
+            <a href="{% url 'admin:index' %}" class="{% if namespace == 'admin' %}sidebar-link-active{% endif %}">Django Admin</a>
+            <a href="{% url 'admin_panel:devices' %}" class="{% if namespace == 'admin_panel' and url_name == 'devices' %}sidebar-link-active{% endif %}">Устройства</a>
+            <a href="{% url 'admin_panel:access' %}" class="{% if namespace == 'admin_panel' and url_name == 'access' %}sidebar-link-active{% endif %}">Доступы</a>
+        {% endif %}
+    {% endwith %}
 {% endif %}
