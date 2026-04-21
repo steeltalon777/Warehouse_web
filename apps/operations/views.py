@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.contrib import messages
@@ -21,6 +22,8 @@ from apps.sync_client.exceptions import SyncServerAPIError
 from apps.sync_client.operations_api import OperationsAPI
 
 logger = logging.getLogger(__name__)
+QTY_SCALE = Decimal("0.001")
+MAX_QTY_ABS = Decimal("1000000000000000")
 
 
 def _to_int(value: Any) -> int | None:
@@ -28,6 +31,32 @@ def _to_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _to_decimal_qty(value: Any) -> Decimal | None:
+    if value is None:
+        return None
+
+    raw_value = str(value).strip().replace(",", ".")
+    if not raw_value:
+        return None
+
+    try:
+        qty = Decimal(raw_value)
+        quantized = qty.quantize(QTY_SCALE)
+    except (InvalidOperation, ValueError):
+        return None
+
+    if not qty.is_finite() or qty != quantized:
+        return None
+    if abs(quantized) >= MAX_QTY_ABS:
+        return None
+
+    return quantized
+
+
+def _serialize_decimal_qty(qty: Decimal) -> str:
+    return format(qty.normalize(), "f")
 
 
 def _parse_page_size(raw_value: Any, default: int = 20) -> int:
@@ -120,11 +149,11 @@ def _build_create_payload(
     seen_item_ids: set[int] = set()
     for item in raw_items:
         item_id = _to_int(item.get("item_id") or item.get("id"))
-        qty = _to_int(item.get("quantity"))
+        qty = _to_decimal_qty(item.get("quantity"))
         if item_id is None:
             raise ValidationError("В одной из строк не выбран ТМЦ.")
         if qty is None:
-            raise ValidationError("В одной из строк не указано количество.")
+            raise ValidationError("Количество должно быть числом с точностью до 3 знаков после запятой.")
         if qty == 0:
             raise ValidationError("Количество не может быть нулевым.")
         if not allow_negative_qty and qty < 0:
@@ -132,7 +161,13 @@ def _build_create_payload(
         if item_id in seen_item_ids:
             raise ValidationError("В черновике есть дублирующиеся строки ТМЦ. Обновите список и попробуйте снова.")
         seen_item_ids.add(item_id)
-        payload["lines"].append({"line_number": line_number, "item_id": item_id, "qty": qty})
+        payload["lines"].append(
+            {
+                "line_number": line_number,
+                "item_id": item_id,
+                "qty": _serialize_decimal_qty(qty),
+            }
+        )
         line_number += 1
 
     return payload

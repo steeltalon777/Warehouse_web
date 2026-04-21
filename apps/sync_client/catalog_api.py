@@ -437,7 +437,45 @@ class CatalogAPI:
             )
             return []
     
-    # ---------- ADMIN METHODS (WRITE) ----------
+    # ---------- ADMIN METHODS (CRUD) ----------
+
+    def list_admin_items(
+        self,
+        filters: Optional[dict[str, Any]] = None,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get paginated admin item list.
+
+        Endpoint: GET /catalog/admin/items
+        """
+        return self._get_admin_page(
+            "/catalog/admin/items",
+            filters=filters,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+    def get_item(
+        self,
+        item_id: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get a catalog item by ID (admin only).
+
+        Endpoint: GET /catalog/admin/items/{item_id}
+        """
+        logger.debug("Fetching catalog item", extra={"item_id": item_id})
+        return self.client.get(
+            f"/catalog/admin/items/{item_id}",
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
     
     def create_item(
         self,
@@ -526,6 +564,63 @@ class CatalogAPI:
         return self.client.patch(
             f"/catalog/admin/items/{item_id}",
             json=payload,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+    def delete_item(
+        self,
+        item_id: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> Any:
+        """
+        Delete a catalog item by ID (admin only).
+
+        Endpoint: DELETE /catalog/admin/items/{item_id}
+        """
+        logger.debug("Deleting catalog item", extra={"item_id": item_id})
+        return self.client.delete(
+            f"/catalog/admin/items/{item_id}",
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+    def list_admin_categories(
+        self,
+        filters: Optional[dict[str, Any]] = None,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get paginated admin category list.
+
+        Endpoint: GET /catalog/admin/categories
+        """
+        return self._get_admin_page(
+            "/catalog/admin/categories",
+            filters=filters,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+    def get_category(
+        self,
+        category_id: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get a catalog category by ID (admin only).
+
+        Endpoint: GET /catalog/admin/categories/{category_id}
+        """
+        logger.debug("Fetching catalog category", extra={"category_id": category_id})
+        return self.client.get(
+            f"/catalog/admin/categories/{category_id}",
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
@@ -619,6 +714,63 @@ class CatalogAPI:
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
+
+    def delete_category(
+        self,
+        category_id: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> Any:
+        """
+        Delete a catalog category by ID (admin only).
+
+        Endpoint: DELETE /catalog/admin/categories/{category_id}
+        """
+        logger.debug("Deleting catalog category", extra={"category_id": category_id})
+        return self.client.delete(
+            f"/catalog/admin/categories/{category_id}",
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+    def list_admin_units(
+        self,
+        filters: Optional[dict[str, Any]] = None,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get paginated admin unit list.
+
+        Endpoint: GET /catalog/admin/units
+        """
+        return self._get_admin_page(
+            "/catalog/admin/units",
+            filters=filters,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+    def get_unit(
+        self,
+        unit_id: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get a measurement unit by ID (admin only).
+
+        Endpoint: GET /catalog/admin/units/{unit_id}
+        """
+        logger.debug("Fetching measurement unit", extra={"unit_id": unit_id})
+        return self.client.get(
+            f"/catalog/admin/units/{unit_id}",
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
     
     def create_unit(
         self,
@@ -709,8 +861,69 @@ class CatalogAPI:
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
+
+    def delete_unit(
+        self,
+        unit_id: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> Any:
+        """
+        Delete a measurement unit by ID (admin only).
+
+        Endpoint: DELETE /catalog/admin/units/{unit_id}
+        """
+        logger.debug("Deleting measurement unit", extra={"unit_id": unit_id})
+        return self.client.delete(
+            f"/catalog/admin/units/{unit_id}",
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
     
     # ---------- HELPER METHODS ----------
+
+    def _get_admin_page(
+        self,
+        path: str,
+        *,
+        filters: Optional[dict[str, Any]] = None,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        params = self._build_filter_params(filters)
+        response = self.client.get(
+            path,
+            params=params,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+        if isinstance(response, dict):
+            response.setdefault("items", [])
+            response.setdefault("total_count", len(response.get("items", [])))
+            response.setdefault("page", params.get("page", 1))
+            response.setdefault("page_size", params.get("page_size", len(response.get("items", [])) or 100))
+            return response
+
+        if isinstance(response, list):
+            return {
+                "items": response,
+                "total_count": len(response),
+                "page": params.get("page", 1),
+                "page_size": params.get("page_size", len(response) or 100),
+            }
+
+        logger.warning(
+            "Unexpected response format from admin catalog endpoint",
+            extra={"path": path, "response_type": type(response).__name__},
+        )
+        return {
+            "items": [],
+            "total_count": 0,
+            "page": params.get("page", 1),
+            "page_size": params.get("page_size", 100),
+        }
     
     def _build_filter_params(self, filters: Optional[dict[str, Any]]) -> dict[str, Any]:
         """

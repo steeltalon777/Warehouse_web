@@ -21,9 +21,10 @@
 - `GET /roles`, `GET /sites`
 - `POST /catalog/categories`, `GET /catalog/categories/tree`
 - `POST /catalog/units`, `POST /catalog/items`
-- `POST /catalog/admin/categories`, `PATCH /catalog/admin/categories/{id}`
-- `POST /catalog/admin/units`, `PATCH /catalog/admin/units/{id}`
-- `POST /catalog/admin/items`, `PATCH /catalog/admin/items/{id}`
+- `GET /catalog/admin/categories`, `POST /catalog/admin/categories`, `GET /catalog/admin/categories/{id}`, `PATCH /catalog/admin/categories/{id}`, `DELETE /catalog/admin/categories/{id}`
+- `GET /catalog/admin/units`, `POST /catalog/admin/units`, `GET /catalog/admin/units/{id}`, `PATCH /catalog/admin/units/{id}`, `DELETE /catalog/admin/units/{id}`
+- `GET /catalog/admin/items`, `POST /catalog/admin/items`, `GET /catalog/admin/items/{id}`, `PATCH /catalog/admin/items/{id}`, `DELETE /catalog/admin/items/{id}`
+- `GET /recipients`, `POST /recipients`, `GET /recipients/{id}`, `PATCH /recipients/{id}`, `DELETE /recipients/{id}`, `POST /recipients/merge`
 - `GET /balances`
 - `GET /operations`, `POST /operations`
 

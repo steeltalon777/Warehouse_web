@@ -41,6 +41,51 @@
   let currentSearchResults = [];
   let searchTimer = null;
 
+  function parseQuantity(value) {
+    const raw = String(value ?? "").trim().replace(",", ".");
+    const match = raw.match(/^([+-]?)(?:(\d+)(?:\.(\d{0,3}))?|\.(\d{1,3}))$/);
+    if (!match) {
+      return null;
+    }
+
+    const sign = match[1] === "-" ? -1n : 1n;
+    const whole = match[2] || "0";
+    const fraction = match[3] !== undefined ? match[3] : (match[4] || "");
+    const meaningfulWhole = whole.replace(/^0+/, "");
+    if (meaningfulWhole.length > 15) {
+      return null;
+    }
+
+    let milli = BigInt(whole || "0") * 1000n + BigInt((fraction || "").padEnd(3, "0"));
+    milli *= sign;
+
+    return {
+      milli,
+      value: formatQuantityMilli(milli),
+    };
+  }
+
+  function formatQuantityMilli(milli) {
+    const negative = milli < 0n;
+    const absolute = negative ? -milli : milli;
+    const whole = absolute / 1000n;
+    const fraction = absolute % 1000n;
+    if (fraction === 0n) {
+      return `${negative ? "-" : ""}${whole}`;
+    }
+
+    const fractionText = fraction.toString().padStart(3, "0").replace(/0+$/, "");
+    return `${negative ? "-" : ""}${whole}.${fractionText}`;
+  }
+
+  function isParsedQuantityAllowed(parsedQuantity, allowNegative) {
+    return Boolean(
+      parsedQuantity
+      && parsedQuantity.milli !== 0n
+      && (allowNegative || parsedQuantity.milli > 0n)
+    );
+  }
+
   function ensureStateDefaults() {
     if (!state || typeof state !== "object") {
       state = {};
@@ -69,15 +114,9 @@
   }
 
   function isQuantityValid() {
-    const quantity = Number(quantityInput.value);
+    const quantity = parseQuantity(quantityInput.value);
     const allowNegative = Boolean((currentTypeMeta() || {}).allow_negative_qty);
-    if (!Number.isInteger(quantity) || quantity === 0) {
-      return false;
-    }
-    if (!allowNegative && quantity < 0) {
-      return false;
-    }
-    return true;
+    return isParsedQuantityAllowed(quantity, allowNegative);
   }
 
   function updateAddButtonState() {
@@ -98,8 +137,8 @@
     notesLabel.textContent = meta.notes_label || "Комментарий";
     notesInput.placeholder = meta.notes_label || "Комментарий";
     quantityHint.textContent = meta.allow_negative_qty
-      ? "Для корректировки можно указывать как положительное, так и отрицательное количество."
-      : "Для большинства операций количество должно быть положительным целым числом.";
+      ? "Для корректировки можно указывать положительное или отрицательное количество с точностью до 3 знаков."
+      : "Для большинства операций количество должно быть положительным числом с точностью до 3 знаков.";
 
     if (state.operation_type === "MOVE") {
       singleSiteRow.classList.add("operation-hidden");
@@ -143,23 +182,26 @@
 
     draftEmptyRow.classList.toggle("operation-hidden", rows.length > 0);
 
-    let quantityTotal = 0;
+    let quantityTotalMilli = 0n;
     rows.forEach((item) => {
-      quantityTotal += Number(item.quantity || 0);
+      const parsedQuantity = parseQuantity(item.quantity);
+      if (parsedQuantity) {
+        quantityTotalMilli += parsedQuantity.milli;
+      }
       const row = document.createElement("tr");
       row.dataset.draftRow = "true";
       row.innerHTML = `
         <td>${item.name}</td>
         <td>${item.sku || "—"}</td>
         <td>${item.unit_symbol || "—"}</td>
-        <td><input type="number" step="1" value="${item.quantity}" data-qty-input="${item.item_id}"></td>
+        <td><input type="number" step="0.001" value="${item.quantity}" data-qty-input="${item.item_id}"></td>
         <td><button type="button" class="btn btn-secondary btn-small" data-remove-item="${item.item_id}">Удалить</button></td>
       `;
       draftItemsBody.appendChild(row);
     });
 
     summaryLineCount.textContent = String(rows.length);
-    summaryQtyTotal.textContent = String(quantityTotal);
+    summaryQtyTotal.textContent = formatQuantityMilli(quantityTotalMilli);
     syncDraftPayload();
   }
 
@@ -194,12 +236,17 @@
   }
 
   function mergeItem(itemData, quantity) {
-    const normalizedQty = Number(quantity);
+    const parsedQty = parseQuantity(quantity);
+    if (!parsedQty) return;
+
     const existing = state.items.find((row) => Number(row.item_id) === Number(itemData.id || itemData.item_id));
     if (existing) {
-      existing.quantity = Number(existing.quantity) + normalizedQty;
-      if (existing.quantity === 0) {
+      const existingQty = parseQuantity(existing.quantity);
+      const mergedMilli = (existingQty ? existingQty.milli : 0n) + parsedQty.milli;
+      if (mergedMilli === 0n) {
         state.items = state.items.filter((row) => Number(row.item_id) !== Number(existing.item_id));
+      } else {
+        existing.quantity = formatQuantityMilli(mergedMilli);
       }
       return;
     }
@@ -209,7 +256,7 @@
       name: itemData.name,
       sku: itemData.sku || "",
       unit_symbol: itemData.unit_symbol || "",
-      quantity: normalizedQty,
+      quantity: parsedQty.value,
     });
   }
 
@@ -219,18 +266,22 @@
       return;
     }
 
-    const quantity = Number(quantityInput.value);
+    const quantity = parseQuantity(quantityInput.value);
     const allowNegative = Boolean((currentTypeMeta() || {}).allow_negative_qty);
-    if (!Number.isInteger(quantity) || quantity === 0) {
-      window.alert("Количество должно быть целым числом и не может быть нулевым.");
+    if (!quantity) {
+      window.alert("Количество должно быть числом с точностью до 3 знаков после запятой.");
       return;
     }
-    if (!allowNegative && quantity < 0) {
+    if (quantity.milli === 0n) {
+      window.alert("Количество не может быть нулевым.");
+      return;
+    }
+    if (!allowNegative && quantity.milli < 0n) {
       window.alert("Отрицательное количество доступно только для корректировки.");
       return;
     }
 
-    mergeItem(selectedItem, quantity);
+    mergeItem(selectedItem, quantity.value);
     updateStateFromFields();
     renderItemsTable();
     resetPicker();
@@ -344,16 +395,16 @@
     if (!qtyInput) return;
 
     const itemId = Number(qtyInput.dataset.qtyInput);
-    const newQuantity = Number(qtyInput.value);
+    const newQuantity = parseQuantity(qtyInput.value);
     const allowNegative = Boolean((currentTypeMeta() || {}).allow_negative_qty);
-    if (!Number.isInteger(newQuantity) || newQuantity === 0 || (!allowNegative && newQuantity < 0)) {
+    if (!isParsedQuantityAllowed(newQuantity, allowNegative)) {
       renderItemsTable();
-      window.alert("Количество должно соответствовать правилам выбранного типа операции.");
+      window.alert("Количество должно быть числом с точностью до 3 знаков и соответствовать правилам выбранного типа операции.");
       return;
     }
 
     state.items = state.items.map((item) => (
-      Number(item.item_id) === itemId ? { ...item, quantity: newQuantity } : item
+      Number(item.item_id) === itemId ? { ...item, quantity: newQuantity.value } : item
     ));
     renderItemsTable();
   }
@@ -387,6 +438,14 @@
     if (meta && meta.requires_recipient && !state.issued_to_name) {
       event.preventDefault();
       window.alert("Укажите получателя для выбранного типа операции.");
+      return;
+    }
+
+    const allowNegative = Boolean((meta || {}).allow_negative_qty);
+    const invalidLine = state.items.find((item) => !isParsedQuantityAllowed(parseQuantity(item.quantity), allowNegative));
+    if (invalidLine) {
+      event.preventDefault();
+      window.alert("Проверьте количество в строках операции.");
       return;
     }
 

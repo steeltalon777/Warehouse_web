@@ -59,9 +59,7 @@
                                 <td>
                                     <div class="catalog-actions">
                                         <a href="{% url 'nomenclature:category_update' category.id %}">Редактировать</a>
-                                        {% if category.is_active %}
-                                            <a href="{% url 'nomenclature:category_delete' category.id %}">Деактивировать</a>
-                                        {% endif %}
+                                        <a href="{% url 'nomenclature:category_delete' category.id %}">Удалить</a>
                                     </div>
                                 </td>
                             </tr>

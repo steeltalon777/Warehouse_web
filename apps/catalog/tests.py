@@ -13,6 +13,8 @@ from apps.catalog.services import CatalogService, ServiceResult
 from apps.catalog.tree import build_category_item_tree
 from apps.catalog_cache.services import CatalogCacheSyncStats
 from apps.common.templatetags.permission_tags import can_manage_catalog_filter
+from apps.sync_client.catalog_api import CatalogAPI
+from apps.sync_client.recipients_api import RecipientsAPI
 
 
 class NomenclatureHomeViewTests(TestCase):
@@ -52,7 +54,7 @@ class NomenclatureTreeViewTests(TestCase):
     ) -> None:
         build_catalog_service.return_value = SimpleNamespace(
             browse_all_items=Mock(return_value=ServiceResult(ok=True, data=[{"id": 101, "name": "Кабель", "category_id": 1}])),
-            list_categories=Mock(return_value=ServiceResult(ok=True, data=[{"id": 1, "name": "Электрика", "is_active": True}])),
+            list_admin_categories=Mock(return_value=ServiceResult(ok=True, data=[{"id": 1, "name": "Электрика", "is_active": True}])),
         )
 
         response = self.client.get(reverse("nomenclature:tree"))
@@ -83,7 +85,7 @@ class CategoryListViewTests(TestCase):
         build_catalog_service.return_value = SimpleNamespace(
             browse_all_items=Mock(return_value=ServiceResult(ok=True, data=[])),
             list_items=Mock(return_value=ServiceResult(ok=True, data=[])),
-            list_categories=Mock(
+            list_admin_categories=Mock(
                 return_value=ServiceResult(
                     ok=True,
                     data=[
@@ -134,6 +136,7 @@ class CatalogCacheSyncViewTests(TestCase):
         build_catalog_service.return_value = SimpleNamespace(
             browse_all_items=Mock(return_value=ServiceResult(ok=True, data=[])),
             list_categories=Mock(return_value=ServiceResult(ok=True, data=[])),
+            list_admin_categories=Mock(return_value=ServiceResult(ok=True, data=[])),
             list_items=Mock(return_value=ServiceResult(ok=True, data=[])),
         )
         sync_items.return_value = CatalogCacheSyncStats(pages=2, fetched=40, upserted=40, skipped=0, total_count=40)
@@ -170,16 +173,16 @@ class ItemListViewTests(TestCase):
         _can_manage_catalog: Mock,
     ) -> None:
         build_catalog_service.return_value = SimpleNamespace(
-            browse_all_items=Mock(
+            list_admin_items=Mock(
                 return_value=ServiceResult(
                     ok=True,
                     data=[
-                        {"id": 1, "name": "Кабель ВВГ", "sku": "VVG-3X1", "category_id": 10, "category_name": "Кабели"},
-                        {"id": 2, "name": "Автомат", "sku": "AUTO-25", "category_id": 11, "category_name": "Автоматы"},
+                        {"id": 1, "name": "Кабель ВВГ", "sku": "VVG-3X1", "category_id": 10},
+                        {"id": 2, "name": "Автомат", "sku": "AUTO-25", "category_id": 11},
                     ],
                 )
             ),
-            list_categories=Mock(
+            list_admin_categories=Mock(
                 return_value=ServiceResult(
                     ok=True,
                     data=[
@@ -194,6 +197,73 @@ class ItemListViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual([item["id"] for item in response.context["items"]], ["2"])
+
+
+class NomenclatureDeleteViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = get_user_model().objects.create_user(
+            username="chief_delete",
+            password="secret123",
+            is_active=True,
+        )
+        self.client.force_login(self.user)
+
+    @patch("apps.catalog.views.can_manage_catalog", return_value=True)
+    @patch("apps.catalog.views.can_use_client", return_value=True)
+    @patch("apps.catalog.views._build_catalog_service")
+    def test_category_delete_uses_delete_endpoint(
+        self,
+        build_catalog_service: Mock,
+        _can_use_client: Mock,
+        _can_manage_catalog: Mock,
+    ) -> None:
+        service = SimpleNamespace(
+            get_category=Mock(return_value=ServiceResult(ok=True, data={"id": 1, "name": "Tools"})),
+            delete_category=Mock(return_value=ServiceResult(ok=True)),
+        )
+        build_catalog_service.return_value = service
+
+        response = self.client.post(reverse("nomenclature:category_delete", kwargs={"pk": 1}))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("nomenclature:category_list"))
+        service.delete_category.assert_called_once_with("1")
+
+    @patch("apps.catalog.views.can_manage_catalog", return_value=True)
+    @patch("apps.catalog.views.can_use_client", return_value=True)
+    @patch("apps.catalog.views._build_catalog_service")
+    def test_unit_delete_uses_delete_endpoint(
+        self,
+        build_catalog_service: Mock,
+        _can_use_client: Mock,
+        _can_manage_catalog: Mock,
+    ) -> None:
+        service = SimpleNamespace(delete_unit=Mock(return_value=ServiceResult(ok=True)))
+        build_catalog_service.return_value = service
+
+        response = self.client.post(reverse("nomenclature:unit_delete", kwargs={"pk": 7}))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("nomenclature:unit_list"))
+        service.delete_unit.assert_called_once_with("7")
+
+    @patch("apps.catalog.views.can_manage_catalog", return_value=True)
+    @patch("apps.catalog.views.can_use_client", return_value=True)
+    @patch("apps.catalog.views._build_catalog_service")
+    def test_item_delete_uses_delete_endpoint(
+        self,
+        build_catalog_service: Mock,
+        _can_use_client: Mock,
+        _can_manage_catalog: Mock,
+    ) -> None:
+        service = SimpleNamespace(delete_item=Mock(return_value=ServiceResult(ok=True)))
+        build_catalog_service.return_value = service
+
+        response = self.client.post(reverse("nomenclature:item_delete", kwargs={"pk": 12}))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("nomenclature:item_list"))
+        service.delete_item.assert_called_once_with("12")
 
 
 class SearchableSelectFormTests(SimpleTestCase):
@@ -242,18 +312,137 @@ class CatalogServiceBrowseTests(SimpleTestCase):
         self.assertTrue(result.ok)
         self.assertEqual([item["id"] for item in result.data], [1, 2])
 
-    def test_get_item_scans_next_pages_until_match(self) -> None:
+    def test_get_item_uses_admin_detail_endpoint(self) -> None:
         service = CatalogService(client=Mock())
         service.catalog_api = Mock()
-        service.catalog_api.browse_items.side_effect = [
-            {"items": [{"id": 1, "name": "A"}], "page": 1, "page_size": 1, "total_count": 2},
-            {"items": [{"id": 2, "name": "B"}], "page": 2, "page_size": 1, "total_count": 2},
-        ]
+        service.catalog_api.get_item.return_value = {"id": 2, "name": "B"}
 
-        result = service.get_item("2", page_size=1)
+        result = service.get_item("2")
 
         self.assertTrue(result.ok)
         self.assertEqual(result.data["id"], 2)
+        service.catalog_api.get_item.assert_called_once_with("2")
+
+    def test_admin_list_collects_all_pages(self) -> None:
+        service = CatalogService(client=Mock())
+        service.catalog_api = Mock()
+        service.catalog_api.list_admin_units.side_effect = [
+            {"items": [{"id": 1}], "page": 1, "page_size": 1, "total_count": 2},
+            {"items": [{"id": 2}], "page": 2, "page_size": 1, "total_count": 2},
+        ]
+
+        result = service.list_admin_units(page_size=1)
+
+        self.assertTrue(result.ok)
+        self.assertEqual([unit["id"] for unit in result.data], [1, 2])
+
+
+class SyncReferenceAPIEndpointTests(SimpleTestCase):
+    def test_catalog_admin_crud_methods_use_api_map_paths(self) -> None:
+        client = Mock()
+        client.get.return_value = {"items": []}
+        api = CatalogAPI(client)
+
+        api.list_admin_categories(filters={"page": 1})
+        client.get.assert_called_with(
+            "/catalog/admin/categories",
+            params={"page": 1},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+        api.get_category("5")
+        client.get.assert_called_with(
+            "/catalog/admin/categories/5",
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+        api.delete_category("5")
+        client.delete.assert_called_with(
+            "/catalog/admin/categories/5",
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+        api.get_item("9")
+        client.get.assert_called_with(
+            "/catalog/admin/items/9",
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+        api.delete_item("9")
+        client.delete.assert_called_with(
+            "/catalog/admin/items/9",
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+        api.get_unit("2")
+        client.get.assert_called_with(
+            "/catalog/admin/units/2",
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+        api.delete_unit("2")
+        client.delete.assert_called_with(
+            "/catalog/admin/units/2",
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_recipients_crud_methods_use_api_map_paths(self) -> None:
+        client = Mock()
+        client.get.return_value = {"items": []}
+        api = RecipientsAPI(client)
+
+        api.list_recipients(filters={"search": "Ivan"})
+        client.get.assert_called_with(
+            "/recipients",
+            params={"search": "Ivan"},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+        api.create_recipient({"display_name": "Ivan"})
+        client.post.assert_called_with(
+            "/recipients",
+            json={"display_name": "Ivan"},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+        api.merge_recipients({"source_id": 1, "target_id": 2})
+        client.post.assert_called_with(
+            "/recipients/merge",
+            json={"source_id": 1, "target_id": 2},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+        api.get_recipient("3")
+        client.get.assert_called_with(
+            "/recipients/3",
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+        api.update_recipient("3", {"is_active": False})
+        client.patch.assert_called_with(
+            "/recipients/3",
+            json={"is_active": False},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+        api.delete_recipient("3")
+        client.delete.assert_called_with(
+            "/recipients/3",
+            acting_user_id=None,
+            acting_site_id=None,
+        )
 
 
 class PermissionTemplateFilterTests(SimpleTestCase):

@@ -11,10 +11,10 @@
     </div>
 
     <div class="card catalog-form-card">
-        <form method="post" data-loading-form data-loading-scope="page" data-loading-overlay-text="Деактивация категории...">
+        <form method="post" data-loading-form data-loading-scope="page" data-loading-overlay-text="Удаление категории...">
             {% csrf_token %}
             <div class="catalog-actions">
-                <button type="submit" data-loading-text="Деактивация...">Да, деактивировать</button>
+                <button type="submit" data-loading-text="Удаление...">Да, удалить</button>
                 <a href="{{ back_url }}" class="btn btn-secondary">Отмена</a>
             </div>
         </form>

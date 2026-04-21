@@ -59,6 +59,57 @@ class CatalogService:
 
         return self._exec(_load)
 
+    def list_admin_categories(
+        self,
+        *,
+        include_inactive: bool = True,
+        include_deleted: bool = False,
+        page_size: int = 100,
+    ) -> ServiceResult:
+        return self._exec(
+            self._collect_admin_pages,
+            self.catalog_api.list_admin_categories,
+            filters={
+                "include_inactive": include_inactive,
+                "include_deleted": include_deleted,
+            },
+            page_size=page_size,
+        )
+
+    def list_admin_units(
+        self,
+        *,
+        include_inactive: bool = True,
+        include_deleted: bool = False,
+        page_size: int = 100,
+    ) -> ServiceResult:
+        return self._exec(
+            self._collect_admin_pages,
+            self.catalog_api.list_admin_units,
+            filters={
+                "include_inactive": include_inactive,
+                "include_deleted": include_deleted,
+            },
+            page_size=page_size,
+        )
+
+    def list_admin_items(
+        self,
+        *,
+        include_inactive: bool = True,
+        include_deleted: bool = False,
+        page_size: int = 100,
+    ) -> ServiceResult:
+        return self._exec(
+            self._collect_admin_pages,
+            self.catalog_api.list_admin_items,
+            filters={
+                "include_inactive": include_inactive,
+                "include_deleted": include_deleted,
+            },
+            page_size=page_size,
+        )
+
     def browse_items(
         self,
         *,
@@ -107,33 +158,8 @@ class CatalogService:
 
         return self._exec(_load)
 
-    def get_item(self, item_id: str, *, page_size: int = 100) -> ServiceResult:
-        try:
-            page = 1
-            normalized_item_id = str(item_id)
-
-            while True:
-                payload = self._browse_items_page(page=page, page_size=page_size)
-                page_items = payload.get("items", []) if isinstance(payload, dict) else []
-                if not isinstance(page_items, list):
-                    page_items = []
-
-                for item in page_items:
-                    if str(item.get("id")) == normalized_item_id:
-                        return ServiceResult(ok=True, data=item)
-
-                total_pages = _resolve_total_pages(payload, default_page_size=page_size)
-                if page >= total_pages or not page_items:
-                    break
-                page += 1
-        except SyncServerAPIError as exc:
-            return ServiceResult(
-                ok=False,
-                form_error=str(exc),
-                not_found=exc.status_code == 404,
-            )
-
-        return ServiceResult(ok=False, form_error="ТМЦ не найдена", not_found=True)
+    def get_item(self, item_id: str) -> ServiceResult:
+        return self._exec(self.catalog_api.get_item, item_id)
 
     def browse_categories(
         self,
@@ -171,7 +197,44 @@ class CatalogService:
         return self._exec(self.catalog_api.browse_category_items, category_id, filters=filters)
 
     def categories_tree(self) -> ServiceResult:
-        return self._exec(self.catalog_api.categories_tree)
+        return self._exec(self.catalog_api.get_categories_tree)
+
+    def _collect_admin_pages(
+        self,
+        list_page_fn,
+        *,
+        filters: dict[str, Any] | None = None,
+        page_size: int = 100,
+    ) -> list[dict[str, Any]]:
+        page = 1
+        items: list[dict[str, Any]] = []
+        base_filters = dict(filters or {})
+
+        while True:
+            payload = list_page_fn(
+                filters={
+                    **base_filters,
+                    "page": page,
+                    "page_size": page_size,
+                }
+            )
+
+            if isinstance(payload, list):
+                page_items = payload
+                total_pages = 1
+            else:
+                page_items = payload.get("items", []) if isinstance(payload, dict) else []
+                total_pages = _resolve_total_pages(payload, default_page_size=page_size)
+
+            if not isinstance(page_items, list):
+                page_items = []
+            items.extend(page_items)
+
+            if page >= total_pages or not page_items:
+                break
+            page += 1
+
+        return items
 
     def _browse_items_page(
         self,
@@ -192,20 +255,35 @@ class CatalogService:
     def create_category(self, payload: dict[str, Any]) -> ServiceResult:
         return self._exec(self.catalog_api.create_category, payload)
 
+    def get_category(self, category_id: str) -> ServiceResult:
+        return self._exec(self.catalog_api.get_category, category_id)
+
     def update_category(self, category_id: str, payload: dict[str, Any]) -> ServiceResult:
         return self._exec(self.catalog_api.update_category, category_id, payload)
+
+    def delete_category(self, category_id: str) -> ServiceResult:
+        return self._exec(self.catalog_api.delete_category, category_id)
 
     def create_unit(self, payload: dict[str, Any]) -> ServiceResult:
         return self._exec(self.catalog_api.create_unit, payload)
 
+    def get_unit(self, unit_id: str) -> ServiceResult:
+        return self._exec(self.catalog_api.get_unit, unit_id)
+
     def update_unit(self, unit_id: str, payload: dict[str, Any]) -> ServiceResult:
         return self._exec(self.catalog_api.update_unit, unit_id, payload)
+
+    def delete_unit(self, unit_id: str) -> ServiceResult:
+        return self._exec(self.catalog_api.delete_unit, unit_id)
 
     def create_item(self, payload: dict[str, Any]) -> ServiceResult:
         return self._exec(self.catalog_api.create_item, payload)
 
     def update_item(self, item_id: str, payload: dict[str, Any]) -> ServiceResult:
         return self._exec(self.catalog_api.update_item, item_id, payload)
+
+    def delete_item(self, item_id: str) -> ServiceResult:
+        return self._exec(self.catalog_api.delete_item, item_id)
 
 
 def _resolve_total_pages(payload: dict[str, Any] | None, *, default_page_size: int) -> int:

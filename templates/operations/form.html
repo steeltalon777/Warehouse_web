@@ -126,7 +126,7 @@
 
             <div class="form-row operation-item-quantity-row">
               <label for="item-quantity-input">Количество</label>
-              <input id="item-quantity-input" type="number" step="1" value="1">
+              <input id="item-quantity-input" type="number" step="0.001" value="1">
             </div>
 
             <div class="operation-picker-actions">
@@ -136,7 +136,7 @@
 
           <div class="operation-search-status" id="item-search-status">Введите минимум 2 символа, чтобы увидеть результаты.</div>
           <div class="operation-selected-item operation-hidden" id="selected-item-box"></div>
-          <small class="operation-field-hint" id="quantity-hint">Для большинства операций количество должно быть положительным целым числом.</small>
+          <small class="operation-field-hint" id="quantity-hint">Для большинства операций количество должно быть положительным числом с точностью до 3 знаков.</small>
 
           <div class="operation-table-wrap operation-search-results-wrap">
             <table>
@@ -217,6 +217,6 @@
 <script id="operation-create-config" type="application/json">
   {"itemSearchUrl":"{{ item_search_url|escapejs }}","canChooseSourceSite":{% if can_choose_source_site %}true{% else %}false{% endif %},"fixedOperatingSiteId":"{{ fixed_operating_site_id }}"}
 </script>
-<script src="{% static 'js/operations_create.js' %}?v=20260323-1"></script>
+<script src="{% static 'js/operations_create.js' %}?v=20260421-qty-decimal"></script>
 {% endif %}
 {% endblock %}

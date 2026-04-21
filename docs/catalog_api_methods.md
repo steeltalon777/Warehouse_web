@@ -59,11 +59,30 @@ This document lists the main methods available in `apps/sync_client/catalog_api.
 
 ## Admin Methods
 
+#### `list_admin_items(filters=None, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `GET /catalog/admin/items`
+- Returns: `dict`
+- Response shape: `{items, total_count, page, page_size}`
+
+#### `get_item(item_id, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `GET /catalog/admin/items/{item_id}`
+
 #### `create_item(payload, *, acting_user_id=None, acting_site_id=None)`
 - Endpoint: `POST /catalog/admin/items`
 
 #### `update_item(item_id, payload, *, acting_user_id=None, acting_site_id=None)`
 - Endpoint: `PATCH /catalog/admin/items/{item_id}`
+
+#### `delete_item(item_id, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `DELETE /catalog/admin/items/{item_id}`
+
+#### `list_admin_categories(filters=None, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `GET /catalog/admin/categories`
+- Returns: `dict`
+- Response shape: `{items, total_count, page, page_size}`
+
+#### `get_category(category_id, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `GET /catalog/admin/categories/{category_id}`
 
 #### `create_category(payload, *, acting_user_id=None, acting_site_id=None)`
 - Endpoint: `POST /catalog/admin/categories`
@@ -71,11 +90,49 @@ This document lists the main methods available in `apps/sync_client/catalog_api.
 #### `update_category(category_id, payload, *, acting_user_id=None, acting_site_id=None)`
 - Endpoint: `PATCH /catalog/admin/categories/{category_id}`
 
+#### `delete_category(category_id, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `DELETE /catalog/admin/categories/{category_id}`
+
+#### `list_admin_units(filters=None, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `GET /catalog/admin/units`
+- Returns: `dict`
+- Response shape: `{items, total_count, page, page_size}`
+
+#### `get_unit(unit_id, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `GET /catalog/admin/units/{unit_id}`
+
 #### `create_unit(payload, *, acting_user_id=None, acting_site_id=None)`
 - Endpoint: `POST /catalog/admin/units`
 
 #### `update_unit(unit_id, payload, *, acting_user_id=None, acting_site_id=None)`
 - Endpoint: `PATCH /catalog/admin/units/{unit_id}`
+
+#### `delete_unit(unit_id, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `DELETE /catalog/admin/units/{unit_id}`
+
+## Recipient Reference Methods
+
+These live in `apps/sync_client/recipients_api.py`.
+
+#### `list_recipients(filters=None, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `GET /recipients`
+- Returns: `dict`
+- Response shape: `{items, total_count, page, page_size}`
+
+#### `create_recipient(payload, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `POST /recipients`
+
+#### `merge_recipients(payload, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `POST /recipients/merge`
+
+#### `get_recipient(recipient_id, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `GET /recipients/{recipient_id}`
+
+#### `update_recipient(recipient_id, payload, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `PATCH /recipients/{recipient_id}`
+
+#### `delete_recipient(recipient_id, *, acting_user_id=None, acting_site_id=None)`
+- Endpoint: `DELETE /recipients/{recipient_id}`
 
 ## Architectural Note
 

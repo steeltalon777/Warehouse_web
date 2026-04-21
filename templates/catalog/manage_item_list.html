@@ -75,12 +75,10 @@
                                 <td>
                                     <div class="catalog-actions">
                                         <a href="{% url 'nomenclature:item_update' item.id %}">Редактировать</a>
-                                        {% if item.is_active %}
-                                            <form method="post" action="{% url 'nomenclature:item_deactivate' item.id %}" data-loading-form data-loading-scope="page" data-loading-overlay-text="Деактивация ТМЦ...">
-                                                {% csrf_token %}
-                                                <button type="submit" data-loading-text="Деактивация...">Деактивировать</button>
-                                            </form>
-                                        {% endif %}
+                                        <form method="post" action="{% url 'nomenclature:item_delete' item.id %}" data-loading-form data-loading-scope="page" data-loading-overlay-text="Удаление ТМЦ...">
+                                            {% csrf_token %}
+                                            <button type="submit" data-loading-text="Удаление...">Удалить</button>
+                                        </form>
                                     </div>
                                 </td>
                             </tr>

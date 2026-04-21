@@ -278,7 +278,7 @@ class CatalogManageAccessMixin(LoginRequiredMixin):
         return super().dispatch(request, *args, **kwargs)
 
     def _get_categories_flat(self) -> tuple[list[dict], object]:
-        result = self.service.list_categories()
+        result = self.service.list_admin_categories()
         if not result.ok:
             return [], result
         return _normalize_categories(result.data or []), result
@@ -467,10 +467,11 @@ class CategoryUpdateView(CatalogManageAccessMixin, View):
         if not result.ok:
             return None, result, categories
 
-        for category in categories:
-            if str(category["id"]) == str(pk):
-                return category, result, categories
-        return None, result, categories
+        category_result = self.service.get_category(str(pk))
+        if not category_result.ok:
+            return None, category_result, categories
+
+        return _normalize_category(category_result.data or {}), category_result, categories
 
     def get(self, request, pk):
         category, result, categories = self._get_category(pk)
@@ -529,13 +530,10 @@ class CategoryDeleteView(CatalogManageAccessMixin, View):
     success_url = reverse_lazy("nomenclature:category_list")
 
     def _get_category(self, pk: str):
-        categories, result = self._get_manage_categories_flat()
+        result = self.service.get_category(str(pk))
         if not result.ok:
             return None, result
-        for category in categories:
-            if str(category["id"]) == str(pk):
-                return category, result
-        return None, result
+        return _normalize_category(result.data or {}), result
 
     def get(self, request, pk):
         category, result = self._get_category(pk)
@@ -548,8 +546,8 @@ class CategoryDeleteView(CatalogManageAccessMixin, View):
             self.template_name,
             {
                 "category_id": pk,
-                "page_title": "Деактивация категории",
-                "page_note": "Категория останется в истории, но будет выключена для активной работы.",
+                "page_title": "Удаление категории",
+                "page_note": "Категория будет удалена через SyncServer API.",
                 "back_url": reverse("nomenclature:category_list"),
             },
         )
@@ -560,9 +558,9 @@ class CategoryDeleteView(CatalogManageAccessMixin, View):
             if result and not result.ok:
                 messages.error(request, result.form_error)
             raise Http404("Категория не найдена")
-        result = self.service.update_category(str(pk), {"is_active": False})
+        result = self.service.delete_category(str(pk))
         if result.ok:
-            messages.success(request, "Категория деактивирована.")
+            messages.success(request, "Категория удалена.")
             return redirect(self.success_url)
         if result.not_found:
             raise Http404("Категория не найдена")
@@ -572,8 +570,8 @@ class CategoryDeleteView(CatalogManageAccessMixin, View):
             self.template_name,
             {
                 "category_id": pk,
-                "page_title": "Деактивация категории",
-                "page_note": "Категория останется в истории, но будет выключена для активной работы.",
+                "page_title": "Удаление категории",
+                "page_note": "Категория будет удалена через SyncServer API.",
                 "back_url": reverse("nomenclature:category_list"),
             },
         )
@@ -593,7 +591,7 @@ class UnitListView(CatalogManageAccessMixin, TemplateView):
         search = (request.GET.get("search") or "").strip()
         page = _parse_page(request.GET.get("page"), default=1)
         page_size = _parse_page_size(request.GET.get("page_size"), default=20)
-        result = self.service.list_units()
+        result = self.service.list_admin_units()
         if not result.ok:
             messages.error(request, result.form_error)
             units = []
@@ -666,13 +664,10 @@ class UnitUpdateView(CatalogManageAccessMixin, View):
     success_url = reverse_lazy("nomenclature:unit_list")
 
     def _find_unit(self, pk: str):
-        result = self.service.list_units()
+        result = self.service.get_unit(str(pk))
         if not result.ok:
             return None, result
-        for unit in result.data:
-            if str(unit["id"]) == str(pk):
-                return unit, result
-        return None, None
+        return result.data, result
 
     def get(self, request, pk):
         unit, result = self._find_unit(pk)
@@ -716,6 +711,20 @@ class UnitUpdateView(CatalogManageAccessMixin, View):
         )
 
 
+class UnitDeleteView(CatalogManageAccessMixin, View):
+    success_url = reverse_lazy("nomenclature:unit_list")
+
+    def post(self, request, pk):
+        result = self.service.delete_unit(str(pk))
+        if result.ok:
+            messages.success(request, "Единица удалена.")
+        elif result.not_found:
+            raise Http404("Единица не найдена")
+        else:
+            messages.error(request, result.form_error)
+        return redirect(self.success_url)
+
+
 class ItemListView(CatalogManageAccessMixin, TemplateView):
     template_name = "catalog/manage_item_list.html"
 
@@ -725,14 +734,27 @@ class ItemListView(CatalogManageAccessMixin, TemplateView):
         page = _parse_page(request.GET.get("page"), default=1)
         page_size = _parse_page_size(request.GET.get("page_size"), default=20)
 
-        items_result = self.service.browse_all_items(category_id=category_id)
+        items_result = self.service.list_admin_items()
         categories, categories_result = self._get_categories_flat()
+        categories_by_id = {str(category.get("id")): category for category in categories}
 
         if not items_result.ok:
             messages.error(request, items_result.form_error)
             items = []
         else:
-            items = _normalize_items(items_result.data or [])
+            raw_items = []
+            for item in items_result.data or []:
+                category = categories_by_id.get(str(item.get("category_id")))
+                raw_items.append(
+                    {
+                        **item,
+                        "category_name": (category or {}).get("name", ""),
+                    }
+                )
+            items = _normalize_items(raw_items)
+
+        if category_id:
+            items = [item for item in items if str(item.get("category_id")) == str(category_id)]
 
         if search:
             items = [item for item in items if _matches_item_search(item, search)]
@@ -770,7 +792,7 @@ class ItemListView(CatalogManageAccessMixin, TemplateView):
 class ItemFormCatalogMixin(CatalogManageAccessMixin):
     def _catalog_data(self):
         categories, categories_result = self._get_categories_flat()
-        units_result = self.service.list_units()
+        units_result = self.service.list_admin_units()
         units = _normalize_units(units_result.data or []) if units_result.ok else []
         return categories, _filter_manage_categories(categories), units, categories_result, units_result
 
@@ -891,9 +913,9 @@ class ItemDeactivateView(CatalogManageAccessMixin, View):
     success_url = reverse_lazy("nomenclature:item_list")
 
     def post(self, request, pk):
-        result = self.service.update_item(str(pk), {"is_active": False})
+        result = self.service.delete_item(str(pk))
         if result.ok:
-            messages.success(request, "ТМЦ деактивирована.")
+            messages.success(request, "ТМЦ удалена.")
         elif result.not_found:
             raise Http404("ТМЦ не найдена")
         else:
