@@ -7,6 +7,8 @@ from django.shortcuts import redirect, render
 from apps.client.forms import OperationCreateForm
 from apps.client.services import DomainService
 from apps.common.permissions import can_manage_catalog, is_storekeeper
+from apps.operations.services import OperationPageService
+from apps.sync_client.assets_api import AssetsAPI
 from apps.sync_client.client import SyncServerClient
 
 
@@ -35,7 +37,34 @@ def dashboard(request):
     elif not is_storekeeper(request.user):
         return HttpResponseForbidden("Нет доступа")
 
-    return render(request, "client/dashboard.html", {"role": role})
+    # Load pending acceptance summary for dashboard widget
+    pending_summary = None
+    try:
+        site_id = (
+            request.session.get("active_site")
+            or request.session.get("sync_default_site_id")
+            or request.session.get("site_id")
+            or getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
+        )
+        client = SyncServerClient(
+            user_id=request.user.id,
+            site_id=site_id,
+            request=request,
+        )
+        assets_api = AssetsAPI(client)
+        pending_rows = assets_api.list_pending_acceptance_all_pages(filters={"per_page": 200})
+        service = OperationPageService(client, request=request)
+        pending_summary = service.compute_pending_summary(
+            pending_rows.get("items", pending_rows.get("lines", [])),
+            truncated=pending_rows.get("truncated", False),
+        )
+    except Exception:
+        pending_summary = None
+
+    return render(request, "client/dashboard.html", {
+        "role": role,
+        "pending_summary": pending_summary,
+    })
 
 
 @login_required

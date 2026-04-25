@@ -1,0 +1,87 @@
+{% extends "base.html" %} {% block title %}Преобразование временной ТМЦ {{
+item.id }}{% endblock %} {% block content %}
+<div class="operation-page-header">
+  <div>
+    <h1>Преобразование временной ТМЦ</h1>
+    <p class="operation-page-note">
+      Преобразование временной ТМЦ в постоянную запись каталога. После
+      преобразования временная ТМЦ будет удалена, а в каталоге появится новая
+      ТМЦ.
+    </p>
+  </div>
+  <div>
+    <a
+      href="{% url 'temporary_items:detail' item.id %}"
+      class="btn btn-secondary"
+      >← Назад к карточке</a
+    >
+  </div>
+</div>
+
+<div class="card">
+  <h3>Информация о временной ТМЦ</h3>
+  <table class="data-table">
+    <tbody>
+      <tr>
+        <th>ID</th>
+        <td><code>{{ item.id }}</code></td>
+      </tr>
+      <tr>
+        <th>Название</th>
+        <td>{{ item.name|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Код</th>
+        <td>{{ item.code|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Описание</th>
+        <td>{{ item.description|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Статус</th>
+        <td>
+          {% if item.status == "pending" %}
+          <span class="badge badge-warning">Ожидает</span>
+          {% else %}
+          <span class="badge">{{ item.status }}</span>
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Подтверждение преобразования</h3>
+  <p>
+    Вы уверены, что хотите преобразовать эту временную ТМЦ в постоянную? Это
+    действие создаст новую ТМЦ в каталоге и удалит временную запись.
+  </p>
+  <form method="post">
+    {% csrf_token %}
+    <div class="action-buttons">
+      <a
+        href="{% url 'temporary_items:detail' item.id %}"
+        class="btn btn-secondary"
+        >Отмена</a
+      >
+      <button type="submit" class="btn btn-success">Преобразовать</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Что произойдет после преобразования?</h3>
+  <ul>
+    <li>Временная ТМЦ будет удалена из списка временных.</li>
+    <li>
+      В каталоге появится новая ТМЦ с теми же данными (название, код, описание).
+    </li>
+    <li>Новая ТМЦ получит уникальный ID в каталоге.</li>
+    <li>
+      Все ссылки на временную ТМЦ в операциях будут перенаправлены на новую ТМЦ.
+    </li>
+  </ul>
+</div>
+{% endblock %}

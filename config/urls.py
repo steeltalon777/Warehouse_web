@@ -30,6 +30,7 @@ urlpatterns = [
     path("client/", include("apps.client.urls")),
     path("operations/", include("apps.operations.urls")),
     path("balances/", include("apps.balances.urls")),
+    path("temporary-items/", include("apps.temporary_items.urls")),
     path("admin-panel/", include("apps.admin_panel.urls")),
     path("documents/", include("apps.documents.urls")),
     path("users/", include("apps.users.urls")),

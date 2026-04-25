@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% load permission_tags %}
+
+{% block title %}Ожидают приёмки — Склад{% endblock %}
+
+{% block content %}
+<div class="operation-page-header">
+  <div>
+    <h1>Ожидают приёмки</h1>
+    <p class="text-muted">
+      Операции, по которым ещё не завершена приёмка
+      {% if summary %}<br><small>{{ summary.operation_count }} операций, {{ summary.line_count }} позиций</small>{% endif %}
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  <form method="get" action="{% url 'operations:pending_acceptance' %}">
+    <div class="form-row">
+      <label for="search">Поиск</label>
+      <input type="text" id="search" name="search" value="{{ search|default:'' }}"
+             placeholder="Номер документа, контрагент…" class="form-control">
+    </div>
+    <div class="form-row">
+      <label for="site_id">Склад назначения</label>
+      <select id="site_id" name="site_id" class="form-control">
+        <option value="">Все склады</option>
+        {% for site in available_sites %}
+        <option value="{{ site.id }}" {% if site_id|stringformat:"s" == site.id|stringformat:"s" %}selected{% endif %}>
+          {{ site.name }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="type">Тип операции</label>
+      <select id="type" name="type" class="form-control">
+        <option value="">Все типы</option>
+        <option value="RECEIVE" {% if type_filter == "RECEIVE" %}selected{% endif %}>Поступление</option>
+        <option value="MOVE" {% if type_filter == "MOVE" %}selected{% endif %}>Перемещение</option>
+      </select>
+    </div>
+    <div class="form-row operation-filter-actions">
+      <button type="submit" class="btn btn-primary">Применить</button>
+      <a href="{% url 'operations:pending_acceptance' %}" class="btn btn-outline">Сбросить</a>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  {% if groups %}
+  <div class="operation-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Номер документа</th>
+          <th>Тип</th>
+          <th>Склад назначения</th>
+          <th>Склад-источник</th>
+          <th>Позиций</th>
+          <th>Всего к приёмке</th>
+          <th>Дата обновления</th>
+          <th>Действия</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for group in groups %}
+        <tr>
+          <td>
+            <a href="{% url 'operations:detail' operation_id=group.operation_id %}">
+              {{ group.document_number|default:group.operation_id|truncatechars:20 }}
+            </a>
+          </td>
+          <td>
+            {% if group.operation_type == "MOVE" %}
+            <span class="badge badge-info">Перемещение</span>
+            {% else %}
+            <span class="badge badge-success">Поступление</span>
+            {% endif %}
+          </td>
+          <td>{{ group.destination_site_name|default:"—" }}</td>
+          <td>{{ group.source_site_name|default:"—" }}</td>
+          <td>{{ group.line_count }}</td>
+          <td>{{ group.total_expected_qty }}</td>
+          <td>{{ group.updated_at|default:"—" }}</td>
+          <td class="action-cell">
+            <a href="{% url 'operations:acceptance_detail' operation_id=group.operation_id %}"
+               class="btn btn-sm btn-primary">Открыть приёмку</a>
+            <a href="{% url 'operations:detail' operation_id=group.operation_id %}"
+               class="btn btn-sm btn-outline">Документ</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if page_count > 1 %}
+  <div class="operation-pagination">
+    <div class="operation-pagination-actions">
+      {% if page > 1 %}
+      <a href="?page={{ page|add:-1 }}&search={{ search|urlencode }}&site_id={{ site_id|default:'' }}&type={{ type_filter|default:'' }}"
+         class="btn btn-sm btn-outline">← Назад</a>
+      {% endif %}
+      <span class="pagination-info">Страница {{ page }} из {{ page_count }}</span>
+      {% if page < page_count %}
+      <a href="?page={{ page|add:1 }}&search={{ search|urlencode }}&site_id={{ site_id|default:'' }}&type={{ type_filter|default:'' }}"
+         class="btn btn-sm btn-outline">Вперёд →</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if truncated %}
+  <div class="alert alert-warning" style="margin-top: 1rem;">
+    <strong>Внимание:</strong> Показана только часть данных. Уточните фильтры для более точного поиска.
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="empty-state">
+    <p>Нет операций, ожидающих приёмки.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

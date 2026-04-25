@@ -1,5 +1,16 @@
 from django import forms
 
+from apps.catalog.constants import DEFAULT_ITEM_UNIT_SYMBOL
+
+
+def find_default_unit_id(units: list[dict] | None) -> str | None:
+    for item in units or []:
+        symbol = str(item.get("symbol") or "").strip().lower()
+        unit_id = str(item.get("id") or item.get("unit_id") or "").strip()
+        if symbol == DEFAULT_ITEM_UNIT_SYMBOL and unit_id:
+            return unit_id
+    return None
+
 
 class CategoryForm(forms.Form):
     name = forms.CharField(max_length=200)
@@ -71,6 +82,12 @@ class ItemForm(forms.Form):
                 "data-placeholder": "Начните вводить единицу измерения...",
             }
         )
+
+        if not self.is_bound and not self.initial.get("unit_id"):
+            default_unit_id = find_default_unit_id(units)
+            if default_unit_id:
+                self.initial["unit_id"] = default_unit_id
+                self.fields["unit_id"].initial = default_unit_id
 
     def clean_category_id(self):
         value = self.cleaned_data.get("category_id")

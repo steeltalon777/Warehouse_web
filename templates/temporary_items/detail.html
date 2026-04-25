@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Временная ТМЦ {{ item.id }}{% endblock %}
+{% block content %}
+<div class="operation-page-header">
+  <div>
+    <h1>Временная ТМЦ</h1>
+    <p class="operation-page-note">
+      Детальная информация о временной ТМЦ. Вы можете преобразовать её в
+      постоянную ТМЦ или объединить с существующей.
+    </p>
+  </div>
+  <div>
+    <a href="{% url 'temporary_items:list' %}" class="btn btn-secondary"
+      >← К списку</a
+    >
+    {% if item.status == "pending" %}
+    <a
+      href="{% url 'temporary_items:approve' item.id %}"
+      class="btn btn-success"
+      >Преобразовать</a
+    >
+    <a href="{% url 'temporary_items:merge' item.id %}" class="btn btn-info"
+      >Объединить</a
+    >
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h3>Основная информация</h3>
+  <table class="data-table">
+    <tbody>
+      <tr>
+        <th>ID</th>
+        <td><code>{{ item.id }}</code></td>
+      </tr>
+      <tr>
+        <th>Название</th>
+        <td>{{ item.name|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Код</th>
+        <td>{{ item.code|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Описание</th>
+        <td>{{ item.description|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Статус</th>
+        <td>
+          {% if item.status == "pending" %}
+          <span class="badge badge-warning">Ожидает</span>
+          {% elif item.status == "approved" %}
+          <span class="badge badge-success">Преобразована</span>
+          {% elif item.status == "merged" %}
+          <span class="badge badge-info">Объединена</span>
+          {% elif item.status == "rejected" %}
+          <span class="badge badge-danger">Отклонена</span>
+          {% else %}
+          <span class="badge">{{ item.status }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <th>Создано</th>
+        <td>{{ item.created_at|date:"d.m.Y H:i" }}</td>
+      </tr>
+      <tr>
+        <th>Обновлено</th>
+        <td>{{ item.updated_at|date:"d.m.Y H:i" }}</td>
+      </tr>
+      <tr>
+        <th>Сайт</th>
+        <td>{{ item.site_id|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Пользователь</th>
+        <td>{{ item.user_id|default:"—" }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Дополнительные данные</h3>
+  {% if item.metadata %}
+  <pre class="metadata">{{ item.metadata|pprint }}</pre>
+  {% else %}
+  <p>Нет дополнительных данных.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3>Действия</h3>
+  <div class="action-buttons">
+    <a href="{% url 'temporary_items:list' %}" class="btn btn-secondary"
+      >Вернуться к списку</a
+    >
+    {% if item.status == "pending" %}
+    <a
+      href="{% url 'temporary_items:approve' item.id %}"
+      class="btn btn-success"
+      >Преобразовать в постоянную ТМЦ</a
+    >
+    <a href="{% url 'temporary_items:merge' item.id %}" class="btn btn-info"
+      >Объединить с существующей ТМЦ</a
+    >
+    <a href="{% url 'temporary_items:delete' item.id %}" class="btn btn-danger"
+      >Удалить</a
+    >
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

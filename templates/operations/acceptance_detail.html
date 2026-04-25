@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% load permission_tags %}
+{% block title %}Приёмка — {{ view_model.header.document_number|default:operation_id }} — Склад{% endblock %}
+{% block content %}
+<div class="operation-page-header">
+  <div>
+    <h1>Приёмка</h1>
+    <p class="text-muted">
+      {{ view_model.header.document_number|default:operation_id }} {% if view_model.header.operation_type == "MOVE" %}
+      <span class="badge badge-info">Перемещение</span>
+      {% else %}
+      <span class="badge badge-success">Поступление</span>
+      {% endif %}
+    </p>
+  </div>
+  <div>
+    <a href="{% url 'operations:pending_acceptance' %}" class="btn btn-outline"
+      >← К списку</a
+    >
+    <a
+      href="{% url 'operations:detail' operation_id=operation_id %}"
+      class="btn btn-outline"
+      >Документ</a
+    >
+  </div>
+</div>
+
+{% if view_model.flow_state == "resolved" %}
+<div class="alert alert-success">
+  <strong>Приёмка завершена.</strong>
+  Все позиции приняты. Потерь нет.
+</div>
+{% endif %} {% if view_model.has_lost %}
+<div class="alert alert-warning">
+  <strong>Обнаружены потери.</strong>
+  По некоторым позициям зафиксирована недостача.
+  <a href="{% url 'operations:lost_assets' %}?operation_id={{ operation_id }}"
+    >Перейти к потерям</a
+  >
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="operation-section-head">
+    <div>
+      <h2>Информация о документе</h2>
+    </div>
+  </div>
+  <dl class="operation-detail-grid">
+    <div>
+      <dt>Номер документа</dt>
+      <dd>{{ view_model.header.document_number|default:"—" }}</dd>
+    </div>
+    <div>
+      <dt>Контрагент</dt>
+      <dd>{{ view_model.header.contractor_name|default:"—" }}</dd>
+    </div>
+    <div>
+      <dt>Склад назначения</dt>
+      <dd>{{ view_model.header.destination_site_name|default:"—" }}</dd>
+    </div>
+    {% if view_model.header.source_site_name %}
+    <div>
+      <dt>Склад-источник</dt>
+      <dd>{{ view_model.header.source_site_name }}</dd>
+    </div>
+    {% endif %}
+    <div>
+      <dt>Дата документа</dt>
+      <dd>{{ view_model.header.effective_at|default:"—" }}</dd>
+    </div>
+    <div>
+      <dt>Статус приёмки</dt>
+      <dd>
+        {% if view_model.flow_state == "resolved" %}
+        <span class="badge badge-success">Завершена</span>
+        {% else %}
+        <span class="badge badge-warning">В процессе</span>
+        {% endif %}
+      </dd>
+    </div>
+  </dl>
+</div>
+
+<div class="card">
+  <div class="operation-section-head">
+    <div>
+      <h2>Позиции к приёмке</h2>
+    </div>
+  </div>
+
+  {% if view_model.flow_state == "resolved" %}
+  <div class="operation-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>№</th>
+          <th>Товар</th>
+          <th>Ожидалось</th>
+          <th>Принято</th>
+          <th>Потеря</th>
+          <th>Примечание</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in view_model.lines %}
+        <tr>
+          <td>{{ line.line_number }}</td>
+          <td>{{ line.item_name|default:line.item_id }}</td>
+          <td>{{ line.expected_qty }}</td>
+          <td>{{ line.accepted_qty|default:"0" }}</td>
+          <td>{{ line.lost_qty|default:"0" }}</td>
+          <td>{{ line.note|default:"" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <form
+    method="post"
+    action="{% url 'operations:acceptance_submit' operation_id=operation_id %}"
+  >
+    {% csrf_token %}
+    <div class="operation-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>№</th>
+            <th>Товар</th>
+            <th>Ожидалось</th>
+            <th>Осталось принять</th>
+            <th>Принято</th>
+            <th>Потеря</th>
+            <th>Примечание</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for line in view_model.lines %}
+          <tr>
+            <td>{{ line.line_number }}</td>
+            <td>
+              {{ line.item_name|default:line.item_id }} {% if line.unit_name %}
+              <br /><small class="text-muted">{{ line.unit_name }}</small>
+              {% endif %}
+            </td>
+            <td>{{ line.expected_qty }}</td>
+            <td>{{ line.remaining_qty }}</td>
+            <td>
+              <input
+                type="hidden"
+                name="line_number[]"
+                value="{{ line.line_number }}"
+              />
+              <input
+                type="number"
+                name="accepted_qty[]"
+                value="{{ line.remaining_qty }}"
+                step="0.001"
+                min="0"
+                class="form-control qty-input"
+                data-remaining="{{ line.remaining_qty }}"
+              />
+            </td>
+            <td>
+              <input
+                type="number"
+                name="lost_qty[]"
+                value="0"
+                step="0.001"
+                min="0"
+                class="form-control qty-input"
+                data-remaining="{{ line.remaining_qty }}"
+              />
+            </td>
+            <td>
+              <input
+                type="text"
+                name="note[]"
+                value=""
+                class="form-control"
+                placeholder="Примечание"
+              />
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if form_errors %}
+    <div class="alert alert-danger" style="margin-top: 1rem">
+      <strong>Ошибки валидации:</strong>
+      <ul>
+        {% for error in form_errors %}
+        <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <div class="form-actions" style="margin-top: 1rem">
+      <button type="submit" class="btn btn-primary">Подтвердить приёмку</button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    // Auto-validate: accepted_qty + lost_qty <= remaining
+    document.querySelectorAll(".qty-input").forEach(function (input) {
+      input.addEventListener("input", function () {
+        var row = this.closest("tr");
+        var accepted =
+          parseFloat(row.querySelector('[name="accepted_qty[]"]').value) || 0;
+        var lost =
+          parseFloat(row.querySelector('[name="lost_qty[]"]').value) || 0;
+        var remaining = parseFloat(this.dataset.remaining) || 0;
+        if (accepted + lost > remaining) {
+          this.classList.add("is-invalid");
+        } else {
+          this.classList.remove("is-invalid");
+        }
+      });
+    });
+  });
+</script>
+{% endblock %}

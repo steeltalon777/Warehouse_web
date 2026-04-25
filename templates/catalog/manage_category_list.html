@@ -45,26 +45,36 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for category in flat_categories %}
-                            <tr>
-                                <td><a href="{% url 'nomenclature:category_update' category.id %}">{{ category.name }}</a></td>
-                                <td>
-                                    {% if category.parent_id %}
-                                        <a href="{% url 'nomenclature:category_update' category.parent_id %}">{{ category.parent_name|default:"—" }}</a>
-                                    {% else %}
-                                        {{ category.parent_name|default:"—" }}
-                                    {% endif %}
-                                </td>
-                                <td>{% if category.is_active %}Да{% else %}Нет{% endif %}</td>
-                                <td>
-                                    <div class="catalog-actions">
-                                        <a href="{% url 'nomenclature:category_update' category.id %}">Редактировать</a>
-                                        <a href="{% url 'nomenclature:category_delete' category.id %}">Удалить</a>
-                                    </div>
-                                </td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
+    {% for category in flat_categories %}
+    <tr>
+        <td>
+            <input type="text" name="name_{{ category.id }}" value="{{ category.name }}" class="table-input" placeholder="Название категории">
+        </td>
+        <td>
+            {% if category.parent_id %}
+                <a href="{% url 'nomenclature:category_update' category.parent_id %}">{{ category.parent_name|default:"—" }}</a>
+            {% else %}
+                {{ category.parent_name|default:"—" }}
+            {% endif %}
+        </td>
+        <td>
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" name="active_{{ category.id }}" {% if category.is_active %}checked{% endif %} class="table-checkbox">
+                <span style="font-size:13px; color:var(--muted);">Активна</span>
+            </label>
+        </td>
+        <td>
+            <div class="table-actions">
+                <button type="button" class="btn btn-small btn-success" title="Сохранить изменения (пока пустышка)">Применить</button>
+                <a href="{% url 'nomenclature:category_update' category.id %}" class="btn btn-small btn-secondary">Редактировать</a>
+                <button type="button" class="btn btn-small btn-danger">Удалить</button>
+            </div>
+        </td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="4" class="catalog-empty-state">По текущим условиям категории не найдены.</td></tr>
+    {% endfor %}
+</tbody>Д
                 </table>
             </div>
         {% else %}

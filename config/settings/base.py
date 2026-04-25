@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     "apps.operations",
     "apps.balances",
     "apps.admin_panel",
+    "apps.temporary_items",
 ]
 
 MIDDLEWARE = [

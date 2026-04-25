@@ -1,0 +1,65 @@
+{% extends "base.html" %} {% block title %}Удаление временной ТМЦ{% endblock %}
+{% block content %}
+<div class="operation-page-header">
+  <div>
+    <h1>Удаление временной ТМЦ</h1>
+    <p class="operation-page-note">
+      Вы уверены, что хотите удалить временную ТМЦ? Это действие невозможно
+      отменить.
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Информация о временной ТМЦ</h3>
+  <table class="data-table">
+    <tbody>
+      <tr>
+        <th>ID</th>
+        <td><code>{{ item.id }}</code></td>
+      </tr>
+      <tr>
+        <th>Название</th>
+        <td>{{ item.name|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Код</th>
+        <td>{{ item.code|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Статус</th>
+        <td>
+          {% if item.status == "pending" %}
+          <span class="badge badge-warning">Ожидает</span>
+          {% elif item.status == "approved" %}
+          <span class="badge badge-success">Преобразована</span>
+          {% elif item.status == "merged" %}
+          <span class="badge badge-info">Объединена</span>
+          {% elif item.status == "rejected" %}
+          <span class="badge badge-danger">Отклонена</span>
+          {% else %}
+          <span class="badge">{{ item.status }}</span>
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Подтверждение</h3>
+  <p>Удаление возможно только если:</p>
+  <ul>
+    <li>
+      Временная ТМЦ имеет статус "Ожидает" (не преобразована и не объединена)
+    </li>
+    <li>Остаток по временной ТМЦ равен нулю</li>
+    <li>Нет активных операций, ссылающихся на эту ТМЦ</li>
+  </ul>
+  <form method="post" style="display: inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-danger">Удалить</button>
+    <a href="{{ back_url }}" class="btn btn-secondary">Отмена</a>
+  </form>
+</div>
+{% endblock %}

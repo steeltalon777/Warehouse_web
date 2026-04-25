@@ -932,6 +932,16 @@ button:active, .btn:active {
  background:#dbeafe;
 }
 
+.operation-search-action-row td{
+ background:#fff7ed;
+}
+
+.operation-search-action-note{
+ color:#9a3412;
+ font-size:13px;
+ margin-bottom:8px;
+}
+
 .operation-callout{
  border:1px solid #dbeafe;
  background:#eff6ff;
@@ -1221,4 +1231,65 @@ button.is-loading{
  .operation-summary-card{
   position:static;
  }
+}
+.sidebar-group {
+    margin-top: 16px;
+}
+
+.sidebar-group-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    color: var(--sidebar-muted);
+    letter-spacing: .04em;
+    padding: 8px 12px;
+    margin-bottom: 4px;
+    cursor: default;
+}
+
+.sidebar-subnav {
+    display: grid;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+
+.sidebar-subnav a {
+    padding-left: 24px;
+    font-size: 14px;
+}
+
+/* Инлайн-редактирование таблиц */
+.table-input {
+    width: 100%;
+    padding: 6px 8px;
+    font-size: 14px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    box-sizing: border-box;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+.table-input:focus {
+    border-color: var(--brand);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(29, 78, 216, 0.15);
+}
+.table-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: var(--brand);
+    vertical-align: middle;
+}
+.table-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.btn-success {
+    background: #16a34a;
+    color: #fff;
+}
+.btn-success:hover {
+    background: #15803d;
 }

@@ -1,0 +1,129 @@
+{% extends "base.html" %} {% block title %}Объединение временной ТМЦ {{ item.id
+}}{% endblock %} {% block content %}
+<div class="operation-page-header">
+  <div>
+    <h1>Объединение временной ТМЦ</h1>
+    <p class="operation-page-note">
+      Объединение временной ТМЦ с существующей ТМЦ из каталога. После
+      объединения временная ТМЦ будет удалена, а её данные будут присоединены к
+      выбранной ТМЦ.
+    </p>
+  </div>
+  <div>
+    <a
+      href="{% url 'temporary_items:detail' item.id %}"
+      class="btn btn-secondary"
+      >← Назад к карточке</a
+    >
+  </div>
+</div>
+
+<div class="card">
+  <h3>Информация о временной ТМЦ</h3>
+  <table class="data-table">
+    <tbody>
+      <tr>
+        <th>ID</th>
+        <td><code>{{ item.id }}</code></td>
+      </tr>
+      <tr>
+        <th>Название</th>
+        <td>{{ item.name|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Код</th>
+        <td>{{ item.code|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Описание</th>
+        <td>{{ item.description|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Статус</th>
+        <td>
+          {% if item.status == "pending" %}
+          <span class="badge badge-warning">Ожидает</span>
+          {% else %}
+          <span class="badge">{{ item.status }}</span>
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Выбор целевой ТМЦ</h3>
+  <p>
+    Выберите существующую ТМЦ из каталога, с которой нужно объединить временную
+    ТМЦ.
+  </p>
+  <form method="post">
+    {% csrf_token %}
+    <div class="form-row">
+      <label for="target_item_id">Целевая ТМЦ</label>
+      <select id="target_item_id" name="target_item_id" required>
+        <option value="">-- Выберите ТМЦ --</option>
+        {% for catalog_item in catalog_items %}
+        <option value="{{ catalog_item.id }}">
+          {{ catalog_item.name }} ({{ catalog_item.code|default:"без кода" }})
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="action-buttons">
+      <a
+        href="{% url 'temporary_items:detail' item.id %}"
+        class="btn btn-secondary"
+        >Отмена</a
+      >
+      <button type="submit" class="btn btn-info">Объединить</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Что произойдет после объединения?</h3>
+  <ul>
+    <li>Временная ТМЦ будет удалена из списка временных.</li>
+    <li>
+      Все данные временной ТМЦ (название, код, описание) будут присоединены к
+      выбранной ТМЦ (если поля пусты).
+    </li>
+    <li>
+      Все ссылки на временную ТМЦ в операциях будут перенаправлены на выбранную
+      ТМЦ.
+    </li>
+    <li>История операций будет сохранена.</li>
+  </ul>
+</div>
+
+{% if catalog_items %}
+<div class="card">
+  <h3>Доступные ТМЦ в каталоге</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Название</th>
+        <th>Код</th>
+        <th>Описание</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for catalog_item in catalog_items %}
+      <tr>
+        <td><code>{{ catalog_item.id|truncatechars:12 }}</code></td>
+        <td>{{ catalog_item.name|default:"—" }}</td>
+        <td>{{ catalog_item.code|default:"—" }}</td>
+        <td>{{ catalog_item.description|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card">
+  <p>В каталоге нет ТМЦ для объединения. Сначала создайте ТМЦ в каталоге.</p>
+</div>
+{% endif %} {% endblock %}

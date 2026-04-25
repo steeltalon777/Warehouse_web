@@ -124,7 +124,12 @@ class SyncServerClient:
 
             token = self._get_binding_token_for_user(request_user)
             if token:
+                logger.info("Resolved user token from sync_binding for user %s", request_user.username)
                 return token
+            logger.error(
+                "Sync user token is not configured for Django user '%s'",
+                request_user.username,
+            )
             raise RuntimeError(
                 f"Sync user token is not configured for Django user '{request_user.username}'."
             )
@@ -135,6 +140,7 @@ class SyncServerClient:
             if token:
                 return token
 
+        logger.error("Unable to resolve SyncServer user token for the current request. acting_user_id=%s, default_user_id=%s, request.user=%s", acting_user_id, self.default_user_id, getattr(self.request, 'user', None))
         raise RuntimeError("Unable to resolve SyncServer user token for the current request.")
 
     @staticmethod
@@ -243,6 +249,17 @@ class SyncServerClient:
             acting_site_id=acting_site_id,
         )
 
+        logger.info(
+            "SyncServer request",
+            extra={
+                "sync_method": method,
+                "sync_url": url,
+                "sync_headers": {k: v for k, v in headers.items() if k != "X-User-Token"},
+                "sync_params": params,
+                "sync_json": json,
+            },
+        )
+
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 response = client.request(
@@ -272,6 +289,16 @@ class SyncServerClient:
                 method=method,
                 path=normalized_path,
             ) from exc
+
+        logger.info(
+            "SyncServer response",
+            extra={
+                "sync_method": method,
+                "sync_path": normalized_path,
+                "sync_status_code": response.status_code,
+                "sync_response_headers": dict(response.headers),
+            },
+        )
 
         if response.status_code >= 400:
             self._raise_for_response(

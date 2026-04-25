@@ -15,7 +15,7 @@ from django.views.generic import TemplateView
 
 from apps.catalog_cache.services import CatalogCacheSyncService
 from apps.catalog.constants import UNCATEGORIZED_CATEGORY_CODE, UNCATEGORIZED_CATEGORY_NAME
-from apps.catalog.forms import CategoryForm, ItemForm, UnitForm
+from apps.catalog.forms import CategoryForm, ItemForm, UnitForm, find_default_unit_id
 from apps.catalog.services import CatalogService
 from apps.catalog.tree import build_category_item_tree, normalize_tree_item
 from apps.common.permissions import can_manage_catalog, can_use_client
@@ -796,6 +796,10 @@ class ItemFormCatalogMixin(CatalogManageAccessMixin):
         units = _normalize_units(units_result.data or []) if units_result.ok else []
         return categories, _filter_manage_categories(categories), units, categories_result, units_result
 
+    @staticmethod
+    def _default_unit_id(units: list[dict]) -> str | None:
+        return find_default_unit_id(units)
+
 
 class ItemCreateView(ItemFormCatalogMixin, View):
     template_name = "catalog/item_form.html"
@@ -812,6 +816,9 @@ class ItemCreateView(ItemFormCatalogMixin, View):
         category_id = (request.GET.get("category_id") or "").strip()
         if category_id:
             initial["category_id"] = category_id
+        default_unit_id = self._default_unit_id(units)
+        if default_unit_id:
+            initial["unit_id"] = default_unit_id
 
         form = ItemForm(initial=initial, categories=form_categories, units=units)
         return render(

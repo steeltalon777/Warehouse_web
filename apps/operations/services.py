@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
+from datetime import datetime
+from decimal import Decimal
 from typing import Any
+
+from django.db.utils import DatabaseError
 
 from apps.catalog_cache.services import CatalogCacheSyncService, CatalogLookupService
 from apps.catalog.services import CatalogService
 from apps.common.permissions import get_user_role, is_observer
 from apps.operations.constants import OPERATION_STATUS_META, OPERATION_TYPE_LABELS, OPERATION_TYPE_META
 from apps.sync_client.client import SyncServerClient
+from apps.sync_client.exceptions import SyncServerAPIError
 
 logger = logging.getLogger(__name__)
+
+QTY_SCALE = Decimal("0.001")
 
 
 class OperationPageService:
@@ -66,11 +74,20 @@ class OperationPageService:
 
     def search_items(self, query: str, *, limit: int = 12) -> list[dict[str, Any]]:
         normalized_limit = max(int(limit or 12), 1)
-        cached_items = self.catalog_lookup.search_items(query, limit=normalized_limit)
+        try:
+            cached_items = self.catalog_lookup.search_items(query, limit=normalized_limit)
+        except DatabaseError:
+            logger.warning("Local catalog cache unavailable, falling back to remote search")
+            cached_items = []
+
         if len(cached_items) >= normalized_limit:
             return cached_items
 
-        remote_items = self._search_remote_items(query, limit=normalized_limit)
+        try:
+            remote_items = self._search_remote_items(query, limit=normalized_limit)
+        except SyncServerAPIError:
+            logger.warning("Remote catalog search unavailable, using local catalog cache results only")
+            remote_items = []
         if remote_items:
             self._warm_catalog_cache(remote_items)
 
@@ -109,6 +126,10 @@ class OperationPageService:
             self._present_operation(operation, items_index=items_index, sites_index=sites_index)
             for operation in operations
         ]
+
+    @classmethod
+    def present_search_item(cls, item: dict[str, Any]) -> dict[str, Any] | None:
+        return cls._serialize_search_item(item)
 
     def _search_remote_items(self, query: str, *, limit: int) -> list[dict[str, Any]]:
         result = self.catalog.browse_items(search=query, page=1, page_size=max(limit, 25))
@@ -188,15 +209,39 @@ class OperationPageService:
             item_id = self._to_int(line.get("item_id"))
             item = items_index.get(item_id or -1, {})
             quantity = line.get("qty", line.get("quantity"))
+
+            # Используем snapshot-поля, если они есть
+            item_name_snapshot = line.get("item_name_snapshot")
+            item_sku_snapshot = line.get("item_sku_snapshot")
+            unit_symbol_snapshot = line.get("unit_symbol_snapshot")
+
+            item_name = item_name_snapshot or item.get("name") or f"ТМЦ #{item_id}"
+            sku = item_sku_snapshot or item.get("sku") or "—"
+            unit_symbol = unit_symbol_snapshot or item.get("unit_symbol") or "—"
+
+            temporary_item_id = self._to_int(line.get("temporary_item_id"))
+            resolved_item_id = self._to_int(line.get("resolved_item_id"))
+            resolved_item_name = line.get("resolved_item_name")
+            is_draft_temporary = bool(line.get("is_draft_temporary", False))
+
             lines.append(
                 {
                     "line_number": line.get("line_number"),
                     "item_id": item_id,
-                    "item_name": item.get("name") or f"ТМЦ #{item_id}",
-                    "sku": item.get("sku") or "—",
-                    "unit_symbol": item.get("unit_symbol") or "—",
+                    "item_name": item_name,
+                    "sku": sku,
+                    "unit_symbol": unit_symbol,
                     "quantity": quantity,
                     "comment": line.get("comment") or line.get("notes") or "",
+                    "is_temporary": temporary_item_id is not None or is_draft_temporary,
+                    "temporary_item_id": temporary_item_id,
+                    "temporary_item_status": line.get("temporary_item_status"),
+                    "resolved_item_id": resolved_item_id,
+                    "resolved_item_name": resolved_item_name,
+                    "item_name_snapshot": item_name_snapshot,
+                    "item_sku_snapshot": item_sku_snapshot,
+                    "unit_symbol_snapshot": unit_symbol_snapshot,
+                    "is_draft_temporary": is_draft_temporary,
                 }
             )
 
@@ -215,12 +260,14 @@ class OperationPageService:
             and not is_observer(getattr(self.request, "user", None))
             and (role != "storekeeper" or status == "draft")
         )
+        can_accept = status in {"submitted", "pending"} and role not in {"observer"}
 
         return {
             **operation,
             "type_label": OPERATION_TYPE_LABELS.get(operation_type, operation_type or "Операция"),
             "status_label": str(status_meta["label"]),
             "status_tone": str(status_meta["tone"]),
+            "effective_at": operation.get("effective_at"),
             "site_name": self._site_name(sites_index, site_id),
             "source_site_name": self._site_name(sites_index, source_site_id),
             "destination_site_name": self._site_name(sites_index, destination_site_id),
@@ -230,6 +277,7 @@ class OperationPageService:
             "author_label": author_label,
             "can_submit": can_submit,
             "can_cancel": can_cancel,
+            "can_accept": can_accept,
         }
 
     @staticmethod
@@ -251,3 +299,328 @@ class OperationPageService:
             return int(value)
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _to_decimal(value: Any) -> Decimal | None:
+        if value is None:
+            return None
+        try:
+            return Decimal(str(value)).quantize(QTY_SCALE)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _serialize_decimal(value: Decimal) -> str:
+        return format(value.normalize(), "f")
+
+    # ------------------------------------------------------------------
+    # Pending acceptance grouping
+    # ------------------------------------------------------------------
+
+    def group_pending_rows(
+        self,
+        pending_rows: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """
+        Group line-level pending-acceptance rows into operation-level list.
+
+        Each group computes:
+        - operation_id, operation_type (MOVE if any row has source_site_id else RECEIVE)
+        - destination_site_name, source_site_name
+        - line_count, total_expected_qty
+        - line_preview (first 2 items)
+        - updated_at_max
+        """
+        groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in pending_rows:
+            op_id = str(row.get("operation_id") or "")
+            if op_id:
+                groups[op_id].append(row)
+
+        sites_index = self.get_sites_index()
+        items_index = self.get_items_index()
+        result: list[dict[str, Any]] = []
+
+        for operation_id, rows in groups.items():
+            has_source = any(row.get("source_site_id") is not None for row in rows)
+            op_type = "MOVE" if has_source else "RECEIVE"
+
+            dest_site_id = self._to_int(rows[0].get("destination_site_id") or rows[0].get("site_id"))
+            source_site_id = self._to_int(rows[0].get("source_site_id"))
+
+            total_expected = sum(
+                self._to_decimal(row.get("qty") or row.get("expected_qty") or 0) or Decimal("0")
+                for row in rows
+            )
+
+            preview_items: list[str] = []
+            for row in rows[:2]:
+                item_id = self._to_int(row.get("item_id"))
+                item = items_index.get(item_id or -1, {})
+                # Используем snapshot-поля, если они есть
+                item_name_snapshot = row.get("item_name_snapshot")
+                item_name = item_name_snapshot or item.get("name") or f"ТМЦ #{item_id}"
+                qty = self._to_decimal(row.get("qty") or row.get("expected_qty") or 0)
+                qty_str = self._serialize_decimal(qty) if qty else "0"
+                preview_items.append(f"{item_name} x {qty_str}")
+
+            updated_ats = [
+                row.get("updated_at") or row.get("created_at") or ""
+                for row in rows
+                if row.get("updated_at") or row.get("created_at")
+            ]
+            updated_at_max = max(updated_ats) if updated_ats else ""
+
+            result.append({
+                "operation_id": operation_id,
+                "operation_type": op_type,
+                "type_label": OPERATION_TYPE_LABELS.get(op_type, op_type),
+                "destination_site_name": self._site_name(sites_index, dest_site_id),
+                "source_site_name": self._site_name(sites_index, source_site_id),
+                "line_count": len(rows),
+                "total_expected_qty": self._serialize_decimal(total_expected),
+                "line_preview": ", ".join(preview_items),
+                "updated_at": updated_at_max,
+            })
+
+        result.sort(key=lambda op: op["updated_at"], reverse=True)
+        return result
+
+    # ------------------------------------------------------------------
+    # Dashboard summary
+    # ------------------------------------------------------------------
+
+    def compute_pending_summary(
+        self,
+        pending_rows: list[dict[str, Any]],
+        *,
+        truncated: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Compute dashboard summary from pending-acceptance rows.
+
+        Returns dict with:
+        - operation_count (unique operation_ids)
+        - line_count (total rows)
+        - by_destination_site: list of {site_id, site_name, count}
+        - by_operation_type: list of {type, label, count}
+        - truncated: bool
+        """
+        sites_index = self.get_sites_index()
+        unique_ops: set[str] = set()
+        site_counter: dict[int, int] = defaultdict(int)
+        type_counter: dict[str, int] = defaultdict(int)
+
+        for row in pending_rows:
+            op_id = str(row.get("operation_id") or "")
+            if op_id:
+                unique_ops.add(op_id)
+
+            dest_site_id = self._to_int(row.get("destination_site_id") or row.get("site_id"))
+            if dest_site_id is not None:
+                site_counter[dest_site_id] += 1
+
+            has_source = row.get("source_site_id") is not None
+            op_type = "MOVE" if has_source else "RECEIVE"
+            type_counter[op_type] += 1
+
+        by_site = [
+            {
+                "site_id": site_id,
+                "site_name": self._site_name(sites_index, site_id),
+                "count": count,
+            }
+            for site_id, count in sorted(site_counter.items(), key=lambda x: -x[1])
+        ]
+
+        by_type = [
+            {
+                "type": t,
+                "label": OPERATION_TYPE_LABELS.get(t, t),
+                "count": count,
+            }
+            for t, count in sorted(type_counter.items(), key=lambda x: -x[1])
+        ]
+
+        return {
+            "operation_count": len(unique_ops),
+            "line_count": len(pending_rows),
+            "by_destination_site": by_site,
+            "by_operation_type": by_type,
+            "truncated": truncated,
+        }
+
+    # ------------------------------------------------------------------
+    # Acceptance detail presenter
+    # ------------------------------------------------------------------
+
+    def present_acceptance_detail(
+        self,
+        operation: dict[str, Any],
+        pending_rows: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """
+        Build view-model for the acceptance detail screen.
+
+        Args:
+            operation: Full operation dict from OperationsAPI.get_operation.
+            pending_rows: Pending-acceptance lines for this operation.
+
+        Returns:
+            Dict with header info and acceptance lines.
+        """
+        items_index = self.get_items_index()
+        sites_index = self.get_sites_index()
+
+        status = str(operation.get("status") or "draft")
+        status_meta = OPERATION_STATUS_META.get(status, {"label": status, "tone": "muted"})
+        operation_type = str(operation.get("operation_type") or operation.get("type") or "")
+        site_id = self._to_int(operation.get("site_id"))
+        source_site_id = self._to_int(operation.get("source_site_id"))
+        destination_site_id = self._to_int(
+            operation.get("destination_site_id") or operation.get("target_site_id")
+        )
+
+        acceptance_state = operation.get("acceptance_state") or "pending"
+        has_lost = any(
+            self._to_decimal(row.get("lost_qty") or 0) or Decimal("0") > Decimal("0")
+            for row in pending_rows
+        )
+        remaining_exists = any(
+            (self._to_decimal(row.get("remaining_qty") or row.get("qty") or 0) or Decimal("0"))
+            > Decimal("0")
+            for row in pending_rows
+        )
+
+        if acceptance_state == "resolved":
+            flow_state = "resolved"
+        elif remaining_exists:
+            flow_state = "in_progress"
+        else:
+            flow_state = "resolved"
+
+        lines: list[dict[str, Any]] = []
+        for row in pending_rows:
+            item_id = self._to_int(row.get("item_id"))
+            item = items_index.get(item_id or -1, {})
+            expected_qty = self._to_decimal(row.get("qty") or row.get("expected_qty") or 0) or Decimal("0")
+            accepted_qty = self._to_decimal(row.get("accepted_qty") or 0) or Decimal("0")
+            lost_qty = self._to_decimal(row.get("lost_qty") or 0) or Decimal("0")
+            remaining_qty = self._to_decimal(row.get("remaining_qty") or expected_qty - accepted_qty - lost_qty) or Decimal("0")
+
+            lines.append({
+                "line_number": row.get("line_number"),
+                "operation_line_id": row.get("operation_line_id") or row.get("id"),
+                "item_id": item_id,
+                "item_name": item.get("name") or f"ТМЦ #{item_id}",
+                "sku": item.get("sku") or "—",
+                "unit_symbol": item.get("unit_symbol") or "—",
+                "expected_qty": self._serialize_decimal(expected_qty),
+                "accepted_qty": self._serialize_decimal(accepted_qty),
+                "lost_qty": self._serialize_decimal(lost_qty),
+                "remaining_qty": self._serialize_decimal(remaining_qty),
+                "can_accept": remaining_qty > Decimal("0"),
+            })
+
+        header = {
+            "operation_id": operation.get("id"),
+            "document_number": operation.get("document_number") or operation.get("number") or operation.get("id"),
+            "operation_type": operation_type,
+            "contractor_name": operation.get("counterparty_name") or operation.get("recipient_name") or "",
+            "effective_at": operation.get("effective_at"),
+            "source_site_name": self._site_name(sites_index, source_site_id),
+            "destination_site_name": self._site_name(sites_index, destination_site_id),
+        }
+
+        return {
+            "operation_id": operation.get("id"),
+            "document_number": header["document_number"],
+            "operation_type": operation_type,
+            "type_label": OPERATION_TYPE_LABELS.get(operation_type, operation_type or "Операция"),
+            "status_label": str(status_meta["label"]),
+            "status_tone": str(status_meta["tone"]),
+            "acceptance_state": acceptance_state,
+            "flow_state": flow_state,
+            "has_lost": has_lost,
+            "header": header,
+            "site_name": self._site_name(sites_index, site_id),
+            "source_site_name": self._site_name(sites_index, source_site_id),
+            "destination_site_name": self._site_name(sites_index, destination_site_id),
+            "lines": lines,
+            "line_count": len(lines),
+        }
+
+    # ------------------------------------------------------------------
+    # Lost assets presenter
+    # ------------------------------------------------------------------
+
+    def present_lost_assets_list(
+        self,
+        lost_rows: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Present lost assets list items."""
+        items_index = self.get_items_index()
+        sites_index = self.get_sites_index()
+        result: list[dict[str, Any]] = []
+
+        for row in lost_rows:
+            item_id = self._to_int(row.get("item_id"))
+            item = items_index.get(item_id or -1, {})
+            site_id = self._to_int(row.get("site_id"))
+            source_site_id = self._to_int(row.get("source_site_id"))
+            qty = self._to_decimal(row.get("qty") or row.get("lost_qty") or 0) or Decimal("0")
+
+            result.append({
+                "operation_line_id": row.get("operation_line_id") or row.get("id"),
+                "operation_id": row.get("operation_id"),
+                "item_id": item_id,
+                "item_name": item.get("name") or f"ТМЦ #{item_id}",
+                "sku": item.get("sku") or "—",
+                "unit_symbol": item.get("unit_symbol") or "—",
+                "site_name": self._site_name(sites_index, site_id),
+                "source_site_name": self._site_name(sites_index, source_site_id),
+                "qty": self._serialize_decimal(qty),
+                "updated_at": row.get("updated_at") or "",
+            })
+
+        return result
+
+    def present_lost_asset_detail(
+        self,
+        lost_asset: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Present a single lost asset detail view-model."""
+        items_index = self.get_items_index()
+        sites_index = self.get_sites_index()
+
+        item_id = self._to_int(lost_asset.get("item_id"))
+        item = items_index.get(item_id or -1, {})
+        site_id = self._to_int(lost_asset.get("site_id"))
+        source_site_id = self._to_int(lost_asset.get("source_site_id"))
+        qty = self._to_decimal(lost_asset.get("qty") or lost_asset.get("lost_qty") or 0) or Decimal("0")
+        has_source = source_site_id is not None
+        status = str(lost_asset.get("status") or "open")
+
+        if status == "resolved":
+            available_actions: list[str] = []
+        else:
+            available_actions = ["found_to_destination", "write_off"]
+            if has_source:
+                available_actions.append("return_to_source")
+
+        return {
+            "operation_line_id": lost_asset.get("operation_line_id") or lost_asset.get("id"),
+            "operation_id": lost_asset.get("operation_id"),
+            "item_id": item_id,
+            "item_name": item.get("name") or f"ТМЦ #{item_id}",
+            "sku": item.get("sku") or "—",
+            "unit_symbol": item.get("unit_symbol") or "—",
+            "site_name": self._site_name(sites_index, site_id),
+            "source_site_name": self._site_name(sites_index, source_site_id),
+            "qty": self._serialize_decimal(qty),
+            "lost_qty": self._serialize_decimal(qty),
+            "status": status,
+            "updated_at": lost_asset.get("updated_at") or "",
+            "available_actions": available_actions,
+            "has_source_site": has_source,
+        }

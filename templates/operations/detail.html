@@ -5,9 +5,14 @@
   <div>
     <div class="operation-overline">Карточка документа</div>
     <h1>Операция {{ operation.id|truncatechars:16 }}</h1>
-    <p class="operation-page-note">{{ operation.type_label }}. Создана {{ operation.created_at|default:"—" }}.</p>
+    <p class="operation-page-note">
+      {{ operation.type_label }}. Создана {{ operation.created_at|default:"—"
+      }}.
+    </p>
   </div>
-  <a href="{% url 'operations:list' %}" class="btn btn-secondary">К журналу операций</a>
+  <a href="{% url 'operations:list' %}" class="btn btn-secondary"
+    >К журналу операций</a
+  >
 </div>
 
 <div class="operation-detail-layout">
@@ -16,9 +21,14 @@
       <div class="operation-section-head">
         <div>
           <h3>Сводка</h3>
-          <p class="operation-page-note">Основные реквизиты документа и текущее состояние операции.</p>
+          <p class="operation-page-note">
+            Основные реквизиты документа и текущее состояние операции.
+          </p>
         </div>
-        <span class="operation-status-chip operation-status-chip-{{ operation.status_tone }}">{{ operation.status_label }}</span>
+        <span
+          class="operation-status-chip operation-status-chip-{{ operation.status_tone }}"
+          >{{ operation.status_label }}</span
+        >
       </div>
 
       <dl class="operation-detail-grid">
@@ -41,6 +51,10 @@
         <div>
           <dt>Обновлена</dt>
           <dd>{{ operation.updated_at|default:"—" }}</dd>
+        </div>
+        <div>
+          <dt>Дата операции</dt>
+          <dd>{{ operation.effective_at|default:"—" }}</dd>
         </div>
         <div>
           <dt>Строк</dt>
@@ -78,7 +92,9 @@
       <div class="operation-section-head">
         <div>
           <h3>Позиции документа</h3>
-          <p class="operation-page-note">Строки ТМЦ, вошедшие в состав операции.</p>
+          <p class="operation-page-note">
+            Строки ТМЦ, вошедшие в состав операции.
+          </p>
         </div>
       </div>
       <div class="operation-table-wrap">
@@ -97,7 +113,28 @@
             {% for line in operation.lines %}
             <tr>
               <td>{{ line.line_number }}</td>
-              <td>{{ line.item_name }}</td>
+              <td>
+                <div>
+                  {{ line.item_name }} {% if line.is_temporary %}
+                  <span
+                    class="badge badge-warning"
+                    title="Временная ТМЦ (используются snapshot-данные)"
+                    >Временная ТМЦ</span
+                  >
+                  {% endif %} {% if line.resolved_item_id %}
+                  <div class="operation-line-resolved-info">
+                    <small
+                      >Разрешена в ТМЦ
+                      <strong
+                        >{{
+                        line.resolved_item_name|default:line.resolved_item_id
+                        }}</strong
+                      ></small
+                    >
+                  </div>
+                  {% endif %}
+                </div>
+              </td>
               <td>{{ line.sku }}</td>
               <td>{{ line.unit_symbol }}</td>
               <td>{{ line.quantity }}</td>
@@ -105,7 +142,9 @@
             </tr>
             {% empty %}
             <tr>
-              <td colspan="6" class="operation-empty-table">В документе пока нет строк.</td>
+              <td colspan="6" class="operation-empty-table">
+                В документе пока нет строк.
+              </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -117,7 +156,9 @@
   <aside>
     <div class="card">
       <h3>Действия</h3>
-      <p class="operation-page-note">Подтверждение и отмена выполняются отдельно от создания документа.</p>
+      <p class="operation-page-note">
+        Подтверждение и отмена выполняются отдельно от создания документа.
+      </p>
 
       {% if operation.can_submit %}
       <form
@@ -128,12 +169,16 @@
         data-loading-overlay-text="Подтверждение операции..."
       >
         {% csrf_token %}
-        <input type="hidden" name="next" value="{{ submit_next_url }}">
-        <button type="submit" class="btn operation-action-button" data-loading-text="Подтверждение...">Подтвердить операцию</button>
+        <input type="hidden" name="next" value="{{ submit_next_url }}" />
+        <button
+          type="submit"
+          class="btn operation-action-button"
+          data-loading-text="Подтверждение..."
+        >
+          Подтвердить операцию
+        </button>
       </form>
-      {% endif %}
-
-      {% if operation.can_cancel %}
+      {% endif %} {% if operation.can_cancel %}
       <form
         method="post"
         action="{% url 'operations:cancel' operation.id %}"
@@ -142,22 +187,53 @@
         data-loading-overlay-text="Отмена операции..."
       >
         {% csrf_token %}
-        <input type="hidden" name="next" value="{{ cancel_next_url }}">
-        <button type="submit" class="btn btn-danger operation-action-button" data-loading-text="Отмена..." onclick="return confirm('Отменить эту операцию?');">Отменить операцию</button>
+        <input type="hidden" name="next" value="{{ cancel_next_url }}" />
+        <button
+          type="submit"
+          class="btn btn-danger operation-action-button"
+          data-loading-text="Отмена..."
+          onclick="return confirm('Отменить эту операцию?');"
+        >
+          Отменить операцию
+        </button>
       </form>
+      {% endif %} {% if operation.can_accept %}
+      <a
+        href="{% url 'operations:acceptance_detail' operation_id=operation.id %}"
+        class="btn operation-action-button"
+        >Приёмка</a
+      >
       {% endif %}
 
-      <a href="{% url 'operations:list' %}" class="btn btn-secondary operation-action-button">Вернуться к журналу</a>
+      <a
+        href="{% url 'operations:list' %}"
+        class="btn btn-secondary operation-action-button"
+        >Вернуться к журналу</a
+      >
     </div>
 
     <div class="card">
       <h3>Состояние</h3>
       <ul class="operation-status-list">
-        <li><strong>Черновик</strong>: документ создан и ждёт подтверждения.</li>
-        <li><strong>Создана</strong>: документ зарегистрирован и готов к переходу в ожидание подтверждения.</li>
-        <li><strong>Ожидает подтверждения</strong>: операция находится в процессе согласования.</li>
-        <li><strong>Подтверждена</strong>: операция отправлена на исполнение и применена сервером.</li>
-        <li><strong>Отклонена</strong>: подтверждение не прошло, документ требует разбирательства.</li>
+        <li>
+          <strong>Черновик</strong>: документ создан и ждёт подтверждения.
+        </li>
+        <li>
+          <strong>Создана</strong>: документ зарегистрирован и готов к переходу
+          в ожидание подтверждения.
+        </li>
+        <li>
+          <strong>Ожидает подтверждения</strong>: операция находится в процессе
+          согласования.
+        </li>
+        <li>
+          <strong>Подтверждена</strong>: операция отправлена на исполнение и
+          применена сервером.
+        </li>
+        <li>
+          <strong>Отклонена</strong>: подтверждение не прошло, документ требует
+          разбирательства.
+        </li>
         <li><strong>Отменена</strong>: документ снят с исполнения.</li>
       </ul>
     </div>

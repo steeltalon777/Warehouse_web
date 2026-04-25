@@ -1,8 +1,29 @@
 (function () {
+  window.WAREHOUSE_OPERATIONS_CREATE_VERSION = "20260424-search-enter-fix-3";
+  window.WAREHOUSE_OPERATIONS_CREATE_DEBUG = {
+    initialized: false,
+    version: window.WAREHOUSE_OPERATIONS_CREATE_VERSION,
+    missingNodes: [],
+    itemSearchUrl: "",
+    lastSearch: null,
+    lastError: null,
+  };
+
   const draftNode = document.getElementById("operation-draft-data");
   const typeOptionsNode = document.getElementById("operation-type-options-data");
   const configNode = document.getElementById("operation-create-config");
-  if (!draftNode || !typeOptionsNode || !configNode) return;
+  if (!draftNode || !typeOptionsNode || !configNode) {
+    window.WAREHOUSE_OPERATIONS_CREATE_DEBUG.missingNodes = [
+      !draftNode ? "operation-draft-data" : "",
+      !typeOptionsNode ? "operation-type-options-data" : "",
+      !configNode ? "operation-create-config" : "",
+    ].filter(Boolean);
+    console.warn(
+      "operations_create.js skipped: required data nodes are missing",
+      window.WAREHOUSE_OPERATIONS_CREATE_DEBUG.missingNodes
+    );
+    return;
+  }
 
   const draftInput = document.getElementById("id_draft_payload");
   const form = document.getElementById("operation-create-form");
@@ -11,6 +32,7 @@
   const sourceSiteSelect = document.getElementById("source-site-select");
   const destinationSiteSelect = document.getElementById("destination-site-select");
   const issuedToNameInput = document.getElementById("issued-to-name-input");
+  const effectiveAtInput = document.getElementById("effective-at-input");
   const notesInput = document.getElementById("notes-input");
   const notesLabel = document.getElementById("notes-label");
   const singleSiteRow = document.getElementById("single-site-row");
@@ -33,13 +55,74 @@
   const summaryLineCount = document.getElementById("summary-line-count");
   const summaryQtyTotal = document.getElementById("summary-qty-total");
 
+  const requiredNodes = {
+    draftInput,
+    form,
+    typeSelect,
+    siteSelect,
+    sourceSiteSelect,
+    destinationSiteSelect,
+    issuedToNameInput,
+    notesInput,
+    notesLabel,
+    singleSiteRow,
+    singleSiteLabel,
+    sourceSiteRow,
+    destinationSiteRow,
+    recipientRow,
+    quantityHint,
+    typeNote,
+    itemSearchInput,
+    itemSearchResultsBody,
+    itemSearchStatus,
+    selectedItemBox,
+    quantityInput,
+    addItemButton,
+    draftItemsBody,
+    draftEmptyRow,
+    summaryTypeLabel,
+    summaryLineCount,
+    summaryQtyTotal,
+  };
+  const missingRequiredNodes = Object.entries(requiredNodes)
+    .filter(([, node]) => !node)
+    .map(([name]) => name);
+  if (missingRequiredNodes.length) {
+    window.WAREHOUSE_OPERATIONS_CREATE_DEBUG.missingNodes = missingRequiredNodes;
+    console.error("operations_create.js skipped: required form nodes are missing", missingRequiredNodes);
+    return;
+  }
+
   let state = JSON.parse(draftNode.textContent || "{}");
   const typeOptions = JSON.parse(typeOptionsNode.textContent || "[]");
   const config = JSON.parse(configNode.textContent || "{}");
+  window.WAREHOUSE_OPERATIONS_CREATE_DEBUG.itemSearchUrl = config.itemSearchUrl || "";
   const typeMetaByCode = Object.fromEntries(typeOptions.map((item) => [item.code, item]));
   let selectedItem = null;
   let currentSearchResults = [];
+  let canAddTemporaryFromSearch = false;
+  let temporarySearchQuery = "";
   let searchTimer = null;
+  let searchRequestSeq = 0;
+
+  // Получаем default_unit_id из draft-данных
+  const defaultUnitId = (draftNode ? JSON.parse(draftNode.textContent || "{}").default_unit_id : null) || "";
+
+  function getCsrfToken() {
+    const tokenInput = form ? form.querySelector("input[name=csrfmiddlewaretoken]") : null;
+    return tokenInput ? tokenInput.value : "";
+  }
+
+  function isValidDateTimeLocal(value) {
+    const raw = String(value ?? "").trim();
+    return raw === "" || /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw);
+  }
+
+  function currentDateTimeLocalValue() {
+    const now = new Date();
+    const offsetMs = now.getTimezoneOffset() * 60000;
+    return new Date(now.getTime() - offsetMs).toISOString().slice(0, 16);
+  }
 
   function parseQuantity(value) {
     const raw = String(value ?? "").trim().replace(",", ".");
@@ -96,7 +179,15 @@
     state.destination_site_id = state.destination_site_id ?? "";
     state.issued_to_name = state.issued_to_name || "";
     state.notes = state.notes || "";
+    state.effective_at = state.effective_at || (effectiveAtInput ? effectiveAtInput.value : "") || currentDateTimeLocalValue();
     state.items = Array.isArray(state.items) ? state.items : [];
+
+    // Добавляем поле kind к существующим элементам (для обратной совместимости)
+    state.items.forEach((item) => {
+      if (!item.kind) {
+        item.kind = "catalog";
+      }
+    });
 
     if (!config.canChooseSourceSite && config.fixedOperatingSiteId) {
       state.site_id = config.fixedOperatingSiteId;
@@ -120,7 +211,21 @@
   }
 
   function updateAddButtonState() {
-    addItemButton.disabled = !(selectedItem && isQuantityValid());
+    const canAddCatalogItem = Boolean(selectedItem);
+    const canAddTemporaryItem = canAddTemporaryFromSearch && Boolean(temporarySearchQuery);
+    addItemButton.disabled = !(isQuantityValid() && (canAddCatalogItem || canAddTemporaryItem));
+    addItemButton.textContent = canAddTemporaryItem && !canAddCatalogItem
+      ? "Добавить временную ТМЦ"
+      : "Добавить строку";
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 
   function setSearchStatus(text) {
@@ -169,9 +274,9 @@
 
     selectedItemBox.classList.remove("operation-hidden");
     selectedItemBox.innerHTML = `
-      <strong>Выбрано:</strong> ${selectedItem.name}
-      <span>SKU: ${selectedItem.sku || "—"}</span>
-      <span>Ед. изм.: ${selectedItem.unit_symbol || "—"}</span>
+      <strong>Выбрано:</strong> ${escapeHtml(selectedItem.name)}
+      <span>SKU: ${escapeHtml(selectedItem.sku || "—")}</span>
+      <span>Ед. изм.: ${escapeHtml(selectedItem.unit_symbol || "—")}</span>
     `;
     updateAddButtonState();
   }
@@ -190,12 +295,23 @@
       }
       const row = document.createElement("tr");
       row.dataset.draftRow = "true";
+
+      // Определяем тип строки
+      const kind = item.kind || "catalog";
+      const isTemporary = kind === "temporary";
+      const identifier = isTemporary ? item.client_key : item.item_id;
+      const typeBadge = isTemporary ? '<span class="operation-badge operation-badge-warning">Временная</span> ' : '';
+
+      // Для временных ТМЦ единица измерения может быть в unit_symbol или нужно получить из unit_id
+      const unitSymbol = item.unit_symbol || "—";
+      const sku = item.sku || "—";
+
       row.innerHTML = `
-        <td>${item.name}</td>
-        <td>${item.sku || "—"}</td>
-        <td>${item.unit_symbol || "—"}</td>
-        <td><input type="number" step="0.001" value="${item.quantity}" data-qty-input="${item.item_id}"></td>
-        <td><button type="button" class="btn btn-secondary btn-small" data-remove-item="${item.item_id}">Удалить</button></td>
+        <td>${typeBadge}${escapeHtml(item.name)}</td>
+        <td>${escapeHtml(sku)}</td>
+        <td>${escapeHtml(unitSymbol)}</td>
+        <td><input type="number" step="0.001" value="${item.quantity}" data-qty-input="${identifier}" data-item-kind="${kind}"></td>
+        <td><button type="button" class="btn btn-secondary btn-small" data-remove-item="${identifier}" data-item-kind="${kind}">Удалить</button></td>
       `;
       draftItemsBody.appendChild(row);
     });
@@ -212,6 +328,7 @@
     state.destination_site_id = destinationSiteSelect.value;
     state.issued_to_name = issuedToNameInput.value.trim();
     state.notes = notesInput.value.trim();
+    state.effective_at = effectiveAtInput ? effectiveAtInput.value.trim() : "";
     syncDraftPayload();
   }
 
@@ -222,16 +339,21 @@
     destinationSiteSelect.value = state.destination_site_id || "";
     issuedToNameInput.value = state.issued_to_name || "";
     notesInput.value = state.notes || "";
+    if (effectiveAtInput) {
+      effectiveAtInput.value = state.effective_at || "";
+    }
   }
 
-  function resetPicker() {
+  function resetPicker(statusMessage) {
     selectedItem = null;
     currentSearchResults = [];
+    canAddTemporaryFromSearch = false;
+    temporarySearchQuery = "";
     itemSearchInput.value = "";
     quantityInput.value = "1";
     renderSelectedItem();
-    renderSearchResults([]);
-    setSearchStatus("Введите минимум 2 символа, чтобы увидеть результаты.");
+    renderSearchResults([], "");
+    setSearchStatus(statusMessage || "Введите минимум 2 символа, чтобы увидеть результаты.");
     itemSearchInput.focus();
   }
 
@@ -262,7 +384,11 @@
 
   function addSelectedItem() {
     if (!selectedItem) {
-      window.alert("Сначала выберите ТМЦ из результатов поиска.");
+      if (canAddTemporaryFromSearch && temporarySearchQuery) {
+        addTemporaryFromSearch(temporarySearchQuery);
+        return;
+      }
+      window.alert("Сначала выберите ТМЦ из результатов поиска или выполните поиск без совпадений.");
       return;
     }
 
@@ -287,19 +413,87 @@
     resetPicker();
   }
 
+  function addTemporaryFromSearch(query) {
+    const name = String(query || "").trim();
+    if (name.length < 2) {
+      window.alert("Введите минимум 2 символа для временной ТМЦ.");
+      return;
+    }
+
+    const quantity = parseQuantity(quantityInput.value);
+    const allowNegative = Boolean((currentTypeMeta() || {}).allow_negative_qty);
+    if (!quantity) {
+      window.alert("Количество должно быть числом с точностью до 3 знаков после запятой.");
+      return;
+    }
+    if (quantity.milli === 0n) {
+      window.alert("Количество не может быть нулевым.");
+      return;
+    }
+    if (!allowNegative && quantity.milli < 0n) {
+      window.alert("Отрицательное количество доступно только для корректировки.");
+      return;
+    }
+
+    // Генерируем client_key для временной строки
+    const clientKey = "tmp-" + Math.random().toString(36).substring(2, 10);
+
+    state.items.push({
+      kind: "temporary",
+      client_key: clientKey,
+      name: name,
+      sku: "",
+      unit_id: defaultUnitId || null,
+      unit_symbol: "",
+      category_id: null,
+      quantity: quantity.value,
+    });
+
+    updateStateFromFields();
+    renderItemsTable();
+    resetPicker(`Временная ТМЦ «${name}» добавлена в строки операции. В базе она создастся только после подтверждения операции.`);
+  }
+
   function buildEmptyResultsRow(message) {
     const row = document.createElement("tr");
     row.innerHTML = `<td colspan="4" class="operation-empty-table">${message}</td>`;
     return row;
   }
 
-  function renderSearchResults(items) {
+  function renderSearchResults(items, query, options = {}) {
+    const allowTemporary = options.allowTemporary !== false;
     itemSearchResultsBody.innerHTML = "";
+    canAddTemporaryFromSearch = false;
+    temporarySearchQuery = "";
     if (!items.length) {
-      const emptyMessage = itemSearchInput.value.trim().length < 2
-        ? "Введите минимум 2 символа, чтобы увидеть результаты."
-        : "По запросу ничего не найдено.";
-      itemSearchResultsBody.appendChild(buildEmptyResultsRow(emptyMessage));
+      const trimmedQuery = (query || "").trim();
+      if (trimmedQuery.length < 2) {
+        itemSearchResultsBody.appendChild(buildEmptyResultsRow("Введите минимум 2 символа, чтобы увидеть результаты."));
+      } else if (!allowTemporary) {
+        itemSearchResultsBody.appendChild(buildEmptyResultsRow("Не удалось выполнить поиск. Проверьте соединение и попробуйте ещё раз."));
+      } else {
+        canAddTemporaryFromSearch = true;
+        temporarySearchQuery = trimmedQuery;
+        // Показываем action-row для добавления временной ТМЦ
+        const row = document.createElement("tr");
+        row.className = "operation-search-action-row";
+        row.dataset.action = "add-temporary";
+        row.innerHTML = `
+          <td colspan="4">
+            <div class="operation-search-action-note">
+              Действующая ТМЦ не найдена. Можно добавить временную строку в черновик операции.
+            </div>
+            <button type="button" class="btn btn-small">
+              + Добавить «${escapeHtml(trimmedQuery)}» как временную ТМЦ
+            </button>
+          </td>
+        `;
+        row.addEventListener("click", function () {
+          addTemporaryFromSearch(trimmedQuery);
+        });
+        itemSearchResultsBody.appendChild(row);
+      }
+      updateAddButtonState();
       return;
     }
 
@@ -311,24 +505,33 @@
       }
 
       row.innerHTML = `
-        <td><strong>${item.name}</strong></td>
-        <td>${item.sku || "—"}</td>
-        <td>${item.unit_symbol || "—"}</td>
-        <td>${item.category_name || "—"}</td>
+        <td><strong>${escapeHtml(item.name)}</strong></td>
+        <td>${escapeHtml(item.sku || "—")}</td>
+        <td>${escapeHtml(item.unit_symbol || "—")}</td>
+        <td>${escapeHtml(item.category_name || "—")}</td>
       `;
 
       row.addEventListener("click", function () {
         selectedItem = item;
         renderSelectedItem();
-        renderSearchResults(currentSearchResults);
+        renderSearchResults(currentSearchResults, itemSearchInput.value);
         quantityInput.focus();
       });
 
       itemSearchResultsBody.appendChild(row);
     });
+    updateAddButtonState();
   }
 
-  function fetchSearchResults(query) {
+  function fetchSearchResults(query, options = {}) {
+    const addTemporaryWhenEmpty = options.addTemporaryWhenEmpty === true;
+    const requestSeq = ++searchRequestSeq;
+    window.WAREHOUSE_OPERATIONS_CREATE_DEBUG.lastSearch = {
+      query,
+      addTemporaryWhenEmpty,
+      startedAt: new Date().toISOString(),
+    };
+    window.WAREHOUSE_OPERATIONS_CREATE_DEBUG.lastError = null;
     setSearchStatus("Ищем совпадения...");
     window.fetch(`${config.itemSearchUrl}?q=${encodeURIComponent(query)}`, {
       headers: { "X-Requested-With": "XMLHttpRequest" },
@@ -336,7 +539,9 @@
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error(payload.error || "Не удалось загрузить результаты поиска.");
+          const error = new Error(payload.error || "Не удалось загрузить результаты поиска.");
+          error.status = response.status;
+          throw error;
         }
         if (payload && payload.error) {
           throw new Error(payload.error);
@@ -344,17 +549,37 @@
         return payload;
       })
       .then((payload) => {
+        if (requestSeq !== searchRequestSeq || itemSearchInput.value.trim() !== query) {
+          return;
+        }
         currentSearchResults = Array.isArray(payload.items) ? payload.items : [];
-        renderSearchResults(currentSearchResults);
+        window.WAREHOUSE_OPERATIONS_CREATE_DEBUG.lastSearch = {
+          ...window.WAREHOUSE_OPERATIONS_CREATE_DEBUG.lastSearch,
+          ok: true,
+          count: currentSearchResults.length,
+          finishedAt: new Date().toISOString(),
+        };
+        renderSearchResults(currentSearchResults, query);
         setSearchStatus(
           currentSearchResults.length
             ? `Найдено позиций: ${currentSearchResults.length}`
             : "По запросу ничего не найдено."
         );
+        if (!currentSearchResults.length && addTemporaryWhenEmpty && temporarySearchQuery) {
+          addSelectedItem();
+        }
       })
       .catch((error) => {
+        if (requestSeq !== searchRequestSeq || itemSearchInput.value.trim() !== query) {
+          return;
+        }
+        window.WAREHOUSE_OPERATIONS_CREATE_DEBUG.lastError = {
+          message: error instanceof Error ? error.message : String(error),
+          status: error instanceof Error ? error.status : undefined,
+          finishedAt: new Date().toISOString(),
+        };
         currentSearchResults = [];
-        renderSearchResults([]);
+        renderSearchResults([], query, { allowTemporary: false });
         if (error instanceof Error && error.message) {
           setSearchStatus(error.message);
           return;
@@ -363,13 +588,32 @@
       });
   }
 
+  function triggerAddItemAction() {
+    if (!addItemButton.disabled) {
+      addItemButton.click();
+      return;
+    }
+
+    const query = itemSearchInput.value.trim();
+    if (query.length < 2) {
+      return;
+    }
+    if (searchTimer) {
+      clearTimeout(searchTimer);
+    }
+    fetchSearchResults(query, { addTemporaryWhenEmpty: true });
+  }
+
   function onSearchInput() {
     const query = itemSearchInput.value.trim();
     selectedItem = null;
+    canAddTemporaryFromSearch = false;
+    temporarySearchQuery = "";
     renderSelectedItem();
     if (query.length < 2) {
+      searchRequestSeq += 1;
       currentSearchResults = [];
-      renderSearchResults([]);
+      renderSearchResults([], query);
       setSearchStatus("Введите минимум 2 символа, чтобы увидеть результаты.");
       return;
     }
@@ -385,8 +629,16 @@
   function handleDraftTableClick(event) {
     const removeButton = event.target.closest("[data-remove-item]");
     if (!removeButton) return;
-    const itemId = Number(removeButton.dataset.removeItem);
-    state.items = state.items.filter((item) => Number(item.item_id) !== itemId);
+    const identifier = removeButton.dataset.removeItem;
+    const kind = removeButton.dataset.itemKind || "catalog";
+
+    if (kind === "catalog") {
+      const itemId = Number(identifier);
+      state.items = state.items.filter((item) => Number(item.item_id) !== itemId);
+    } else {
+      // временная ТМЦ
+      state.items = state.items.filter((item) => item.client_key !== identifier);
+    }
     renderItemsTable();
   }
 
@@ -394,7 +646,8 @@
     const qtyInput = event.target.closest("[data-qty-input]");
     if (!qtyInput) return;
 
-    const itemId = Number(qtyInput.dataset.qtyInput);
+    const identifier = qtyInput.dataset.qtyInput;
+    const kind = qtyInput.dataset.itemKind || "catalog";
     const newQuantity = parseQuantity(qtyInput.value);
     const allowNegative = Boolean((currentTypeMeta() || {}).allow_negative_qty);
     if (!isParsedQuantityAllowed(newQuantity, allowNegative)) {
@@ -403,9 +656,14 @@
       return;
     }
 
-    state.items = state.items.map((item) => (
-      Number(item.item_id) === itemId ? { ...item, quantity: newQuantity.value } : item
-    ));
+    state.items = state.items.map((item) => {
+      if (kind === "catalog" && Number(item.item_id) === Number(identifier)) {
+        return { ...item, quantity: newQuantity.value };
+      } else if (kind === "temporary" && item.client_key === identifier) {
+        return { ...item, quantity: newQuantity.value };
+      }
+      return item;
+    });
     renderItemsTable();
   }
 
@@ -441,6 +699,12 @@
       return;
     }
 
+    if (!isValidDateTimeLocal(state.effective_at)) {
+      event.preventDefault();
+      window.alert("Проверьте дату и время операции.");
+      return;
+    }
+
     const allowNegative = Boolean((meta || {}).allow_negative_qty);
     const invalidLine = state.items.find((item) => !isParsedQuantityAllowed(parseQuantity(item.quantity), allowNegative));
     if (invalidLine) {
@@ -457,7 +721,7 @@
   renderTypeSection();
   renderSelectedItem();
   renderItemsTable();
-  renderSearchResults([]);
+  renderSearchResults([], "");
   setSearchStatus("Введите минимум 2 символа, чтобы увидеть результаты.");
   updateAddButtonState();
 
@@ -471,6 +735,7 @@
   destinationSiteSelect.addEventListener("change", updateStateFromFields);
   issuedToNameInput.addEventListener("input", updateStateFromFields);
   notesInput.addEventListener("input", updateStateFromFields);
+  if (effectiveAtInput) effectiveAtInput.addEventListener("change", updateStateFromFields);
   itemSearchInput.addEventListener("input", onSearchInput);
   quantityInput.addEventListener("input", updateAddButtonState);
   addItemButton.addEventListener("click", addSelectedItem);
@@ -479,8 +744,15 @@
   quantityInput.addEventListener("keydown", function (event) {
     if (event.key === "Enter") {
       event.preventDefault();
-      addSelectedItem();
+      triggerAddItemAction();
     }
   });
+  itemSearchInput.addEventListener("keydown", function (event) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    triggerAddItemAction();
+  });
   form.addEventListener("submit", validateBeforeSubmit);
+  window.WAREHOUSE_OPERATIONS_CREATE_DEBUG.initialized = true;
+  console.info("operations_create.js initialized", window.WAREHOUSE_OPERATIONS_CREATE_DEBUG);
 })();

@@ -1,19 +1,24 @@
-{% extends "base.html" %}
-{% load static %}
-{% block title %}Создать операцию{% endblock %}
-{% block content %}
+{% extends "base.html" %}{% load static %}{% block title %}Создать операцию{% endblock %}{% block content %}
 <div class="operation-page-header">
   <div>
     <h1>Создать операцию</h1>
-    <p class="operation-page-note">Соберите строки ТМЦ, проверьте параметры документа и отправьте операцию в черновик.</p>
+    <p class="operation-page-note">
+      Соберите строки ТМЦ, проверьте параметры документа и отправьте операцию в
+      черновик.
+    </p>
   </div>
-  <a href="{% url 'operations:list' %}" class="btn btn-secondary">К журналу операций</a>
+  <a href="{% url 'operations:list' %}" class="btn btn-secondary"
+    >К журналу операций</a
+  >
 </div>
 
 {% if not can_create_operations %}
 <div class="card operation-empty-card">
   <h3>Создание операций недоступно</h3>
-  <p class="operation-page-note">У текущего пользователя нет складов с правом выполнения операций. Обратитесь к администратору или главному кладовщику.</p>
+  <p class="operation-page-note">
+    У текущего пользователя нет складов с правом выполнения операций. Обратитесь
+    к администратору или главному кладовщику.
+  </p>
 </div>
 {% else %}
 <form
@@ -23,10 +28,7 @@
   data-loading-overlay-text="Создание операции..."
   id="operation-create-form"
 >
-  {% csrf_token %}
-  {{ form.draft_payload }}
-
-  {% if form.non_field_errors %}
+  {% csrf_token %} {{ form.draft_payload }} {% if form.non_field_errors %}
   <ul class="messages">
     {% for error in form.non_field_errors %}
     <li>{{ error }}</li>
@@ -40,7 +42,10 @@
         <div class="operation-section-head">
           <div>
             <h3>Параметры документа</h3>
-            <p class="operation-page-note">Выберите тип операции, укажите склад и заполните комментарий к документу.</p>
+            <p class="operation-page-note">
+              Выберите тип операции, укажите склад и заполните комментарий к
+              документу.
+            </p>
           </div>
         </div>
         <div class="operation-document-grid">
@@ -48,23 +53,35 @@
             <label for="operation-type-select">Тип операции</label>
             <select id="operation-type-select">
               {% for option in operation_type_options %}
-              <option value="{{ option.code }}" {% if not option.enabled %}disabled{% endif %}>
+              <option
+                value="{{ option.code }}"
+                {%
+                if
+                not
+                option.enabled
+                %}disabled{%
+                endif
+                %}
+              >
                 {{ option.label }}{% if not option.enabled %} (скоро){% endif %}
               </option>
               {% endfor %}
             </select>
           </div>
 
-          <div class="operation-callout operation-document-note-row" id="operation-type-note"></div>
+          <div
+            class="operation-callout operation-document-note-row"
+            id="operation-type-note"
+          ></div>
 
-          <div class="form-row {% if can_choose_source_site %}operation-hidden{% endif %}" id="fixed-site-row">
+          <div
+            class="form-row {% if can_choose_source_site %}operation-hidden{% endif %}"
+            id="fixed-site-row"
+          >
             <label for="fixed-site-value">Рабочий склад</label>
             <div class="operation-fixed-site-value" id="fixed-site-value">
-              {% if fixed_operating_site %}
-              {{ fixed_operating_site.name }}
-              {% else %}
-              —
-              {% endif %}
+              {% if fixed_operating_site %} {{ fixed_operating_site.name }} {%
+              else %} — {% endif %}
             </div>
           </div>
 
@@ -100,12 +117,29 @@
 
           <div class="form-row operation-hidden" id="recipient-row">
             <label for="issued-to-name-input">ФИО получателя</label>
-            <input id="issued-to-name-input" type="text" placeholder="Например, Иванов Сергей Петрович">
+            <input
+              id="issued-to-name-input"
+              type="text"
+              placeholder="Например, Иванов Сергей Петрович"
+            />
+          </div>
+
+          <div class="form-row" id="effective-at-row">
+            <label for="effective-at-input">Дата и время операции</label>
+            <input
+              id="effective-at-input"
+              type="datetime-local"
+              value="{{ draft.effective_at|default:'' }}"
+            />
           </div>
 
           <div class="form-row operation-notes-row" id="notes-row">
             <label for="notes-input" id="notes-label">Комментарий</label>
-            <textarea id="notes-input" rows="2" placeholder="Комментарий к операции"></textarea>
+            <textarea
+              id="notes-input"
+              rows="2"
+              placeholder="Комментарий к операции"
+            ></textarea>
           </div>
         </div>
       </div>
@@ -114,29 +148,52 @@
         <div class="operation-section-head">
           <div>
             <h3>Добавить ТМЦ</h3>
-            <p class="operation-page-note">Введите поиск, выберите ТМЦ в таблице результатов, укажите количество и добавьте строку в документ.</p>
+            <p class="operation-page-note">
+              Введите поиск, выберите ТМЦ в таблице результатов, укажите
+              количество и добавьте строку в документ. Если поиск не дал
+              результатов, из того же текста можно добавить временную ТМЦ.
+            </p>
           </div>
         </div>
         <div class="operation-item-picker">
           <div class="operation-search-toolbar">
             <div class="form-row operation-item-search-row">
               <label for="item-search-input">Поиск ТМЦ</label>
-              <input id="item-search-input" type="text" placeholder="Название или SKU">
+              <input
+                id="item-search-input"
+                type="text"
+                placeholder="Название или SKU"
+              />
             </div>
 
             <div class="form-row operation-item-quantity-row">
               <label for="item-quantity-input">Количество</label>
-              <input id="item-quantity-input" type="number" step="0.001" value="1">
+              <input
+                id="item-quantity-input"
+                type="number"
+                step="0.001"
+                value="1"
+              />
             </div>
 
             <div class="operation-picker-actions">
-              <button type="button" class="btn" id="add-item-button" disabled>Добавить строку</button>
+              <button type="button" class="btn" id="add-item-button" disabled>
+                Добавить строку
+              </button>
             </div>
           </div>
 
-          <div class="operation-search-status" id="item-search-status">Введите минимум 2 символа, чтобы увидеть результаты.</div>
-          <div class="operation-selected-item operation-hidden" id="selected-item-box"></div>
-          <small class="operation-field-hint" id="quantity-hint">Для большинства операций количество должно быть положительным числом с точностью до 3 знаков.</small>
+          <div class="operation-search-status" id="item-search-status">
+            Введите минимум 2 символа, чтобы увидеть результаты.
+          </div>
+          <div
+            class="operation-selected-item operation-hidden"
+            id="selected-item-box"
+          ></div>
+          <small class="operation-field-hint" id="quantity-hint"
+            >Для большинства операций количество должно быть положительным
+            числом с точностью до 3 знаков.</small
+          >
 
           <div class="operation-table-wrap operation-search-results-wrap">
             <table>
@@ -150,7 +207,9 @@
               </thead>
               <tbody id="item-search-results-body">
                 <tr id="item-search-empty-row">
-                  <td colspan="4" class="operation-empty-table">Введите минимум 2 символа, чтобы увидеть результаты.</td>
+                  <td colspan="4" class="operation-empty-table">
+                    Введите минимум 2 символа, чтобы увидеть результаты.
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -162,7 +221,10 @@
         <div class="operation-section-head">
           <div>
             <h3>Строки операции</h3>
-            <p class="operation-page-note">Повторно добавленный ТМЦ объединяется в одну строку, количество суммируется.</p>
+            <p class="operation-page-note">
+              Повторно добавленный ТМЦ объединяется в одну строку, количество
+              суммируется.
+            </p>
           </div>
         </div>
         <div class="operation-table-wrap">
@@ -178,7 +240,9 @@
             </thead>
             <tbody id="draft-items-body">
               <tr id="draft-empty-row">
-                <td colspan="5" class="operation-empty-table">Пока нет строк. Добавьте первую позицию через блок выше.</td>
+                <td colspan="5" class="operation-empty-table">
+                  Пока нет строк. Добавьте первую позицию через блок выше.
+                </td>
               </tr>
             </tbody>
           </table>
@@ -204,9 +268,16 @@
           </div>
         </dl>
         <div class="operation-callout operation-callout-warning">
-          После создания вы перейдёте в карточку операции, где сможете подтвердить или отменить документ.
+          После создания вы перейдёте в карточку операции, где сможете
+          подтвердить или отменить документ.
         </div>
-        <button type="submit" class="btn operation-submit-button" data-loading-text="Создание...">Создать операцию</button>
+        <button
+          type="submit"
+          class="btn operation-submit-button"
+          data-loading-text="Создание..."
+        >
+          Создать операцию
+        </button>
       </div>
     </aside>
   </div>
@@ -217,6 +288,5 @@
 <script id="operation-create-config" type="application/json">
   {"itemSearchUrl":"{{ item_search_url|escapejs }}","canChooseSourceSite":{% if can_choose_source_site %}true{% else %}false{% endif %},"fixedOperatingSiteId":"{{ fixed_operating_site_id }}"}
 </script>
-<script src="{% static 'js/operations_create.js' %}?v=20260421-qty-decimal"></script>
-{% endif %}
-{% endblock %}
+<script src="{% static 'js/operations_create.js' %}?v=20260424-search-enter-fix-3"></script>
+{% endif %} {% endblock %}
