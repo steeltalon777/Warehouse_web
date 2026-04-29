@@ -89,6 +89,12 @@ class ItemForm(forms.Form):
                 self.initial["unit_id"] = default_unit_id
                 self.fields["unit_id"].initial = default_unit_id
 
+    def clean_sku(self):
+        value = self.cleaned_data.get("sku")
+        if value is None or value.strip() == "":
+            return None
+        return value.strip()
+
     def clean_category_id(self):
         value = self.cleaned_data.get("category_id")
         if value in (None, ""):

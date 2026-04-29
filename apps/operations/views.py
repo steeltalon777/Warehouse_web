@@ -911,19 +911,27 @@ class LostAssetsListView(SyncContextMixin, TemplateView):
         total_pages = max((total_count + page_size - 1) // page_size, 1)
         current_page = int(page_data.get("page") or page)
 
+        # Build site filter options from all available sites for dropdown
+        all_sites = service.get_all_sites()
+        available_sites = [
+            {"id": site["site_id"], "name": site["name"]}
+            for site in all_sites
+        ]
+
         context = {
-            "lost_assets": presented,
+            "items": presented,
             "search": search,
             "site_id": site_id,
-            "operation_id": operation_id_filter,
+            "operation_id_filter": operation_id_filter,
             "page_size": page_size,
-            "current_page": current_page,
+            "page": current_page,
             "total_count": total_count,
-            "total_pages": total_pages,
+            "page_count": total_pages,
             "has_prev": current_page > 1,
             "has_next": current_page < total_pages,
             "prev_page": max(current_page - 1, 1),
             "next_page": min(current_page + 1, total_pages),
+            "available_sites": available_sites,
         }
         return render(request, self.template_name, context)
 
@@ -1011,4 +1019,4 @@ class LostAssetResolveView(SyncContextMixin, View):
                 messages.error(request, str(exc) or "Не удалось разрешить потерю.")
             return redirect("operations:lost_asset_detail", operation_line_id=operation_line_id)
 
-        return redirect("operations:lost_asset_detail", operation_line_id=operation_line_id)
+        return redirect("operations:lost_assets")

@@ -1,20 +1,16 @@
-{% extends "base.html" %} {% block title %}Объединение временной ТМЦ {{ item.id
-}}{% endblock %} {% block content %}
+{% extends "base.html" %}
+{% block title %}Объединение временной ТМЦ {{ item.id }}{% endblock %}
+{% block content %}
 <div class="operation-page-header">
   <div>
     <h1>Объединение временной ТМЦ</h1>
     <p class="operation-page-note">
-      Объединение временной ТМЦ с существующей ТМЦ из каталога. После
-      объединения временная ТМЦ будет удалена, а её данные будут присоединены к
-      выбранной ТМЦ.
+      Выберите существующую ТМЦ из каталога. Поиск использует тот же локальный кэш,
+      что и форма создания операции.
     </p>
   </div>
   <div>
-    <a
-      href="{% url 'temporary_items:detail' item.id %}"
-      class="btn btn-secondary"
-      >← Назад к карточке</a
-    >
+    <a href="{% url 'temporary_items:detail' item.id %}" class="btn btn-secondary">← Назад к карточке</a>
   </div>
 </div>
 
@@ -54,30 +50,33 @@
 
 <div class="card">
   <h3>Выбор целевой ТМЦ</h3>
-  <p>
-    Выберите существующую ТМЦ из каталога, с которой нужно объединить временную
-    ТМЦ.
-  </p>
-  <form method="post">
+  <form method="post" id="temporary-item-merge-form">
     {% csrf_token %}
-    <div class="form-row">
-      <label for="target_item_id">Целевая ТМЦ</label>
-      <select id="target_item_id" name="target_item_id" required>
-        <option value="">-- Выберите ТМЦ --</option>
-        {% for catalog_item in catalog_items %}
-        <option value="{{ catalog_item.id }}">
-          {{ catalog_item.name }} ({{ catalog_item.code|default:"без кода" }})
-        </option>
-        {% endfor %}
-      </select>
+    <input type="hidden" id="target_item_id" name="target_item_id" required />
+
+    <div class="form-row operation-item-search-row">
+      <label for="target-item-search-input">Целевая ТМЦ</label>
+      <div class="operation-combobox">
+        <input
+          id="target-item-search-input"
+          type="text"
+          class="form-control"
+          placeholder="Начните вводить название, код или ID ТМЦ..."
+          autocomplete="off"
+        />
+        <div id="target-item-search-results" class="operation-combobox-results" hidden></div>
+      </div>
     </div>
+
+    <div id="target-item-search-status" class="operation-search-status">
+      Введите минимум 2 символа, чтобы найти ТМЦ в локальном кэше.
+    </div>
+
+    <div id="selected-target-item" class="operation-selected-item operation-hidden"></div>
+
     <div class="action-buttons">
-      <a
-        href="{% url 'temporary_items:detail' item.id %}"
-        class="btn btn-secondary"
-        >Отмена</a
-      >
-      <button type="submit" class="btn btn-info">Объединить</button>
+      <a href="{% url 'temporary_items:detail' item.id %}" class="btn btn-secondary">Отмена</a>
+      <button type="submit" class="btn btn-info" id="merge-submit-button" disabled>Объединить</button>
     </div>
   </form>
 </div>
@@ -86,44 +85,174 @@
   <h3>Что произойдет после объединения?</h3>
   <ul>
     <li>Временная ТМЦ будет удалена из списка временных.</li>
-    <li>
-      Все данные временной ТМЦ (название, код, описание) будут присоединены к
-      выбранной ТМЦ (если поля пусты).
-    </li>
-    <li>
-      Все ссылки на временную ТМЦ в операциях будут перенаправлены на выбранную
-      ТМЦ.
-    </li>
-    <li>История операций будет сохранена.</li>
+    <li>Ссылки на временную ТМЦ в операциях и остатках будут перенаправлены на выбранную ТМЦ.</li>
+    <li>История операций сохранится.</li>
   </ul>
 </div>
 
-{% if catalog_items %}
-<div class="card">
-  <h3>Доступные ТМЦ в каталоге</h3>
-  <table class="data-table">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Название</th>
-        <th>Код</th>
-        <th>Описание</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for catalog_item in catalog_items %}
-      <tr>
-        <td><code>{{ catalog_item.id|truncatechars:12 }}</code></td>
-        <td>{{ catalog_item.name|default:"—" }}</td>
-        <td>{{ catalog_item.code|default:"—" }}</td>
-        <td>{{ catalog_item.description|default:"—" }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% else %}
-<div class="card">
-  <p>В каталоге нет ТМЦ для объединения. Сначала создайте ТМЦ в каталоге.</p>
-</div>
-{% endif %} {% endblock %}
+<script id="temporary-item-merge-config" type="application/json">
+  {"itemSearchUrl":"{{ item_search_url|escapejs }}"}
+</script>
+<script>
+(() => {
+  const configNode = document.getElementById("temporary-item-merge-config");
+  const searchInput = document.getElementById("target-item-search-input");
+  const hiddenInput = document.getElementById("target_item_id");
+  const resultsBox = document.getElementById("target-item-search-results");
+  const statusNode = document.getElementById("target-item-search-status");
+  const selectedBox = document.getElementById("selected-target-item");
+  const submitButton = document.getElementById("merge-submit-button");
+
+  if (!configNode || !searchInput || !hiddenInput || !resultsBox || !statusNode || !selectedBox || !submitButton) {
+    return;
+  }
+
+  const config = JSON.parse(configNode.textContent || "{}");
+  let searchTimer = null;
+  let searchRequestSeq = 0;
+  let selectedItem = null;
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function setStatus(text) {
+    statusNode.textContent = text;
+  }
+
+  function updateSubmitState() {
+    submitButton.disabled = !hiddenInput.value;
+  }
+
+  function closeResults() {
+    resultsBox.hidden = true;
+    resultsBox.innerHTML = "";
+  }
+
+  function renderSelectedItem() {
+    if (!selectedItem) {
+      selectedBox.classList.add("operation-hidden");
+      selectedBox.innerHTML = "";
+      hiddenInput.value = "";
+      updateSubmitState();
+      return;
+    }
+
+    selectedBox.classList.remove("operation-hidden");
+    selectedBox.innerHTML = `
+      <strong>Выбрано:</strong> ${escapeHtml(selectedItem.name)}
+      <span>ID: ${escapeHtml(selectedItem.id)}</span>
+      <span>SKU: ${escapeHtml(selectedItem.sku || "—")}</span>
+      <span>Ед. изм.: ${escapeHtml(selectedItem.unit_symbol || "—")}</span>
+    `;
+    hiddenInput.value = String(selectedItem.id);
+    updateSubmitState();
+  }
+
+  function pickItem(item) {
+    selectedItem = item;
+    searchInput.value = item.name || item.sku || String(item.id);
+    renderSelectedItem();
+    closeResults();
+    setStatus("ТМЦ выбрана.");
+  }
+
+  function renderResults(items) {
+    resultsBox.innerHTML = "";
+
+    if (!items.length) {
+      closeResults();
+      setStatus("Ничего не найдено.");
+      return;
+    }
+
+    items.forEach((item) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "operation-combobox-item";
+      button.innerHTML = `
+        <strong>${escapeHtml(item.name || item.sku || item.id)}</strong>
+        <span>ID: ${escapeHtml(item.id)} · SKU: ${escapeHtml(item.sku || "—")} · Ед. изм.: ${escapeHtml(item.unit_symbol || "—")}</span>
+      `;
+      button.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        pickItem(item);
+      });
+      resultsBox.appendChild(button);
+    });
+
+    resultsBox.hidden = false;
+    setStatus(`Найдено ТМЦ: ${items.length}`);
+  }
+
+  function clearSelectionIfNeeded(query) {
+    if (!selectedItem) {
+      return;
+    }
+    const normalizedQuery = String(query || "").trim();
+    const selectedLabel = String(selectedItem.name || selectedItem.sku || selectedItem.id);
+    if (normalizedQuery !== selectedLabel) {
+      selectedItem = null;
+      renderSelectedItem();
+    }
+  }
+
+  async function performSearch(query) {
+    const normalizedQuery = query.trim();
+    clearSelectionIfNeeded(normalizedQuery);
+
+    if (normalizedQuery.length < 2) {
+      closeResults();
+      setStatus("Введите минимум 2 символа, чтобы найти ТМЦ в локальном кэше.");
+      return;
+    }
+
+    const requestId = ++searchRequestSeq;
+    setStatus("Ищем ТМЦ...");
+
+    try {
+      const url = new URL(config.itemSearchUrl, window.location.origin);
+      url.searchParams.set("q", normalizedQuery);
+      const response = await fetch(url.toString(), {
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
+      const payload = await response.json();
+      if (requestId !== searchRequestSeq) {
+        return;
+      }
+      renderResults(Array.isArray(payload.items) ? payload.items : []);
+    } catch (error) {
+      closeResults();
+      setStatus("Не удалось выполнить поиск.");
+    }
+  }
+
+  searchInput.addEventListener("input", () => {
+    const query = searchInput.value;
+    window.clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(() => {
+      performSearch(query);
+    }, 180);
+  });
+
+  searchInput.addEventListener("focus", () => {
+    if (searchInput.value.trim().length >= 2) {
+      performSearch(searchInput.value);
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!resultsBox.contains(event.target) && event.target !== searchInput) {
+      closeResults();
+    }
+  });
+
+  renderSelectedItem();
+})();
+</script>
+{% endblock %}

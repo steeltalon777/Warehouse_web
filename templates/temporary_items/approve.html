@@ -1,29 +1,21 @@
-{% extends "base.html" %} {% block title %}Преобразование временной ТМЦ {{
-item.id }}{% endblock %} {% block content %}
-<div class="operation-page-header">
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="workspace-page-header">
   <div>
-    <h1>Преобразование временной ТМЦ</h1>
-    <p class="operation-page-note">
-      Преобразование временной ТМЦ в постоянную запись каталога. После
-      преобразования временная ТМЦ будет удалена, а в каталоге появится новая
-      ТМЦ.
-    </p>
-  </div>
-  <div>
-    <a
-      href="{% url 'temporary_items:detail' item.id %}"
-      class="btn btn-secondary"
-      >← Назад к карточке</a
-    >
+    <h1>{{ page_title }}</h1>
+    <p class="catalog-page-note">{{ page_note }}</p>
   </div>
 </div>
 
 <div class="card">
-  <h3>Информация о временной ТМЦ</h3>
+  <h3>Источник данных</h3>
   <table class="data-table">
     <tbody>
       <tr>
-        <th>ID</th>
+        <th>ID временной ТМЦ</th>
         <td><code>{{ item.id }}</code></td>
       </tr>
       <tr>
@@ -31,57 +23,42 @@ item.id }}{% endblock %} {% block content %}
         <td>{{ item.name|default:"—" }}</td>
       </tr>
       <tr>
-        <th>Код</th>
-        <td>{{ item.code|default:"—" }}</td>
+        <th>SKU</th>
+        <td>{{ item.sku|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Категория</th>
+        <td>{{ item.category_name|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Единица</th>
+        <td>{{ item.unit_symbol|default:item.unit_name|default:"—" }}</td>
       </tr>
       <tr>
         <th>Описание</th>
         <td>{{ item.description|default:"—" }}</td>
       </tr>
-      <tr>
-        <th>Статус</th>
-        <td>
-          {% if item.status == "active" %}
-          <span class="badge badge-warning">Активна</span>
-          {% else %}
-          <span class="badge">{{ item.status }}</span>
-          {% endif %}
-        </td>
-      </tr>
     </tbody>
   </table>
 </div>
 
-<div class="card">
-  <h3>Подтверждение преобразования</h3>
-  <p>
-    Вы уверены, что хотите преобразовать эту временную ТМЦ в постоянную? Это
-    действие создаст новую ТМЦ в каталоге и удалит временную запись.
+<div class="card catalog-form-card">
+  <p class="catalog-page-note">
+    Сначала создаётся новая постоянная ТМЦ, затем временная ТМЦ автоматически объединяется с ней.
   </p>
-  <form method="post">
+
+  <form
+    method="post"
+    data-loading-form
+    data-loading-scope="page"
+    data-loading-overlay-text="Преобразование временной ТМЦ..."
+  >
     {% csrf_token %}
-    <div class="action-buttons">
-      <a
-        href="{% url 'temporary_items:detail' item.id %}"
-        class="btn btn-secondary"
-        >Отмена</a
-      >
-      <button type="submit" class="btn btn-success">Преобразовать</button>
+    {{ form.as_p }}
+    <div class="catalog-actions">
+      <button type="submit" data-loading-text="Преобразование...">Сохранить и преобразовать</button>
+      <a class="btn btn-secondary" href="{{ back_url }}">Назад к временной ТМЦ</a>
     </div>
   </form>
-</div>
-
-<div class="card">
-  <h3>Что произойдет после преобразования?</h3>
-  <ul>
-    <li>Временная ТМЦ будет удалена из списка временных.</li>
-    <li>
-      В каталоге появится новая ТМЦ с теми же данными (название, код, описание).
-    </li>
-    <li>Новая ТМЦ получит уникальный ID в каталоге.</li>
-    <li>
-      Все ссылки на временную ТМЦ в операциях будут перенаправлены на новую ТМЦ.
-    </li>
-  </ul>
 </div>
 {% endblock %}

@@ -4,6 +4,7 @@ import json
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -15,13 +16,14 @@ from apps.catalog.forms import ItemForm
 from apps.catalog.services import ServiceResult
 from apps.catalog_cache.models import CatalogCacheItem
 from apps.operations.forms import validate_acceptance_lines, validate_lost_asset_resolve
-from apps.operations.services import OperationPageService
+from apps.operations.services import OperationPageService, build_operation_copy_document
 from apps.operations.views import (
     _build_create_payload,
     _get_post_list,
     _load_pending_acceptance_for_operation,
 )
 from apps.sync_client.exceptions import SyncServerAPIError
+from apps.users.models import SyncUserBinding
 
 
 class OperationCreatePayloadQuantityTests(SimpleTestCase):
@@ -239,6 +241,100 @@ class OperationCreatePayloadQuantityTests(SimpleTestCase):
                 },
                 operate_site_ids={1},
             )
+
+
+class OperationCopyDocumentTests(SimpleTestCase):
+    def test_builds_copy_document_for_single_site_operation(self) -> None:
+        with timezone.override("UTC"):
+            text = build_operation_copy_document(
+                {
+                    "id": "op-1",
+                    "operation_type": "RECEIVE",
+                    "type_label": "Приход",
+                    "effective_at": "2026-04-21T07:15:00Z",
+                    "site_name": "Основной склад",
+                    "author_label": "Иван Петров",
+                }
+            )
+
+        self.assertIn("Дата операции: 21.04.2026 07:15", text)
+        self.assertIn("Тип операции: Приход", text)
+        self.assertIn("Склад: Основной склад", text)
+        self.assertIn("Запрос на создание отправил: Иван Петров", text)
+
+    def test_builds_copy_document_for_move_operation(self) -> None:
+        text = build_operation_copy_document(
+            {
+                "id": "op-2",
+                "operation_type": "MOVE",
+                "type_label": "Перемещение",
+                "effective_at": None,
+                "source_site_name": "Склад A",
+                "destination_site_name": "Склад B",
+                "author_label": "user-id",
+            }
+        )
+
+        self.assertIn("Дата операции: -", text)
+        self.assertIn("Склад-источник: Склад A", text)
+        self.assertIn("Склад-получатель: Склад B", text)
+        self.assertNotIn("Склад: ", text)
+
+
+class OperationAuthorLabelTests(TestCase):
+    def setUp(self) -> None:
+        self.service = OperationPageService(client=Mock())
+        self.service.get_items_index = Mock(return_value={})
+        self.service.get_sites_index = Mock(return_value={1: {"site_id": 1, "name": "Склад 1"}})
+
+    def test_present_operation_uses_local_user_full_name_for_author(self) -> None:
+        syncserver_user_id = uuid4()
+        user = get_user_model().objects.create_user(
+            username="ivanov",
+            first_name="Иван Иванов",
+        )
+        SyncUserBinding.objects.create(
+            user=user,
+            syncserver_user_id=syncserver_user_id,
+        )
+
+        presented = self.service.present_operation(
+            {
+                "id": "op-1",
+                "operation_type": "RECEIVE",
+                "status": "draft",
+                "site_id": 1,
+                "created_by_user_id": str(syncserver_user_id),
+                "lines": [],
+            }
+        )
+
+        self.assertEqual(presented["author_label"], "Иван Иванов")
+        self.assertIn("Запрос на создание отправил: Иван Иванов", presented["copy_document_text"])
+
+    def test_present_operation_falls_back_to_username_when_full_name_is_blank(self) -> None:
+        syncserver_user_id = uuid4()
+        user = get_user_model().objects.create_user(username="petrova")
+        SyncUserBinding.objects.create(
+            user=user,
+            syncserver_user_id=syncserver_user_id,
+        )
+
+        presented = self.service.present_operation(
+            {
+                "id": "op-2",
+                "operation_type": "MOVE",
+                "status": "draft",
+                "site_id": 1,
+                "source_site_id": 1,
+                "destination_site_id": 1,
+                "created_by_user_id": str(syncserver_user_id),
+                "lines": [],
+            }
+        )
+
+        self.assertEqual(presented["author_label"], "petrova")
+        self.assertIn("Запрос на создание отправил: petrova", presented["copy_document_text"])
 
 
 class OperationPageServiceSearchTests(TestCase):

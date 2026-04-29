@@ -1057,6 +1057,15 @@ button:active, .btn:active {
  line-height:1.5;
 }
 
+.operation-copy-document{
+ min-height:170px;
+ resize:vertical;
+ font-family:Consolas, "Courier New", monospace;
+ line-height:1.5;
+ color:var(--text);
+ background:#f8fafc;
+}
+
 .operation-detail-grid{
  display:grid;
  grid-template-columns:repeat(2, minmax(0, 1fr));

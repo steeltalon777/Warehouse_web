@@ -151,6 +151,30 @@
         </table>
       </div>
     </div>
+
+    <div class="card">
+      <div class="operation-section-head">
+        <div>
+          <h3>Текст для копирования</h3>
+          <p class="operation-page-note">
+            Минимальные реквизиты операции для временного документа.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn btn-secondary btn-small"
+          data-copy-target="operation-copy-document"
+          data-copy-label="Скопировано"
+        >
+          Копировать
+        </button>
+      </div>
+      <textarea
+        id="operation-copy-document"
+        class="operation-copy-document"
+        readonly
+      >{{ operation.copy_document_text }}</textarea>
+    </div>
   </div>
 
   <aside>
@@ -239,4 +263,37 @@
     </div>
   </aside>
 </div>
+<script>
+(() => {
+  const button = document.querySelector("[data-copy-target='operation-copy-document']");
+  const target = document.getElementById("operation-copy-document");
+  if (!button || !target) return;
+
+  const originalText = button.textContent.trim();
+  const copiedText = button.dataset.copyLabel || "Скопировано";
+
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    target.focus();
+    target.select();
+    document.execCommand("copy");
+  }
+
+  button.addEventListener("click", async () => {
+    try {
+      await copyText(target.value);
+      button.textContent = copiedText;
+      window.setTimeout(() => {
+        button.textContent = originalText;
+      }, 1400);
+    } catch (error) {
+      target.focus();
+      target.select();
+    }
+  });
+})();
+</script>
 {% endblock %}

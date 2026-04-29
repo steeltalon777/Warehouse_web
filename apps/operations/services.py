@@ -6,7 +6,10 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+from django.contrib.auth import get_user_model
 from django.db.utils import DatabaseError
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from apps.catalog_cache.services import CatalogCacheSyncService, CatalogLookupService
 from apps.catalog.services import CatalogService
@@ -24,6 +27,46 @@ ACCEPTANCE_STATE_META = {
     "in_progress": {"label": "Приёмка в процессе", "tone": "info"},
     "resolved": {"label": "Приёмка завершена", "tone": "success"},
 }
+
+
+def _format_copy_datetime(value: Any) -> str:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return "-"
+
+    parsed = parse_datetime(raw_value)
+    if parsed is None:
+        return raw_value
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+    return timezone.localtime(parsed).strftime("%d.%m.%Y %H:%M")
+
+
+def build_operation_copy_document(operation: dict[str, Any]) -> str:
+    """Build a minimal operation document text for manual copy/paste."""
+    operation_type = str(operation.get("type_label") or operation.get("operation_type") or "Операция")
+    operation_id = str(operation.get("id") or "-")
+    author = str(operation.get("author_label") or operation.get("created_by_user_id") or "-")
+
+    lines = [
+        "Документ по складской операции",
+        f"Операция: {operation_id}",
+        f"Дата операции: {_format_copy_datetime(operation.get('effective_at'))}",
+        f"Тип операции: {operation_type}",
+    ]
+
+    if str(operation.get("operation_type") or "").upper() == "MOVE":
+        lines.extend(
+            [
+                f"Склад-источник: {operation.get('source_site_name') or '-'}",
+                f"Склад-получатель: {operation.get('destination_site_name') or '-'}",
+            ]
+        )
+    else:
+        lines.append(f"Склад: {operation.get('site_name') or '-'}")
+
+    lines.append(f"Запрос на создание отправил: {author}")
+    return "\n".join(lines)
 
 
 class OperationPageService:
@@ -137,13 +180,27 @@ class OperationPageService:
     def present_operation(self, operation: dict[str, Any]) -> dict[str, Any]:
         items_index = self.get_items_index()
         sites_index = self.get_sites_index()
-        return self._present_operation(operation, items_index=items_index, sites_index=sites_index)
+        user_labels = self._get_local_user_labels([operation.get("created_by_user_id")])
+        return self._present_operation(
+            operation,
+            items_index=items_index,
+            sites_index=sites_index,
+            user_labels=user_labels,
+        )
 
     def present_operations(self, operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
         items_index = self.get_items_index()
         sites_index = self.get_sites_index()
+        user_labels = self._get_local_user_labels(
+            [operation.get("created_by_user_id") for operation in operations]
+        )
         return [
-            self._present_operation(operation, items_index=items_index, sites_index=sites_index)
+            self._present_operation(
+                operation,
+                items_index=items_index,
+                sites_index=sites_index,
+                user_labels=user_labels,
+            )
             for operation in operations
         ]
 
@@ -216,6 +273,7 @@ class OperationPageService:
         *,
         items_index: dict[int, dict[str, Any]],
         sites_index: dict[int, dict[str, Any]],
+        user_labels: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         status = str(operation.get("status") or "draft")
         status_meta = OPERATION_STATUS_META.get(status, {"label": status, "tone": "muted"})
@@ -266,18 +324,15 @@ class OperationPageService:
             )
 
         line_preview = [f"{line['item_name']} x {line['quantity']}" for line in lines[:2]]
-        try:
-            current_user_sync_id = getattr(self.request.user.sync_binding, "syncserver_user_id", None)
-        except Exception:
-            current_user_sync_id = None
         created_by_user_id = operation.get("created_by_user_id")
-        author_label = "Вы" if current_user_sync_id and str(current_user_sync_id) == str(created_by_user_id) else str(created_by_user_id or "—")
+        author_label = self._user_label(created_by_user_id, user_labels=user_labels)
 
         role = self.get_current_role()
+        request_user = getattr(self.request, "user", None)
         can_submit = status in {"draft", "created"} and role != "observer"
         can_cancel = (
             status in {"draft", "created", "pending", "submitted"}
-            and not is_observer(getattr(self.request, "user", None))
+            and (request_user is None or not is_observer(request_user))
         )
         can_accept = status in {"submitted", "pending"} and role not in {"observer"}
         logger.info(
@@ -308,11 +363,86 @@ class OperationPageService:
             "can_submit": can_submit,
             "can_cancel": can_cancel,
             "can_accept": can_accept,
+            "copy_document_text": build_operation_copy_document(
+                {
+                    **operation,
+                    "operation_type": operation_type,
+                    "type_label": OPERATION_TYPE_LABELS.get(operation_type, operation_type or "Операция"),
+                    "effective_at": operation.get("effective_at"),
+                    "site_name": self._site_name(sites_index, site_id),
+                    "source_site_name": self._site_name(sites_index, source_site_id),
+                    "destination_site_name": self._site_name(sites_index, destination_site_id),
+                    "author_label": author_label,
+                }
+            ),
         }
 
     @staticmethod
     def operation_type_options() -> list[dict[str, Any]]:
         return [dict(item) for item in OPERATION_TYPE_META]
+
+    def _get_local_user_labels(self, user_ids: list[Any]) -> dict[str, str]:
+        normalized_ids = {str(user_id) for user_id in user_ids if user_id}
+        if not normalized_ids:
+            return {}
+
+        try:
+            User = get_user_model()
+            rows = list(User.objects.filter(
+                sync_binding__syncserver_user_id__in=normalized_ids
+            ).values(
+                "sync_binding__syncserver_user_id",
+                "first_name",
+                "last_name",
+                "username",
+            ))
+        except Exception:
+            logger.exception("Failed to resolve operation authors from local Django users.")
+            return {}
+
+        labels: dict[str, str] = {}
+        for row in rows:
+            sync_id = row.get("sync_binding__syncserver_user_id")
+            if not sync_id:
+                continue
+            full_name = " ".join(
+                part
+                for part in [
+                    str(row.get("first_name") or "").strip(),
+                    str(row.get("last_name") or "").strip(),
+                ]
+                if part
+            )
+            username = str(row.get("username") or "").strip()
+            labels[str(sync_id)] = full_name or username or str(sync_id)
+        return labels
+
+    def _user_label(self, user_id: Any, *, user_labels: dict[str, str] | None = None) -> str:
+        if not user_id:
+            return "—"
+
+        normalized_id = str(user_id)
+        if user_labels and normalized_id in user_labels:
+            return user_labels[normalized_id]
+
+        try:
+            request_user = self.request.user
+            sync_id = getattr(request_user.sync_binding, "syncserver_user_id", None)
+            if sync_id and str(sync_id) == normalized_id:
+                full_name = " ".join(
+                    part
+                    for part in [
+                        str(getattr(request_user, "first_name", "") or "").strip(),
+                        str(getattr(request_user, "last_name", "") or "").strip(),
+                    ]
+                    if part
+                )
+                username = str(getattr(request_user, "username", "") or "").strip()
+                return full_name or username or normalized_id
+        except Exception:
+            pass
+
+        return normalized_id
 
     @staticmethod
     def _site_name(sites_index: dict[int, dict[str, Any]], site_id: int | None) -> str:
@@ -600,21 +730,43 @@ class OperationPageService:
             site_id = self._to_int(row.get("site_id"))
             source_site_id = self._to_int(row.get("source_site_id"))
             qty = self._to_decimal(row.get("qty") or row.get("lost_qty") or 0) or Decimal("0")
+            status = str(row.get("status") or "open")
 
             result.append({
                 "operation_line_id": row.get("operation_line_id") or row.get("id"),
                 "operation_id": row.get("operation_id"),
                 "item_id": item_id,
                 "item_name": item.get("name") or f"ТМЦ #{item_id}",
+                "item_code": item.get("sku") or "—",
                 "sku": item.get("sku") or "—",
                 "unit_symbol": item.get("unit_symbol") or "—",
                 "site_name": self._site_name(sites_index, site_id),
                 "source_site_name": self._site_name(sites_index, source_site_id),
+                "destination_site_name": self._site_name(sites_index, site_id),
                 "qty": self._serialize_decimal(qty),
+                "lost_qty": self._serialize_decimal(qty),
+                "status": status,
+                "document_number": row.get("document_number") or "",
+                "created_at": row.get("updated_at") or "",
                 "updated_at": row.get("updated_at") or "",
             })
 
         return result
+
+    _ACTION_LABELS: dict[str, dict[str, str]] = {
+        "found_to_destination": {
+            "label": "Найдено на складе назначения",
+            "description": "Актив найден и добавлен на склад назначения",
+        },
+        "write_off": {
+            "label": "Списать",
+            "description": "Окончательное списание актива",
+        },
+        "return_to_source": {
+            "label": "Вернуть на склад-источник",
+            "description": "Возврат актива на исходный склад",
+        },
+    }
 
     def present_lost_asset_detail(
         self,
@@ -633,24 +785,36 @@ class OperationPageService:
         status = str(lost_asset.get("status") or "open")
 
         if status == "resolved":
-            available_actions: list[str] = []
+            available_actions: list[dict[str, str]] = []
         else:
-            available_actions = ["found_to_destination", "write_off"]
+            action_codes = ["found_to_destination", "write_off"]
             if has_source:
-                available_actions.append("return_to_source")
+                action_codes.append("return_to_source")
+            available_actions = [
+                {
+                    "value": code,
+                    "label": self._ACTION_LABELS[code]["label"],
+                    "description": self._ACTION_LABELS[code]["description"],
+                }
+                for code in action_codes
+            ]
 
         return {
             "operation_line_id": lost_asset.get("operation_line_id") or lost_asset.get("id"),
             "operation_id": lost_asset.get("operation_id"),
             "item_id": item_id,
             "item_name": item.get("name") or f"ТМЦ #{item_id}",
+            "item_code": item.get("sku") or "—",
             "sku": item.get("sku") or "—",
             "unit_symbol": item.get("unit_symbol") or "—",
             "site_name": self._site_name(sites_index, site_id),
             "source_site_name": self._site_name(sites_index, source_site_id),
+            "destination_site_name": self._site_name(sites_index, site_id),
             "qty": self._serialize_decimal(qty),
             "lost_qty": self._serialize_decimal(qty),
             "status": status,
+            "document_number": lost_asset.get("document_number") or "",
+            "created_at": lost_asset.get("updated_at") or "",
             "updated_at": lost_asset.get("updated_at") or "",
             "available_actions": available_actions,
             "has_source_site": has_source,

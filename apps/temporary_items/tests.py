@@ -40,6 +40,7 @@ class TemporaryItemsViewsTestCase(TestCase):
     def test_urls_resolve(self):
         """Проверка разрешения URL."""
         self.assertEqual(reverse("temporary_items:list"), "/temporary-items/")
+        self.assertEqual(reverse("temporary_items:item_search"), "/temporary-items/item-search/")
         self.assertEqual(reverse("temporary_items:detail", args=["temp-123"]), "/temporary-items/temp-123/")
         self.assertEqual(reverse("temporary_items:approve", args=["temp-123"]), "/temporary-items/temp-123/approve/")
         self.assertEqual(reverse("temporary_items:merge", args=["temp-123"]), "/temporary-items/temp-123/merge/")
