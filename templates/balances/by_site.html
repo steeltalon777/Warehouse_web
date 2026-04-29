@@ -11,8 +11,15 @@
     <h3>Параметры</h3>
     <form method="get" class="grid-2" data-loading-form data-loading-text="Загрузка..." data-loading-scope="page">
       <div class="form-row">
-        <label for="site_id">ID склада</label>
-        <input type="text" id="site_id" name="site_id" value="{{ site_id }}" placeholder="Например, 2">
+        <label for="site_id">Склад</label>
+        <select id="site_id" name="site_id">
+          <option value="" {% if not site_id %}selected{% endif %}>Выберите склад</option>
+          {% for site in sites %}
+          <option value="{{ site.site_id }}" {% if site_id|stringformat:"s" == site.site_id|stringformat:"s" %}selected{% endif %}>
+            {{ site.name }}
+          </option>
+          {% endfor %}
+        </select>
       </div>
       <div class="form-row">
         <label for="page_size">На странице</label>

@@ -57,8 +57,8 @@ def validate_acceptance_lines(
     Validate and build payload for accept-lines.
 
     Args:
-        raw_lines: List of dicts with keys: line_number, accepted_qty, lost_qty, note.
-        remaining_by_line: Dict mapping line_number -> remaining_qty (from backend).
+        raw_lines: List of dicts with keys: line_id, accepted_qty, lost_qty, note.
+        remaining_by_line: Dict mapping operation line ID -> remaining_qty (from backend).
 
     Returns:
         List of validated line payloads (only changed lines).
@@ -73,8 +73,9 @@ def validate_acceptance_lines(
     errors: list[str] = []
 
     for raw in raw_lines:
-        line_number = raw.get("line_number")
-        if line_number is None:
+        line_id = raw.get("line_id") or raw.get("operation_line_id") or raw.get("line_number")
+        line_label = raw.get("line_number") or line_id
+        if line_id is None:
             errors.append("Строка без номера.")
             continue
 
@@ -83,26 +84,26 @@ def validate_acceptance_lines(
         note = str(raw.get("note") or "").strip() or None
 
         if accepted_qty < Decimal("0"):
-            errors.append(f"Строка {line_number}: принятое количество не может быть отрицательным.")
+            errors.append(f"Строка {line_label}: принятое количество не может быть отрицательным.")
             continue
         if lost_qty < Decimal("0"):
-            errors.append(f"Строка {line_number}: количество потерь не может быть отрицательным.")
+            errors.append(f"Строка {line_label}: количество потерь не может быть отрицательным.")
             continue
         if accepted_qty == Decimal("0") and lost_qty == Decimal("0"):
             # Skip unchanged lines
             continue
 
-        remaining = remaining_by_line.get(line_number, Decimal("0"))
+        remaining = remaining_by_line.get(line_id, Decimal("0"))
         if accepted_qty + lost_qty > remaining:
             errors.append(
-                f"Строка {line_number}: сумма принятого ({_serialize_decimal(accepted_qty)}) "
+                f"Строка {line_label}: сумма принятого ({_serialize_decimal(accepted_qty)}) "
                 f"и потерянного ({_serialize_decimal(lost_qty)}) превышает остаток "
                 f"({_serialize_decimal(remaining)})."
             )
             continue
 
         line_payload: dict[str, Any] = {
-            "line_number": line_number,
+            "line_id": line_id,
             "accepted_qty": _serialize_decimal(accepted_qty),
             "lost_qty": _serialize_decimal(lost_qty),
         }

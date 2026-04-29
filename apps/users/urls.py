@@ -1,14 +1,15 @@
-from django.contrib.auth import views as auth_views
 from django.urls import path
 
 from . import sync_views
+from .views import logout_view
+from django.contrib.auth import views as auth_views
 
 app_name = "users"
 
 urlpatterns = [
     # Authentication views
     path("login/", auth_views.LoginView.as_view(template_name="registration/login.html"), name="login"),
-    path("logout/", auth_views.LogoutView.as_view(), name="logout"),
+    path("logout/", logout_view, name="logout"),
 
     # SyncServer authentication views
     path("sync/site-switch/", sync_views.sync_site_switch, name="sync_site_switch"),

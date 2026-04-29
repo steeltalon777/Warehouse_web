@@ -16,7 +16,11 @@ from apps.catalog.services import ServiceResult
 from apps.catalog_cache.models import CatalogCacheItem
 from apps.operations.forms import validate_acceptance_lines, validate_lost_asset_resolve
 from apps.operations.services import OperationPageService
-from apps.operations.views import _build_create_payload
+from apps.operations.views import (
+    _build_create_payload,
+    _get_post_list,
+    _load_pending_acceptance_for_operation,
+)
 from apps.sync_client.exceptions import SyncServerAPIError
 
 
@@ -58,6 +62,34 @@ class OperationCreatePayloadQuantityTests(SimpleTestCase):
         )
 
         self.assertEqual(payload["lines"][0]["qty"], "-0.125")
+
+    def test_move_allows_destination_outside_operate_sites_when_visible(self) -> None:
+        payload = _build_create_payload(
+            {
+                "operation_type": "MOVE",
+                "source_site_id": 1,
+                "destination_site_id": 2,
+                "items": [{"item_id": 10, "quantity": "1"}],
+            },
+            operate_site_ids={1},
+            destination_site_ids={1, 2},
+        )
+
+        self.assertEqual(payload["source_site_id"], 1)
+        self.assertEqual(payload["destination_site_id"], 2)
+
+    def test_move_rejects_destination_missing_from_visible_sites(self) -> None:
+        with self.assertRaisesMessage(ValidationError, "склад-получатель"):
+            _build_create_payload(
+                {
+                    "operation_type": "MOVE",
+                    "source_site_id": 1,
+                    "destination_site_id": 2,
+                    "items": [{"item_id": 10, "quantity": "1"}],
+                },
+                operate_site_ids={1},
+                destination_site_ids={1},
+            )
 
     def test_create_payload_rejects_more_than_three_decimal_places(self) -> None:
         with self.assertRaisesMessage(ValidationError, "точностью до 3 знаков"):
@@ -306,6 +338,8 @@ class ValidateAcceptanceLinesTests(SimpleTestCase):
         ]
         result = validate_acceptance_lines(raw_lines, remaining_by_line=remaining)
         self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["line_id"], 1)
+        self.assertEqual(result[1]["line_id"], 2)
         # _serialize_decimal normalizes "10.000" -> "10"
         self.assertEqual(result[0]["accepted_qty"], "10")
         self.assertEqual(result[1]["accepted_qty"], "5")
@@ -317,6 +351,7 @@ class ValidateAcceptanceLinesTests(SimpleTestCase):
         ]
         result = validate_acceptance_lines(raw_lines, remaining_by_line=remaining)
         self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["line_id"], 1)
         self.assertEqual(result[0]["accepted_qty"], "8")
         self.assertEqual(result[0]["lost_qty"], "2")
         self.assertEqual(result[0]["note"], "Повреждение")
@@ -528,6 +563,39 @@ class PresentAcceptanceDetailTests(SimpleTestCase):
         self.assertTrue(result["has_lost"])
 
 
+class PendingAcceptanceLoadingTests(SimpleTestCase):
+    def test_loads_operation_rows_with_api_page_limit(self) -> None:
+        assets_api = Mock()
+        assets_api.list_pending_acceptance_all_pages.return_value = {"items": []}
+
+        result = _load_pending_acceptance_for_operation(assets_api, "op-1")
+
+        self.assertEqual(result, {"items": []})
+        assets_api.list_pending_acceptance_all_pages.assert_called_once_with(
+            filters={"operation_id": "op-1"},
+            max_rows=200,
+        )
+
+    def test_accepts_bracketed_form_list_fields(self) -> None:
+        request = Mock()
+        request.POST.getlist.side_effect = lambda name: {
+            "line_number": [],
+            "line_number[]": ["1", "2"],
+        }.get(name, [])
+
+        self.assertEqual(_get_post_list(request, "line_number"), ["1", "2"])
+
+    def test_present_acceptance_detail_uses_operation_line_id_as_fallback_number(self) -> None:
+        service = OperationPageService(client=Mock())
+        operation = {"id": "op1", "document_number": "DOC-001", "operation_type": "RECEIVE"}
+        rows = [{"operation_line_id": 42, "item_id": 101, "qty": "10.000"}]
+
+        result = service.present_acceptance_detail(operation, rows)
+
+        self.assertEqual(result["lines"][0]["operation_line_id"], 42)
+        self.assertEqual(result["lines"][0]["line_number"], 42)
+
+
 class PresentLostAssetDetailTests(SimpleTestCase):
     """Tests for OperationPageService.present_lost_asset_detail."""
 
@@ -616,6 +684,62 @@ class PresentOperationSnapshotTests(SimpleTestCase):
         self.assertEqual(line["unit_symbol"], "кг")
         self.assertFalse(line["is_temporary"])
         self.assertIsNone(line["temporary_item_id"])
+
+    def test_acceptance_state_labels(self) -> None:
+        operation = {
+            "id": "op4",
+            "operation_type": "RECEIVE",
+            "status": "submitted",
+            "site_id": 1,
+            "acceptance_state": "resolved",
+            "lines": [],
+        }
+
+        presented = self.service._present_operation(
+            operation,
+            items_index={},
+            sites_index={1: {"site_id": 1, "name": "Склад 1"}},
+        )
+
+        self.assertEqual(presented["acceptance_state_label"], "Приёмка завершена")
+        self.assertEqual(presented["acceptance_state_tone"], "success")
+
+    def test_acceptance_not_required_label(self) -> None:
+        operation = {
+            "id": "op5",
+            "operation_type": "EXPENSE",
+            "status": "submitted",
+            "site_id": 1,
+            "acceptance_state": "not_required",
+            "lines": [],
+        }
+
+        presented = self.service._present_operation(
+            operation,
+            items_index={},
+            sites_index={1: {"site_id": 1, "name": "Склад 1"}},
+        )
+
+        self.assertEqual(presented["acceptance_state_label"], "Не требуется")
+        self.assertEqual(presented["acceptance_state_tone"], "muted")
+
+    def test_get_sites_index_uses_global_site_catalog(self) -> None:
+        service = OperationPageService(client=Mock(), request=Mock())
+
+        with patch("apps.operations.services.SyncServerClient") as client_cls:
+            root_client = client_cls.return_value
+            root_client.get.return_value = {
+                "sites": [
+                    {"site_id": 1, "name": "Склад A", "permissions": {"can_operate": True}},
+                    {"site_id": 2, "name": "Склад B", "permissions": {"can_operate": False}},
+                ]
+            }
+
+            sites_index = service.get_sites_index()
+
+        client_cls.assert_called_once_with(request=service.request, force_root=True)
+        root_client.get.assert_called_once_with("/catalog/sites")
+        self.assertEqual(sites_index[2]["name"], "Склад B")
 
     def test_temporary_item_flags(self) -> None:
         """Строки с temporary_item_id должны помечаться как временные."""

@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from apps.sync_client.root_admin_client import SyncServerRootAdminClient
-from apps.users.models import Role, Site, SyncStatus, SyncUserBinding
+from apps.users.models import Role, Site, SyncDeviceBinding, SyncStatus, SyncUserBinding
 
 User = get_user_model()
 
@@ -269,3 +269,135 @@ class SiteSyncService:
             defaults=defaults,
         )
         return site
+
+
+class DeviceSyncService:
+    def __init__(self, client: SyncServerRootAdminClient | None = None) -> None:
+        self.client = client or SyncServerRootAdminClient()
+
+    def create_device(self, *, device_code: str, device_name: str, is_active: bool) -> dict[str, Any]:
+        return self.client.post(
+            "/admin/devices",
+            json={
+                "device_code": device_code,
+                "device_name": device_name,
+                "site_id": None,
+                "is_active": is_active,
+            },
+        )
+
+    def update_device(
+        self,
+        *,
+        syncserver_device_id: int,
+        device_code: str,
+        device_name: str,
+        is_active: bool,
+    ) -> dict[str, Any]:
+        return self.client.patch(
+            f"/admin/devices/{syncserver_device_id}",
+            json={
+                "device_code": device_code,
+                "device_name": device_name,
+                "site_id": None,
+                "is_active": is_active,
+            },
+        )
+
+    def fetch_device(self, syncserver_device_id: int) -> dict[str, Any]:
+        return self.client.get(f"/admin/devices/{syncserver_device_id}")
+
+    def rotate_token(self, syncserver_device_id: int) -> dict[str, Any]:
+        return self.client.post(f"/admin/devices/{syncserver_device_id}/rotate-token")
+
+    def apply_remote_state(
+        self,
+        *,
+        binding: SyncDeviceBinding,
+        remote_device: dict[str, Any],
+        payload: dict[str, Any] | None = None,
+    ) -> SyncDeviceBinding:
+        binding.syncserver_device_id = int(
+            remote_device.get("device_id") or remote_device.get("id") or binding.syncserver_device_id or 0
+        )
+        binding.device_code = str(remote_device.get("device_code", binding.device_code))
+        binding.device_name = str(remote_device.get("device_name", binding.device_name))
+        binding.is_active = bool(remote_device.get("is_active", binding.is_active))
+        binding.sync_status = SyncStatus.SYNCED
+        binding.last_sync_error = ""
+        binding.last_sync_at = timezone.now()
+        binding.last_sync_payload = payload or remote_device
+        binding.save()
+        return binding
+
+    def create_binding(self, *, binding: SyncDeviceBinding) -> SyncDeviceBinding:
+        remote = self.create_device(
+            device_code=binding.device_code,
+            device_name=binding.device_name,
+            is_active=binding.is_active,
+        )
+        self.apply_remote_state(binding=binding, remote_device=remote, payload=remote)
+        binding.sync_device_token = str(remote.get("device_token", binding.sync_device_token or ""))
+        binding.save(update_fields=["sync_device_token", "updated_at"])
+        return binding
+
+    def sync_existing_binding(self, *, binding: SyncDeviceBinding) -> SyncDeviceBinding:
+        if not binding.syncserver_device_id:
+            raise ValueError("Binding has no SyncServer device id for sync.")
+        remote = self.update_device(
+            syncserver_device_id=binding.syncserver_device_id,
+            device_code=binding.device_code,
+            device_name=binding.device_name,
+            is_active=binding.is_active,
+        )
+        return self.apply_remote_state(binding=binding, remote_device=remote, payload=remote)
+
+    def repair_binding_from_remote(self, *, binding: SyncDeviceBinding) -> SyncDeviceBinding:
+        if not binding.syncserver_device_id:
+            raise ValueError("Binding has no SyncServer device id for repair.")
+        remote = self.fetch_device(binding.syncserver_device_id)
+        return self.apply_remote_state(binding=binding, remote_device=remote, payload=remote)
+
+    def apply_rotated_token(self, *, binding: SyncDeviceBinding, rotate_response: dict[str, Any]) -> SyncDeviceBinding:
+        binding.sync_device_token = str(rotate_response.get("device_token", binding.sync_device_token))
+        binding.sync_status = SyncStatus.SYNCED
+        binding.last_sync_error = ""
+        binding.last_sync_at = timezone.now()
+        binding.token_rotated_at = timezone.now()
+        binding.last_sync_payload = rotate_response
+        binding.save(
+            update_fields=[
+                "sync_device_token",
+                "sync_status",
+                "last_sync_error",
+                "last_sync_at",
+                "token_rotated_at",
+                "last_sync_payload",
+                "updated_at",
+            ]
+        )
+        return binding
+
+    def mark_failure(
+        self,
+        *,
+        binding: SyncDeviceBinding,
+        error: Exception,
+        payload: dict[str, Any] | None = None,
+        status: str = SyncStatus.SYNC_FAILED,
+    ) -> SyncDeviceBinding:
+        binding.sync_status = status
+        binding.last_sync_error = str(error)
+        binding.last_sync_at = timezone.now()
+        if payload is not None:
+            binding.last_sync_payload = payload
+        binding.save(
+            update_fields=[
+                "sync_status",
+                "last_sync_error",
+                "last_sync_at",
+                "last_sync_payload",
+                "updated_at",
+            ]
+        )
+        return binding

@@ -13,7 +13,7 @@
     <a href="{% url 'temporary_items:list' %}" class="btn btn-secondary"
       >← К списку</a
     >
-    {% if item.status == "pending" %}
+    {% if item.status == "active" %}
     <a
       href="{% url 'temporary_items:approve' item.id %}"
       class="btn btn-success"
@@ -49,14 +49,14 @@
       <tr>
         <th>Статус</th>
         <td>
-          {% if item.status == "pending" %}
-          <span class="badge badge-warning">Ожидает</span>
-          {% elif item.status == "approved" %}
-          <span class="badge badge-success">Преобразована</span>
-          {% elif item.status == "merged" %}
+          {% if item.status == "active" %}
+          <span class="badge badge-warning">Активна</span>
+          {% elif item.status == "approved_as_item" %}
+          <span class="badge badge-success">Преобразована в постоянную</span>
+          {% elif item.status == "merged_to_item" %}
           <span class="badge badge-info">Объединена</span>
-          {% elif item.status == "rejected" %}
-          <span class="badge badge-danger">Отклонена</span>
+          {% elif item.status == "deleted" %}
+          <span class="badge badge-danger">Удалена</span>
           {% else %}
           <span class="badge">{{ item.status }}</span>
           {% endif %}
@@ -97,7 +97,7 @@
     <a href="{% url 'temporary_items:list' %}" class="btn btn-secondary"
       >Вернуться к списку</a
     >
-    {% if item.status == "pending" %}
+    {% if item.status == "active" %}
     <a
       href="{% url 'temporary_items:approve' item.id %}"
       class="btn btn-success"

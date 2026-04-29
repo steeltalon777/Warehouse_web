@@ -148,7 +148,7 @@ class AssetsAPI:
         """
         params = self._build_params(filters)
         response = self.client.get(
-            "/api/v1/lost-assets",
+            "/lost-assets",
             params=params,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
@@ -172,7 +172,7 @@ class AssetsAPI:
         """
         logger.debug("Fetching lost asset", extra={"operation_line_id": operation_line_id})
         return self.client.get(
-            f"/api/v1/lost-assets/{operation_line_id}",
+            f"/lost-assets/{operation_line_id}",
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
@@ -203,7 +203,7 @@ class AssetsAPI:
         """
         logger.debug("Resolving lost asset", extra={"operation_line_id": operation_line_id, "action": payload.get("action")})
         return self.client.post(
-            f"/api/v1/lost-assets/{operation_line_id}/resolve",
+            f"/lost-assets/{operation_line_id}/resolve",
             json=payload,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,

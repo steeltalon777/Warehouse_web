@@ -19,15 +19,22 @@
     <form method="get" class="grid-2" data-loading-form data-loading-text="Загрузка..." data-loading-scope="page">
       <div class="form-row">
         <label for="search">Поиск</label>
-        <input type="text" id="search" name="search" value="{{ search }}" placeholder="Поиск по ТМЦ">
+        <input type="search" id="search" name="search" value="{{ search }}" placeholder="Наименование, SKU, категория или #тег">
       </div>
       <div class="form-row">
         <label for="item_id">ID ТМЦ</label>
         <input type="text" id="item_id" name="item_id" value="{{ item_id }}" placeholder="Например, 15">
       </div>
       <div class="form-row">
-        <label for="site_id">ID склада</label>
-        <input type="text" id="site_id" name="site_id" value="{{ site_id }}" placeholder="Например, 2">
+        <label for="site_id">Склад</label>
+        <select id="site_id" name="site_id">
+          <option value="" {% if not site_id %}selected{% endif %}>Все склады</option>
+          {% for site in sites %}
+          <option value="{{ site.site_id }}" {% if site_id|stringformat:"s" == site.site_id|stringformat:"s" %}selected{% endif %}>
+            {{ site.name }}
+          </option>
+          {% endfor %}
+        </select>
       </div>
       <div class="form-row">
         <label for="page_size">На странице</label>
@@ -61,7 +68,6 @@
             <th>ТМЦ</th>
             <th>Склад</th>
             <th>Количество</th>
-            <th>Статус</th>
             <th>Обновлено</th>
           </tr>
         </thead>
@@ -75,14 +81,11 @@
                 {{ b.quantity|default:"0" }}
               </span>
             </td>
-            <td>
-              <span class="badge bg-{{ b.status_tone }}">{{ b.status_label }}</span>
-            </td>
             <td>{{ b.updated_at|default:"-" }}</td>
           </tr>
           {% empty %}
           <tr>
-            <td colspan="5" style="text-align: center; padding: 32px; color: var(--muted);">
+            <td colspan="4" style="text-align: center; padding: 32px; color: var(--muted);">
               Нет данных по остаткам.
             </td>
           </tr>
@@ -97,12 +100,12 @@
       </div>
       <div style="display: flex; gap: 8px;">
         {% if has_previous %}
-        <a class="btn btn-secondary" href="?search={{ search }}&item_id={{ item_id }}&site_id={{ site_id }}&page_size={{ page_size }}&page={{ prev_page }}{% if only_positive %}&only_positive=1{% endif %}">
+        <a class="btn btn-secondary" href="?search={{ search|urlencode }}&item_id={{ item_id }}&site_id={{ site_id }}&page_size={{ page_size }}&page={{ prev_page }}{% if only_positive %}&only_positive=1{% endif %}">
           ← Назад
         </a>
         {% endif %}
         {% if has_next %}
-        <a class="btn btn-secondary" href="?search={{ search }}&item_id={{ item_id }}&site_id={{ site_id }}&page_size={{ page_size }}&page={{ next_page }}{% if only_positive %}&only_positive=1{% endif %}">
+        <a class="btn btn-secondary" href="?search={{ search|urlencode }}&item_id={{ item_id }}&site_id={{ site_id }}&page_size={{ page_size }}&page={{ next_page }}{% if only_positive %}&only_positive=1{% endif %}">
           Вперёд →
         </a>
         {% endif %}

@@ -109,7 +109,7 @@
             <label for="destination-site-select">Склад-получатель</label>
             <select id="destination-site-select">
               <option value="">Выберите склад-получатель</option>
-              {% for site in operate_sites %}
+              {% for site in destination_sites %}
               <option value="{{ site.site_id }}">{{ site.name }}</option>
               {% endfor %}
             </select>
@@ -288,5 +288,5 @@
 <script id="operation-create-config" type="application/json">
   {"itemSearchUrl":"{{ item_search_url|escapejs }}","canChooseSourceSite":{% if can_choose_source_site %}true{% else %}false{% endif %},"fixedOperatingSiteId":"{{ fixed_operating_site_id }}"}
 </script>
-<script src="{% static 'js/operations_create.js' %}?v=20260424-search-enter-fix-3"></script>
+<script src="{% static 'js/operations_create.js' %}?v=20260429-destination-sites"></script>
 {% endif %} {% endblock %}

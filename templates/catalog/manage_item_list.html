@@ -83,7 +83,12 @@
             <div class="table-actions">
                 <button type="button" class="btn btn-small btn-success" title="Сохранить изменения (пока пустышка)">Применить</button>
                 <a href="{% url 'nomenclature:item_update' item.id %}" class="btn btn-small btn-secondary">Редактировать</a>
-                <button type="button" class="btn btn-small btn-danger">Удалить</button>
+                {% if not item.is_active %}
+                <form method="post" action="{% url 'nomenclature:item_delete' item.id %}" style="display:inline" data-loading-form data-loading-scope="page" data-loading-overlay-text="Удаление ТМЦ...">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-small btn-danger">Удалить</button>
+                </form>
+                {% endif %}
             </div>
         </td>
     </tr>

@@ -29,25 +29,25 @@
       <select id="status" name="status">
         <option value="">Все статусы</option>
         <option
-          value="pending"
-          {% if status == "pending" %}selected{% endif %}
+          value="active"
+          {% if status == "active" %}selected{% endif %}
         >
-          Ожидает
+          Активна
         </option>
         <option
-          value="approved"
-          {% if status == "approved" %}selected{% endif %}
+          value="approved_as_item"
+          {% if status == "approved_as_item" %}selected{% endif %}
         >
-          Преобразована
+          Преобразована в постоянную
         </option>
-        <option value="merged" {% if status == "merged" %}selected{% endif %}>
+        <option value="merged_to_item" {% if status == "merged_to_item" %}selected{% endif %}>
           Объединена
         </option>
         <option
-          value="rejected"
-          {% if status == "rejected" %}selected{% endif %}
+          value="deleted"
+          {% if status == "deleted" %}selected{% endif %}
         >
-          Отклонена
+          Удалена
         </option>
       </select>
     </div>
@@ -95,14 +95,14 @@
         <td>{{ item.name|default:"—" }}</td>
         <td>{{ item.code|default:"—" }}</td>
         <td>
-          {% if item.status == "pending" %}
-          <span class="badge badge-warning">Ожидает</span>
-          {% elif item.status == "approved" %}
-          <span class="badge badge-success">Преобразована</span>
-          {% elif item.status == "merged" %}
+          {% if item.status == "active" %}
+          <span class="badge badge-warning">Активна</span>
+          {% elif item.status == "approved_as_item" %}
+          <span class="badge badge-success">Преобразована в постоянную</span>
+          {% elif item.status == "merged_to_item" %}
           <span class="badge badge-info">Объединена</span>
-          {% elif item.status == "rejected" %}
-          <span class="badge badge-danger">Отклонена</span>
+          {% elif item.status == "deleted" %}
+          <span class="badge badge-danger">Удалена</span>
           {% else %}
           <span class="badge">{{ item.status }}</span>
           {% endif %}
@@ -114,7 +114,7 @@
             class="btn btn-sm"
             >Просмотр</a
           >
-          {% if item.status == "pending" %}
+          {% if item.status == "active" %}
           <a
             href="{% url 'temporary_items:approve' item.id %}"
             class="btn btn-sm btn-success"

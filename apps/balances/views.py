@@ -7,9 +7,11 @@ from django.shortcuts import render
 from django.views.generic import TemplateView
 
 from apps.catalog.services import CatalogService
+from apps.common.permissions import get_user_role
 from apps.common.api_error_handler import handle_api_errors, log_api_call
 from apps.common.mixins import SyncContextMixin
 from apps.sync_client.balances_api import BalancesAPI
+from apps.sync_client.client import SyncServerClient
 
 
 def _parse_positive_int(raw_value: str | None, default: int) -> int:
@@ -21,8 +23,13 @@ def _parse_positive_int(raw_value: str | None, default: int) -> int:
 
 
 def _get_sites_index(client) -> dict[int, dict[str, Any]]:
-    response = client.get("/auth/sites")
-    sites = response.get("available_sites", []) if isinstance(response, dict) else []
+    try:
+        root_client = SyncServerClient(request=getattr(client, "request", None), force_root=True)
+        response = root_client.get("/catalog/sites")
+        sites = response.get("sites", []) if isinstance(response, dict) else []
+    except Exception:
+        response = client.get("/auth/sites")
+        sites = response.get("available_sites", []) if isinstance(response, dict) else []
     sites_index: dict[int, dict[str, Any]] = {}
     for site in sites:
         try:
@@ -34,6 +41,10 @@ def _get_sites_index(client) -> dict[int, dict[str, Any]]:
             "name": str(site.get("name") or site.get("code") or site_id),
         }
     return sites_index
+
+
+def _get_sites_list(client) -> list[dict[str, Any]]:
+    return sorted(_get_sites_index(client).values(), key=lambda site: site["name"])
 
 
 def _get_items_index(client) -> dict[int, dict[str, Any]]:
@@ -53,6 +64,23 @@ def _get_items_index(client) -> dict[int, dict[str, Any]]:
             "sku": str(item.get("sku") or ""),
         }
     return items_index
+
+
+def _get_user_default_site_id(request) -> str:
+    default_site_id = (
+        request.session.get("sync_default_site_id")
+        or request.session.get("active_site")
+        or request.session.get("site_id")
+        or getattr(getattr(request.user, "sync_binding", None), "default_site_id", "")
+    )
+    return str(default_site_id or "")
+
+
+def _get_default_balance_site_id(request) -> str:
+    role = request.session.get("sync_role") or get_user_role(request.user)
+    if role == "storekeeper":
+        return _get_user_default_site_id(request)
+    return ""
 
 
 def _present_balance_row(
@@ -85,6 +113,9 @@ def _present_balance_row(
     except (TypeError, ValueError):
         normalized_item_id = None
     item = items_index.get(normalized_item_id) if normalized_item_id is not None else None
+    item_name = row.get("display_name") or row.get("item_name")
+    sku = row.get("sku") or (item.get("sku") if item else "")
+    category_name = row.get("category_name") or ""
 
     if quantity_value <= 0:
         status_label = "Не в наличии"
@@ -98,7 +129,9 @@ def _present_balance_row(
 
     return {
         "item_id": item_id,
-        "item_name": str(item.get("name") or item_id) if item else item_id,
+        "item_name": str(item_name or (item.get("name") if item else "") or item_id),
+        "sku": str(sku or ""),
+        "category_name": str(category_name or ""),
         "site_id": site_id,
         "site_name": str(site.get("name") or site_id) if site else site_id,
         "quantity": quantity,
@@ -117,7 +150,8 @@ class BalancesListView(SyncContextMixin, TemplateView):
         page_size = _parse_positive_int(request.GET.get("page_size"), 20)
         search = request.GET.get("search") or None
         item_id = request.GET.get("item_id") or None
-        site_id = request.GET.get("site_id") or None
+        raw_site_id = request.GET.get("site_id") if "site_id" in request.GET else _get_default_balance_site_id(request)
+        site_id = raw_site_id or None
         only_positive = request.GET.get("only_positive") == "1"
 
         filters: dict[str, Any] = {
@@ -143,6 +177,7 @@ class BalancesListView(SyncContextMixin, TemplateView):
             page_size=page_size,
         )
         sites_index = _get_sites_index(self.client)
+        sites = sorted(sites_index.values(), key=lambda site: site["name"])
         items_index = _get_items_index(self.client)
         balances = [
             _present_balance_row(row, sites_index=sites_index, items_index=items_index)
@@ -159,7 +194,8 @@ class BalancesListView(SyncContextMixin, TemplateView):
                 "balances": balances,
                 "search": search or "",
                 "item_id": item_id or "",
-                "site_id": site_id or "",
+                "site_id": raw_site_id or "",
+                "sites": sites,
                 "only_positive": only_positive,
                 "page": page,
                 "page_size": page_size,
@@ -214,6 +250,7 @@ class BalancesBySiteView(SyncContextMixin, TemplateView):
                 {
                     "records": [],
                     "site_id": "",
+                    "sites": _get_sites_list(self.client),
                     "only_positive": only_positive,
                     "page": page,
                     "page_size": page_size,
@@ -243,6 +280,7 @@ class BalancesBySiteView(SyncContextMixin, TemplateView):
             page_size=page_size,
         )
         sites_index = _get_sites_index(self.client)
+        sites = sorted(sites_index.values(), key=lambda site: site["name"])
         items_index = _get_items_index(self.client)
         records = [
             _present_balance_row(row, sites_index=sites_index, items_index=items_index)
@@ -256,6 +294,7 @@ class BalancesBySiteView(SyncContextMixin, TemplateView):
             {
                 "records": records,
                 "site_id": site_id,
+                "sites": sites,
                 "only_positive": only_positive,
                 "page": page,
                 "page_size": page_size,

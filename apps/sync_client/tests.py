@@ -8,8 +8,45 @@ from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 
+from .assets_api import AssetsAPI
 from .client import SyncServerClient
+from .operations_api import OperationsAPI
 from .temporary_items_api import TemporaryItemsAPI
+
+
+class OperationsAPITests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.mock_client = Mock(spec=SyncServerClient)
+        self.api = OperationsAPI(client=self.mock_client)
+
+    def test_accept_operation_lines_uses_base_relative_path(self) -> None:
+        payload = {"lines": [{"line_id": 10, "accepted_qty": "1", "lost_qty": "0"}]}
+
+        self.api.accept_operation_lines("op-1", payload)
+
+        self.mock_client.post.assert_called_once_with(
+            "/operations/op-1/accept-lines",
+            json=payload,
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+
+class AssetsAPITests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.mock_client = Mock(spec=SyncServerClient)
+        self.api = AssetsAPI(client=self.mock_client)
+
+    def test_lost_assets_paths_are_base_relative(self) -> None:
+        self.mock_client.get.return_value = {"items": []}
+
+        self.api.list_lost_assets()
+        self.api.get_lost_asset(5)
+        self.api.resolve_lost_asset(5, {"action": "write_off", "qty": "1"})
+
+        self.assertEqual(self.mock_client.get.call_args_list[0].args[0], "/lost-assets")
+        self.assertEqual(self.mock_client.get.call_args_list[1].args[0], "/lost-assets/5")
+        self.assertEqual(self.mock_client.post.call_args.args[0], "/lost-assets/5/resolve")
 
 
 class TemporaryItemsAPITests(SimpleTestCase):

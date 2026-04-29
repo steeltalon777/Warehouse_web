@@ -39,6 +39,7 @@ from apps.sync_client.operations_api import OperationsAPI
 logger = logging.getLogger(__name__)
 QTY_SCALE = Decimal("0.001")
 MAX_QTY_ABS = Decimal("1000000000000000")
+PENDING_ACCEPTANCE_PAGE_SIZE = 200
 
 
 def _to_int(value: Any) -> int | None:
@@ -97,8 +98,8 @@ def _normalize_effective_at(value: Any) -> str | None:
 
 
 def _load_item_form_options(catalog_service: CatalogService) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    categories_result = catalog_service.list_admin_categories()
-    units_result = catalog_service.list_admin_units()
+    categories_result = catalog_service.list_categories()
+    units_result = catalog_service.list_units()
     categories = _normalize_categories(categories_result.data or []) if categories_result.ok else []
     units = _normalize_units(units_result.data or []) if units_result.ok else []
     return categories, units
@@ -145,6 +146,7 @@ def _build_create_payload(
     draft_data: dict[str, Any],
     *,
     operate_site_ids: set[int],
+    destination_site_ids: set[int] | None = None,
     fixed_operating_site_id: int | None = None,
     default_unit_id: int | None = None,
 ) -> dict[str, Any]:
@@ -179,7 +181,8 @@ def _build_create_payload(
             source_site_id = fixed_operating_site_id
         if source_site_id not in operate_site_ids:
             raise ValidationError("Выберите склад-источник для операции перемещения.")
-        if destination_site_id not in operate_site_ids:
+        allowed_destination_site_ids = destination_site_ids if destination_site_ids is not None else operate_site_ids
+        if destination_site_id not in allowed_destination_site_ids:
             raise ValidationError("Выберите склад-получатель для операции перемещения.")
         if source_site_id == destination_site_id:
             raise ValidationError("Склад-источник и склад-получатель должны отличаться.")
@@ -320,6 +323,23 @@ def _format_cancel_error(exc: SyncServerAPIError) -> str:
     if exc.status_code == 409:
         return f"Отмена отклонена: {exc}"
     return str(exc) or "Не удалось отменить операцию."
+
+
+def _load_pending_acceptance_for_operation(
+    assets_api: AssetsAPI,
+    operation_id: str,
+) -> dict[str, Any]:
+    return assets_api.list_pending_acceptance_all_pages(
+        filters={"operation_id": operation_id},
+        max_rows=PENDING_ACCEPTANCE_PAGE_SIZE,
+    )
+
+
+def _get_post_list(request, field_name: str) -> list[str]:
+    values = request.POST.getlist(field_name)
+    if values:
+        return values
+    return request.POST.getlist(f"{field_name}[]")
 
 
 class OperationsListView(SyncContextMixin, TemplateView):
@@ -498,6 +518,7 @@ class OperationCreateView(SyncContextMixin, View):
     def get(self, request):
         service = OperationPageService(self.client, request=request)
         operate_sites = _safe_get_operate_sites(service, request)
+        destination_sites = service.get_all_sites()
         fixed_operating_site_id = service.get_fixed_operating_site_id()
         catalog_service = CatalogService(self.client)
         categories, units = _load_item_form_options(catalog_service)
@@ -517,6 +538,7 @@ class OperationCreateView(SyncContextMixin, View):
                 form=form,
                 draft=draft,
                 operate_sites=operate_sites,
+                destination_sites=destination_sites,
                 fixed_operating_site_id=fixed_operating_site_id,
                 item_categories=categories,
                 item_units=units,
@@ -527,6 +549,7 @@ class OperationCreateView(SyncContextMixin, View):
     def post(self, request):
         service = OperationPageService(self.client, request=request)
         operate_sites = _safe_get_operate_sites(service, request)
+        destination_sites = service.get_all_sites()
         fixed_operating_site_id = service.get_fixed_operating_site_id()
         form = OperationCreateForm(request.POST)
         catalog_service = CatalogService(self.client)
@@ -545,6 +568,7 @@ class OperationCreateView(SyncContextMixin, View):
                 payload = _build_create_payload(
                     draft,
                     operate_site_ids={int(site["site_id"]) for site in operate_sites},
+                    destination_site_ids={int(site["site_id"]) for site in destination_sites},
                     fixed_operating_site_id=fixed_operating_site_id,
                     default_unit_id=_to_int(default_unit_id),
                 )
@@ -577,6 +601,7 @@ class OperationCreateView(SyncContextMixin, View):
                 form=form,
                 draft=draft,
                 operate_sites=operate_sites,
+                destination_sites=destination_sites,
                 fixed_operating_site_id=fixed_operating_site_id,
                 item_categories=categories,
                 item_units=units,
@@ -591,6 +616,7 @@ class OperationCreateView(SyncContextMixin, View):
         form: OperationCreateForm,
         draft: dict[str, Any],
         operate_sites: list[dict[str, Any]],
+        destination_sites: list[dict[str, Any]],
         fixed_operating_site_id: int | None,
         item_categories: list[dict[str, Any]],
         item_units: list[dict[str, Any]],
@@ -607,6 +633,7 @@ class OperationCreateView(SyncContextMixin, View):
             "form": form,
             "draft": draft,
             "operate_sites": operate_sites,
+            "destination_sites": destination_sites,
             "can_create_operations": bool(operate_sites),
             "operation_type_options": service.operation_type_options(),
             "item_search_url": reverse("operations:item_search"),
@@ -698,29 +725,30 @@ class PendingAcceptanceListView(SyncContextMixin, TemplateView):
         if op_type:
             grouped = [op for op in grouped if op["operation_type"] == op_type.upper()]
 
-        # Build site filter options from grouped data
-        site_options = sorted(
-            {op["destination_site_name"] for op in grouped},
-        )
+        # Build site filter options from all available sites for dropdown
+        all_sites = service.get_all_sites()
+        available_sites = [
+            {"id": site["site_id"], "name": site["name"]}
+            for site in all_sites
+        ]
 
         total_count = len(grouped)
-        total_pages = max((total_count + page_size - 1) // page_size, 1)
-        current_page = page
+        page_count = max((total_count + page_size - 1) // page_size, 1)
 
         context = {
-            "operations": grouped,
+            "groups": grouped,
             "search": search,
             "site_id": site_id,
-            "type": op_type,
+            "type_filter": op_type,
             "page_size": page_size,
-            "current_page": current_page,
+            "page": page,
             "total_count": total_count,
-            "total_pages": total_pages,
-            "has_prev": current_page > 1,
-            "has_next": current_page < total_pages,
-            "prev_page": max(current_page - 1, 1),
-            "next_page": min(current_page + 1, total_pages),
-            "site_options": site_options,
+            "page_count": page_count,
+            "has_prev": page > 1,
+            "has_next": page < page_count,
+            "prev_page": max(page - 1, 1),
+            "next_page": min(page + 1, page_count),
+            "available_sites": available_sites,
             "type_options": [
                 {"code": "RECEIVE", "label": "Приход"},
                 {"code": "MOVE", "label": "Перемещение"},
@@ -751,9 +779,7 @@ class AcceptanceDetailView(SyncContextMixin, TemplateView):
             return redirect("operations:pending_acceptance")
 
         try:
-            pending_data = assets_api.list_pending_acceptance(
-                filters={"operation_id": operation_id, "page_size": 500}
-            )
+            pending_data = _load_pending_acceptance_for_operation(assets_api, operation_id)
         except SyncServerAPIError as exc:
             messages.error(request, str(exc) or "Не удалось загрузить строки приёмки.")
             pending_data = {"items": []}
@@ -776,9 +802,7 @@ class AcceptanceSubmitView(SyncContextMixin, View):
 
         # Re-fetch pending rows to get current remaining quantities
         try:
-            pending_data = assets_api.list_pending_acceptance(
-                filters={"operation_id": operation_id, "page_size": 500}
-            )
+            pending_data = _load_pending_acceptance_for_operation(assets_api, operation_id)
         except SyncServerAPIError as exc:
             messages.error(request, str(exc) or "Не удалось загрузить актуальные данные приёмки.")
             return redirect("operations:acceptance_detail", operation_id=operation_id)
@@ -791,26 +815,30 @@ class AcceptanceSubmitView(SyncContextMixin, View):
         # Build remaining_by_line map
         remaining_by_line: dict[int | str, Decimal] = {}
         for row in pending_rows:
-            line_number = row.get("line_number")
-            if line_number is None:
+            line_id = row.get("operation_line_id") or row.get("line_id") or row.get("id")
+            if line_id is None:
                 continue
             expected = service._to_decimal(row.get("qty") or row.get("expected_qty") or 0) or Decimal("0")
             accepted = service._to_decimal(row.get("accepted_qty") or 0) or Decimal("0")
             lost = service._to_decimal(row.get("lost_qty") or 0) or Decimal("0")
             remaining = expected - accepted - lost
             if remaining > Decimal("0"):
-                remaining_by_line[line_number] = remaining
+                remaining_by_line[line_id] = remaining
 
         # Parse raw lines from POST
         raw_lines: list[dict[str, Any]] = []
-        line_numbers = request.POST.getlist("line_number")
-        accepted_qtys = request.POST.getlist("accepted_qty")
-        lost_qtys = request.POST.getlist("lost_qty")
-        notes = request.POST.getlist("note")
+        line_ids = _get_post_list(request, "line_id")
+        line_numbers = _get_post_list(request, "line_number")
+        if not line_ids:
+            line_ids = line_numbers
+        accepted_qtys = _get_post_list(request, "accepted_qty")
+        lost_qtys = _get_post_list(request, "lost_qty")
+        notes = _get_post_list(request, "note")
 
-        for i, ln in enumerate(line_numbers):
+        for i, line_id in enumerate(line_ids):
             raw_lines.append({
-                "line_number": _to_int(ln),
+                "line_id": _to_int(line_id),
+                "line_number": line_numbers[i] if i < len(line_numbers) else line_id,
                 "accepted_qty": accepted_qtys[i] if i < len(accepted_qtys) else "0",
                 "lost_qty": lost_qtys[i] if i < len(lost_qtys) else "0",
                 "note": notes[i] if i < len(notes) else "",

@@ -305,7 +305,7 @@ class TemporaryItemsAPI:
         )
 
         return self.client.post(
-            f"/temporary-items/{temporary_item_id}/approve",
+            f"/temporary-items/{temporary_item_id}/approve-as-item",
             json={},
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,

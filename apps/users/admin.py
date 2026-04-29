@@ -14,12 +14,13 @@ from django.utils.html import format_html
 from apps.sync_client.exceptions import SyncServerAPIError
 from apps.users.admin_forms import (
     SuperuserLocalAdminForm,
+    SyncManagedDeviceAdminForm,
     SyncManagedSiteAdminForm,
     SyncManagedUserAdminForm,
     SyncManagedUserCreationForm,
 )
-from apps.users.models import Site, SyncStatus, SyncUserBinding
-from apps.users.services import SiteSyncService, UserSyncService
+from apps.users.models import Site, SyncDeviceBinding, SyncStatus, SyncUserBinding
+from apps.users.services import DeviceSyncService, SiteSyncService, UserSyncService
 
 User = get_user_model()
 
@@ -176,6 +177,182 @@ class SyncUserBindingAdmin(admin.ModelAdmin):
     def mark_selected_for_repair(self, request: HttpRequest, queryset):
         updated = queryset.update(sync_status=SyncStatus.REPAIR_REQUIRED, updated_at=timezone.now())
         self.message_user(request, f"Помечено для ремонта binding-записей: {updated}.", level=messages.warning)
+
+
+@admin.register(SyncDeviceBinding)
+class SyncDeviceBindingAdmin(admin.ModelAdmin):
+    form = SyncManagedDeviceAdminForm
+    change_form_template = "admin/users/syncdevicebinding/change_form.html"
+    actions = ("repair_selected_bindings", "mark_selected_for_repair")
+    list_display = (
+        "device_code",
+        "device_name",
+        "is_active",
+        "sync_status",
+        "last_sync_at",
+        "masked_device_token",
+    )
+    search_fields = ("device_code", "device_name", "syncserver_device_id")
+    readonly_fields = (
+        "syncserver_device_id",
+        "sync_device_token",
+        "last_sync_at",
+        "last_sync_error",
+        "last_sync_payload_pretty",
+        "token_rotated_at",
+        "manual_token_updated_at",
+        "manual_token_updated_by",
+        "created_at",
+        "updated_at",
+    )
+    fields = (
+        "device_code",
+        "device_name",
+        "syncserver_device_id",
+        "sync_device_token",
+        "is_active",
+        "sync_status",
+        "last_sync_error",
+        "last_sync_payload_pretty",
+        "last_sync_at",
+        "token_rotated_at",
+        "manual_token_updated_at",
+        "manual_token_updated_by",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_module_permission(self, request: HttpRequest) -> bool:
+        return request.user.is_superuser
+
+    def has_view_permission(self, request: HttpRequest, obj: SyncDeviceBinding | None = None) -> bool:
+        return request.user.is_superuser
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return request.user.is_superuser
+
+    def has_change_permission(self, request: HttpRequest, obj: SyncDeviceBinding | None = None) -> bool:
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request: HttpRequest, obj: SyncDeviceBinding | None = None) -> bool:
+        return False
+
+    @admin.display(description="Device token")
+    def masked_device_token(self, obj: SyncDeviceBinding) -> str:
+        token = obj.sync_device_token or ""
+        if len(token) <= 8:
+            return token
+        return f"{token[:4]}...{token[-4:]}"
+
+    @admin.display(description="Last sync payload")
+    def last_sync_payload_pretty(self, obj: SyncDeviceBinding) -> str:
+        return format_html("<pre style='white-space:pre-wrap;max-width:960px;'>{}</pre>", obj.last_sync_payload or {})
+
+    def save_model(self, request: HttpRequest, obj: SyncDeviceBinding, form, change: bool) -> None:
+        service = DeviceSyncService()
+        try:
+            with transaction.atomic():
+                super().save_model(request, obj, form, change)
+                if change:
+                    service.sync_existing_binding(binding=obj)
+                else:
+                    service.create_binding(binding=obj)
+        except Exception as exc:
+            if obj.pk:
+                service.mark_failure(binding=obj, error=exc, status=SyncStatus.REPAIR_REQUIRED)
+            raise
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/sync/",
+                self.admin_site.admin_view(self.sync_with_syncserver_view),
+                name="users_syncdevicebinding_sync",
+            ),
+            path(
+                "<path:object_id>/rotate-token/",
+                self.admin_site.admin_view(self.rotate_token_view),
+                name="users_syncdevicebinding_rotate_token",
+            ),
+            path(
+                "<path:object_id>/repair/",
+                self.admin_site.admin_view(self.repair_from_syncserver_view),
+                name="users_syncdevicebinding_repair",
+            ),
+        ]
+        return custom_urls + urls
+
+    def sync_with_syncserver_view(self, request: HttpRequest, object_id: str):
+        binding = get_object_or_404(SyncDeviceBinding, pk=object_id)
+        try:
+            DeviceSyncService().sync_existing_binding(binding=binding)
+            self.message_user(request, "Устройство успешно синхронизировано с SyncServer.", level=messages.success)
+        except SyncServerAPIError as exc:
+            DeviceSyncService().mark_failure(binding=binding, error=exc)
+            self.message_user(request, f"SyncServer вернул ошибку: {exc}", level=messages.error)
+        except Exception as exc:
+            DeviceSyncService().mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
+            self.message_user(request, f"Не удалось синхронизировать устройство: {exc}", level=messages.error)
+        return redirect(self._change_url(binding.pk))
+
+    def rotate_token_view(self, request: HttpRequest, object_id: str):
+        binding = get_object_or_404(SyncDeviceBinding, pk=object_id)
+        if not binding.syncserver_device_id:
+            self.message_user(request, "Нет SyncServer device id для rotate-token.", level=messages.error)
+            return redirect(self._change_url(binding.pk))
+        try:
+            response = DeviceSyncService().rotate_token(binding.syncserver_device_id)
+            DeviceSyncService().apply_rotated_token(binding=binding, rotate_response=response)
+            self.message_user(request, "Токен устройства перевыпущен и сохранён локально.", level=messages.success)
+        except SyncServerAPIError as exc:
+            DeviceSyncService().mark_failure(binding=binding, error=exc)
+            self.message_user(request, f"Rotate-token завершился ошибкой: {exc}", level=messages.error)
+        except Exception as exc:
+            DeviceSyncService().mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
+            self.message_user(request, f"Не удалось перевыпустить токен: {exc}", level=messages.error)
+        return redirect(self._change_url(binding.pk))
+
+    def repair_from_syncserver_view(self, request: HttpRequest, object_id: str):
+        binding = get_object_or_404(SyncDeviceBinding, pk=object_id)
+        if not binding.syncserver_device_id:
+            self.message_user(request, "Нет SyncServer binding для восстановления.", level=messages.error)
+            return redirect(self._change_url(binding.pk))
+        try:
+            DeviceSyncService().repair_binding_from_remote(binding=binding)
+            self.message_user(request, "Карточка устройства восстановлена из SyncServer.", level=messages.success)
+        except SyncServerAPIError as exc:
+            DeviceSyncService().mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
+            self.message_user(request, f"Repair из SyncServer завершился ошибкой: {exc}", level=messages.error)
+        except Exception as exc:
+            DeviceSyncService().mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
+            self.message_user(request, f"Не удалось восстановить устройство из SyncServer: {exc}", level=messages.error)
+        return redirect(self._change_url(binding.pk))
+
+    @admin.action(description="Repair selected device bindings from SyncServer")
+    def repair_selected_bindings(self, request: HttpRequest, queryset):
+        service = DeviceSyncService()
+        repaired = 0
+        failed = 0
+        for binding in queryset:
+            try:
+                service.repair_binding_from_remote(binding=binding)
+                repaired += 1
+            except Exception as exc:
+                failed += 1
+                service.mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
+        if repaired:
+            self.message_user(request, f"Исправлено device binding-записей: {repaired}.", level=messages.success)
+        if failed:
+            self.message_user(request, f"Не удалось восстановить device binding-записей: {failed}.", level=messages.error)
+
+    @admin.action(description="Mark selected device bindings as repair required")
+    def mark_selected_for_repair(self, request: HttpRequest, queryset):
+        updated = queryset.update(sync_status=SyncStatus.REPAIR_REQUIRED, updated_at=timezone.now())
+        self.message_user(request, f"Помечено для ремонта device binding-записей: {updated}.", level=messages.warning)
+
+    def _change_url(self, object_id: int) -> str:
+        return reverse("admin:users_syncdevicebinding_change", args=[object_id])
 
 
 try:

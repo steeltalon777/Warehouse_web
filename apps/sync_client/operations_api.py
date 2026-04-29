@@ -413,7 +413,7 @@ class OperationsAPI:
         """
         logger.debug("Accepting operation lines", extra={"operation_id": operation_id})
         return self.client.post(
-            f"/api/v1/operations/{operation_id}/accept-lines",
+            f"/operations/{operation_id}/accept-lines",
             json=payload,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,

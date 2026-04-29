@@ -41,8 +41,8 @@ item.id }}{% endblock %} {% block content %}
       <tr>
         <th>Статус</th>
         <td>
-          {% if item.status == "pending" %}
-          <span class="badge badge-warning">Ожидает</span>
+          {% if item.status == "active" %}
+          <span class="badge badge-warning">Активна</span>
           {% else %}
           <span class="badge">{{ item.status }}</span>
           {% endif %}

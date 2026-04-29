@@ -1,5 +1,5 @@
 (function () {
-  window.WAREHOUSE_OPERATIONS_CREATE_VERSION = "20260424-search-enter-fix-3";
+  window.WAREHOUSE_OPERATIONS_CREATE_VERSION = "20260429-destination-sites";
   window.WAREHOUSE_OPERATIONS_CREATE_DEBUG = {
     initialized: false,
     version: window.WAREHOUSE_OPERATIONS_CREATE_VERSION,

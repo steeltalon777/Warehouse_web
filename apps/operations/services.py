@@ -18,6 +18,12 @@ from apps.sync_client.exceptions import SyncServerAPIError
 logger = logging.getLogger(__name__)
 
 QTY_SCALE = Decimal("0.001")
+ACCEPTANCE_STATE_META = {
+    "not_required": {"label": "Не требуется", "tone": "muted"},
+    "pending": {"label": "Ожидает приёмки", "tone": "warning"},
+    "in_progress": {"label": "Приёмка в процессе", "tone": "info"},
+    "resolved": {"label": "Приёмка завершена", "tone": "success"},
+}
 
 
 class OperationPageService:
@@ -30,6 +36,20 @@ class OperationPageService:
     def get_available_sites(self) -> list[dict[str, Any]]:
         response = self.client.get("/auth/sites")
         sites = response.get("available_sites", []) if isinstance(response, dict) else []
+        return self._normalize_sites(sites)
+
+    def get_all_sites(self) -> list[dict[str, Any]]:
+        try:
+            root_client = SyncServerClient(request=self.request, force_root=True)
+            response = root_client.get("/catalog/sites")
+            sites = response.get("sites", []) if isinstance(response, dict) else []
+            return self._normalize_sites(sites)
+        except Exception:
+            logger.exception("Failed to load global site names, falling back to accessible sites.")
+            return self.get_available_sites()
+
+    @staticmethod
+    def _normalize_sites(sites: list[dict[str, Any]]) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
         for site in sites:
             permissions = site.get("permissions") or {}
@@ -112,7 +132,7 @@ class OperationPageService:
         return index
 
     def get_sites_index(self) -> dict[int, dict[str, Any]]:
-        return {int(site["site_id"]): site for site in self.get_available_sites()}
+        return {int(site["site_id"]): site for site in self.get_all_sites()}
 
     def present_operation(self, operation: dict[str, Any]) -> dict[str, Any]:
         items_index = self.get_items_index()
@@ -254,19 +274,29 @@ class OperationPageService:
         author_label = "Вы" if current_user_sync_id and str(current_user_sync_id) == str(created_by_user_id) else str(created_by_user_id or "—")
 
         role = self.get_current_role()
-        can_submit = status in {"draft", "created"} and role not in {"observer", "storekeeper"}
+        can_submit = status in {"draft", "created"} and role != "observer"
         can_cancel = (
             status in {"draft", "created", "pending", "submitted"}
             and not is_observer(getattr(self.request, "user", None))
-            and (role != "storekeeper" or status == "draft")
         )
         can_accept = status in {"submitted", "pending"} and role not in {"observer"}
+        logger.info(
+            "Operation buttons: id=%s status=%s role=%s submit=%s cancel=%s accept=%s",
+            operation.get("id"), status, role, can_submit, can_cancel, can_accept,
+        )
+        acceptance_state = str(operation.get("acceptance_state") or "not_required")
+        acceptance_meta = ACCEPTANCE_STATE_META.get(
+            acceptance_state,
+            {"label": acceptance_state or "—", "tone": "muted"},
+        )
 
         return {
             **operation,
             "type_label": OPERATION_TYPE_LABELS.get(operation_type, operation_type or "Операция"),
             "status_label": str(status_meta["label"]),
             "status_tone": str(status_meta["tone"]),
+            "acceptance_state_label": str(acceptance_meta["label"]),
+            "acceptance_state_tone": str(acceptance_meta["tone"]),
             "effective_at": operation.get("effective_at"),
             "site_name": self._site_name(sites_index, site_id),
             "source_site_name": self._site_name(sites_index, source_site_id),
@@ -501,6 +531,7 @@ class OperationPageService:
 
         lines: list[dict[str, Any]] = []
         for row in pending_rows:
+            operation_line_id = row.get("operation_line_id") or row.get("id")
             item_id = self._to_int(row.get("item_id"))
             item = items_index.get(item_id or -1, {})
             expected_qty = self._to_decimal(row.get("qty") or row.get("expected_qty") or 0) or Decimal("0")
@@ -509,8 +540,8 @@ class OperationPageService:
             remaining_qty = self._to_decimal(row.get("remaining_qty") or expected_qty - accepted_qty - lost_qty) or Decimal("0")
 
             lines.append({
-                "line_number": row.get("line_number"),
-                "operation_line_id": row.get("operation_line_id") or row.get("id"),
+                "line_number": row.get("line_number") or operation_line_id,
+                "operation_line_id": operation_line_id,
                 "item_id": item_id,
                 "item_name": item.get("name") or f"ТМЦ #{item_id}",
                 "sku": item.get("sku") or "—",

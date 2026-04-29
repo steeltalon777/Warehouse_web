@@ -8,8 +8,8 @@ from django.contrib.auth.forms import UserChangeForm
 from django.core.exceptions import ValidationError
 
 from apps.sync_client.exceptions import SyncServerAPIError
-from apps.users.models import Role, Site, SyncUserBinding
-from apps.users.services import UserSyncService
+from apps.users.models import Role, Site, SyncDeviceBinding, SyncUserBinding
+from apps.users.services import DeviceSyncService, UserSyncService
 
 User = get_user_model()
 
@@ -163,3 +163,32 @@ class SyncManagedSiteAdminForm(forms.ModelForm):
 
     def clean_name(self) -> str:
         return str(self.cleaned_data["name"]).strip()
+
+
+class SyncManagedDeviceAdminForm(forms.ModelForm):
+    sync_device_token = forms.CharField(
+        label="Device token",
+        required=False,
+        disabled=True,
+        widget=forms.TextInput(
+            attrs={
+                "readonly": "readonly",
+                "style": "background:#f3f4f6;color:#6b7280;",
+            }
+        ),
+    )
+
+    class Meta:
+        model = SyncDeviceBinding
+        fields = ("device_code", "device_name", "is_active")
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.service = DeviceSyncService()
+        self.fields["sync_device_token"].initial = self.instance.sync_device_token
+
+    def clean_device_code(self) -> str:
+        return str(self.cleaned_data["device_code"]).strip()
+
+    def clean_device_name(self) -> str:
+        return str(self.cleaned_data["device_name"]).strip()
