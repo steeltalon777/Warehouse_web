@@ -6,7 +6,7 @@
     <div class="workspace-page-header">
         <div>
             <h1>Номенклатура</h1>
-            <p class="catalog-page-note">Дерево категорий и ТМЦ для быстрого перехода к редактированию.</p>
+            <p class="catalog-page-note">Дерево категорий и ТМЦ для быстрого просмотра, редактирования и удаления.</p>
         </div>
     </div>
 
@@ -21,7 +21,7 @@
         <div class="workspace-panel-head">
             <div>
                 <h2>Дерево номенклатуры</h2>
-                <p class="catalog-page-note">Шеврон раскрывает ветку, название открывает отдельную форму редактирования категории или ТМЦ.</p>
+                <p class="catalog-page-note">Шеврон раскрывает ветку, название открывает форму редактирования. При наведении на строку появляются кнопки редактирования и удаления.</p>
             </div>
         </div>
         {% include "catalog/partials/entity_tree.html" with tree_nodes=tree_nodes tree_mode="edit" only %}

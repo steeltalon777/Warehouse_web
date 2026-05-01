@@ -556,7 +556,7 @@ button:active, .btn:active {
 
 .entity-tree-row{
  display:grid;
- grid-template-columns:24px 22px minmax(0, 1fr);
+ grid-template-columns:24px 22px minmax(0, 1fr) auto;
  align-items:center;
  gap:8px;
  padding:8px 10px;
@@ -577,6 +577,43 @@ button:active, .btn:active {
 
 .entity-tree-row.is-muted{
  opacity:.6;
+}
+
+.entity-tree-actions{
+ display:flex;
+ align-items:center;
+ gap:2px;
+ opacity:0;
+ transition:opacity .15s ease;
+}
+
+.entity-tree-row:hover .entity-tree-actions,
+.entity-tree-row.is-active .entity-tree-actions{
+ opacity:1;
+}
+
+.entity-tree-action{
+ width:28px;
+ height:28px;
+ display:inline-flex;
+ align-items:center;
+ justify-content:center;
+ border:none;
+ border-radius:6px;
+ background:transparent;
+ padding:0;
+ color:var(--muted);
+ cursor:pointer;
+}
+
+.entity-tree-action:hover{
+ background:#e2e8f0;
+ color:var(--text);
+}
+
+.entity-tree-action-delete:hover{
+ color:#dc2626;
+ background:#fee2e2;
 }
 
 .entity-tree-link{

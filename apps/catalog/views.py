@@ -325,6 +325,14 @@ class CatalogManageTreeMixin(CatalogManageAccessMixin):
                 "nomenclature:item_update",
                 kwargs={"pk": int(item["id"])},
             ),
+            category_delete_builder=lambda category: reverse(
+                "nomenclature:category_delete",
+                kwargs={"pk": int(category["id"])},
+            ),
+            item_delete_builder=lambda item: reverse(
+                "nomenclature:item_delete",
+                kwargs={"pk": int(item["id"])},
+            ),
             selected_kind=selected_kind,
             selected_id=selected_id,
         )
