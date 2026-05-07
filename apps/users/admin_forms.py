@@ -180,12 +180,13 @@ class SyncManagedDeviceAdminForm(forms.ModelForm):
 
     class Meta:
         model = SyncDeviceBinding
-        fields = ("device_code", "device_name", "is_active")
+        fields = ("device_code", "device_name", "is_active", "sync_device_token")
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.service = DeviceSyncService()
-        self.fields["sync_device_token"].initial = self.instance.sync_device_token
+        if "sync_device_token" in self.fields:
+            self.fields["sync_device_token"].initial = self.instance.sync_device_token
 
     def clean_device_code(self) -> str:
         return str(self.cleaned_data["device_code"]).strip()

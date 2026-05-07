@@ -5,6 +5,7 @@ from math import ceil
 from typing import Any
 
 from apps.sync_client.catalog_api import CatalogAPI
+from apps.sync_client.balances_api import BalancesAPI
 from apps.sync_client.client import SyncServerClient
 from apps.sync_client.exceptions import SyncServerAPIError
 
@@ -21,6 +22,7 @@ class CatalogService:
     def __init__(self, client: SyncServerClient) -> None:
         self.client = client
         self.catalog_api = CatalogAPI(self.client)
+        self.balances_api = BalancesAPI(self.client)
 
     def _exec(self, fn, *args, **kwargs) -> ServiceResult:
         try:
@@ -284,6 +286,28 @@ class CatalogService:
 
     def delete_item(self, item_id: str) -> ServiceResult:
         return self._exec(self.catalog_api.delete_item, item_id)
+
+    def merge_items(self, source_id, target_id, comment=None) -> ServiceResult:
+        payload = {
+            "source_item_id": int(source_id),
+            "target_item_id": int(target_id),
+            "comment": comment,
+        }
+        return self._exec(self.catalog_api.merge_items, payload)
+
+    def merge_categories(self, source_id, target_id, comment=None) -> ServiceResult:
+        payload = {
+            "source_category_id": int(source_id),
+            "target_category_id": int(target_id),
+            "comment": comment,
+        }
+        return self._exec(self.catalog_api.merge_categories, payload)
+
+    def split_item(self, payload: dict[str, Any]) -> ServiceResult:
+        return self._exec(self.catalog_api.split_item, payload)
+
+    def get_item_balances(self, item_id: str | int) -> ServiceResult:
+        return self._exec(self.balances_api.get_balances_by_item, item_id)
 
 
 def _resolve_total_pages(payload: dict[str, Any] | None, *, default_page_size: int) -> int:

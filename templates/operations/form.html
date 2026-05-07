@@ -247,6 +247,38 @@
             </tbody>
           </table>
         </div>
+        <div class="operation-pagination operation-hidden" id="draft-items-pagination">
+          <span class="operation-row-meta" id="draft-items-pagination-summary"
+            >Показано 0 из 0</span
+          >
+          <div class="operation-pagination-actions">
+            <label class="operation-pagination-size" for="draft-items-page-size">
+              <span class="operation-row-meta">На странице</span>
+              <select id="draft-items-page-size">
+                <option value="20" selected>20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              class="btn btn-secondary btn-small"
+              id="draft-items-prev-page"
+            >
+              Назад
+            </button>
+            <span class="operation-row-meta" id="draft-items-pagination-info"
+              >Страница 1 из 1</span
+            >
+            <button
+              type="button"
+              class="btn btn-secondary btn-small"
+              id="draft-items-next-page"
+            >
+              Вперёд
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -288,5 +320,5 @@
 <script id="operation-create-config" type="application/json">
   {"itemSearchUrl":"{{ item_search_url|escapejs }}","canChooseSourceSite":{% if can_choose_source_site %}true{% else %}false{% endif %},"fixedOperatingSiteId":"{{ fixed_operating_site_id }}"}
 </script>
-<script src="{% static 'js/operations_create.js' %}?v=20260429-destination-sites"></script>
+<script src="{% static 'js/operations_create.js' %}?v=20260505-draft-pagination"></script>
 {% endif %} {% endblock %}

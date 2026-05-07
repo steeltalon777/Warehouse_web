@@ -33,7 +33,9 @@ from apps.operations.forms import (
 )
 from apps.operations.services import OperationPageService
 from apps.sync_client.assets_api import AssetsAPI
+from apps.sync_client.documents_api import DocumentsAPI
 from apps.sync_client.exceptions import SyncServerAPIError
+from apps.documents.views import present_document
 from apps.sync_client.operations_api import OperationsAPI
 
 logger = logging.getLogger(__name__)
@@ -417,8 +419,18 @@ class OperationDetailView(SyncContextMixin, TemplateView):
             messages.error(request, str(exc) or "Не удалось загрузить операцию.")
             return redirect("operations:list")
 
+        operation_documents: list[dict[str, Any]] = []
+        try:
+            operation_documents = [
+                present_document(document)
+                for document in DocumentsAPI(self.client).list_operation_documents(operation_id)
+            ]
+        except SyncServerAPIError as exc:
+            messages.warning(request, str(exc) or "Не удалось загрузить печатные формы операции.")
+
         context = {
             "operation": presented_operation,
+            "operation_documents": operation_documents,
             "submit_next_url": reverse("operations:detail", kwargs={"operation_id": operation_id}),
             "cancel_next_url": reverse("operations:detail", kwargs={"operation_id": operation_id}),
         }

@@ -1,5 +1,5 @@
 (function () {
-  window.WAREHOUSE_OPERATIONS_CREATE_VERSION = "20260429-destination-sites";
+  window.WAREHOUSE_OPERATIONS_CREATE_VERSION = "20260505-draft-pagination";
   window.WAREHOUSE_OPERATIONS_CREATE_DEBUG = {
     initialized: false,
     version: window.WAREHOUSE_OPERATIONS_CREATE_VERSION,
@@ -51,6 +51,12 @@
   const addItemButton = document.getElementById("add-item-button");
   const draftItemsBody = document.getElementById("draft-items-body");
   const draftEmptyRow = document.getElementById("draft-empty-row");
+  const draftItemsPagination = document.getElementById("draft-items-pagination");
+  const draftItemsPaginationSummary = document.getElementById("draft-items-pagination-summary");
+  const draftItemsPaginationInfo = document.getElementById("draft-items-pagination-info");
+  const draftItemsPrevPageButton = document.getElementById("draft-items-prev-page");
+  const draftItemsNextPageButton = document.getElementById("draft-items-next-page");
+  const draftItemsPageSizeSelect = document.getElementById("draft-items-page-size");
   const summaryTypeLabel = document.getElementById("summary-type-label");
   const summaryLineCount = document.getElementById("summary-line-count");
   const summaryQtyTotal = document.getElementById("summary-qty-total");
@@ -80,6 +86,12 @@
     addItemButton,
     draftItemsBody,
     draftEmptyRow,
+    draftItemsPagination,
+    draftItemsPaginationSummary,
+    draftItemsPaginationInfo,
+    draftItemsPrevPageButton,
+    draftItemsNextPageButton,
+    draftItemsPageSizeSelect,
     summaryTypeLabel,
     summaryLineCount,
     summaryQtyTotal,
@@ -104,6 +116,10 @@
   let temporarySearchQuery = "";
   let searchTimer = null;
   let searchRequestSeq = 0;
+  const draftItemsUiState = {
+    page: 1,
+    pageSize: 20,
+  };
 
   // Получаем default_unit_id из draft-данных
   const defaultUnitId = (draftNode ? JSON.parse(draftNode.textContent || "{}").default_unit_id : null) || "";
@@ -232,6 +248,45 @@
     itemSearchStatus.textContent = text;
   }
 
+  function parsePositiveInt(value, fallback) {
+    const parsed = Number.parseInt(String(value ?? ""), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  }
+
+  function ensureDraftItemsPageState(totalItems = (state.items || []).length) {
+    draftItemsUiState.pageSize = parsePositiveInt(draftItemsPageSizeSelect.value, 20);
+    draftItemsPageSizeSelect.value = String(draftItemsUiState.pageSize);
+
+    const totalPages = Math.max(Math.ceil(totalItems / draftItemsUiState.pageSize), 1);
+    draftItemsUiState.page = Math.min(Math.max(draftItemsUiState.page, 1), totalPages);
+    return totalPages;
+  }
+
+  function showDraftItemsPageForIndex(index) {
+    if (!Number.isInteger(index) || index < 0) {
+      return;
+    }
+    draftItemsUiState.page = Math.floor(index / draftItemsUiState.pageSize) + 1;
+  }
+
+  function renderDraftItemsPagination(totalItems, totalPages, startIndex, endIndex) {
+    const hasRows = totalItems > 0;
+    draftItemsPagination.classList.toggle("operation-hidden", !hasRows);
+
+    if (!hasRows) {
+      draftItemsPaginationSummary.textContent = "Показано 0 из 0";
+      draftItemsPaginationInfo.textContent = "Страница 1 из 1";
+      draftItemsPrevPageButton.disabled = true;
+      draftItemsNextPageButton.disabled = true;
+      return;
+    }
+
+    draftItemsPaginationSummary.textContent = `Показаны строки ${startIndex + 1}-${endIndex} из ${totalItems}`;
+    draftItemsPaginationInfo.textContent = `Страница ${draftItemsUiState.page} из ${totalPages}`;
+    draftItemsPrevPageButton.disabled = draftItemsUiState.page <= 1;
+    draftItemsNextPageButton.disabled = draftItemsUiState.page >= totalPages;
+  }
+
   function renderTypeSection() {
     const meta = currentTypeMeta();
     if (!meta) return;
@@ -286,6 +341,10 @@
     draftItemsBody.querySelectorAll("tr[data-draft-row]").forEach((row) => row.remove());
 
     draftEmptyRow.classList.toggle("operation-hidden", rows.length > 0);
+    const totalPages = ensureDraftItemsPageState(rows.length);
+    const startIndex = rows.length ? (draftItemsUiState.page - 1) * draftItemsUiState.pageSize : 0;
+    const endIndexExclusive = Math.min(startIndex + draftItemsUiState.pageSize, rows.length);
+    const visibleRows = rows.slice(startIndex, endIndexExclusive);
 
     let quantityTotalMilli = 0n;
     rows.forEach((item) => {
@@ -293,6 +352,9 @@
       if (parsedQuantity) {
         quantityTotalMilli += parsedQuantity.milli;
       }
+    });
+
+    visibleRows.forEach((item) => {
       const row = document.createElement("tr");
       row.dataset.draftRow = "true";
 
@@ -318,6 +380,7 @@
 
     summaryLineCount.textContent = String(rows.length);
     summaryQtyTotal.textContent = formatQuantityMilli(quantityTotalMilli);
+    renderDraftItemsPagination(rows.length, totalPages, startIndex, endIndexExclusive);
     syncDraftPayload();
   }
 
@@ -359,27 +422,33 @@
 
   function mergeItem(itemData, quantity) {
     const parsedQty = parseQuantity(quantity);
-    if (!parsedQty) return;
+    if (!parsedQty) return null;
 
-    const existing = state.items.find((row) => Number(row.item_id) === Number(itemData.id || itemData.item_id));
-    if (existing) {
+    const existingIndex = state.items.findIndex(
+      (row) => Number(row.item_id) === Number(itemData.id || itemData.item_id)
+    );
+    if (existingIndex >= 0) {
+      const existing = state.items[existingIndex];
       const existingQty = parseQuantity(existing.quantity);
       const mergedMilli = (existingQty ? existingQty.milli : 0n) + parsedQty.milli;
       if (mergedMilli === 0n) {
         state.items = state.items.filter((row) => Number(row.item_id) !== Number(existing.item_id));
+        return { action: "removed", index: Math.max(existingIndex - 1, 0) };
       } else {
         existing.quantity = formatQuantityMilli(mergedMilli);
+        return { action: "updated", index: existingIndex };
       }
-      return;
     }
 
     state.items.push({
+      kind: "catalog",
       item_id: Number(itemData.id || itemData.item_id),
       name: itemData.name,
       sku: itemData.sku || "",
       unit_symbol: itemData.unit_symbol || "",
       quantity: parsedQty.value,
     });
+    return { action: "added", index: state.items.length - 1 };
   }
 
   function addSelectedItem() {
@@ -407,7 +476,10 @@
       return;
     }
 
-    mergeItem(selectedItem, quantity.value);
+    const mergeResult = mergeItem(selectedItem, quantity.value);
+    if (mergeResult) {
+      showDraftItemsPageForIndex(mergeResult.index);
+    }
     updateStateFromFields();
     renderItemsTable();
     resetPicker();
@@ -449,6 +521,7 @@
       quantity: quantity.value,
     });
 
+    showDraftItemsPageForIndex(state.items.length - 1);
     updateStateFromFields();
     renderItemsTable();
     resetPicker(`Временная ТМЦ «${name}» добавлена в строки операции. В базе она создастся только после подтверждения операции.`);
@@ -717,6 +790,7 @@
   }
 
   ensureStateDefaults();
+  ensureDraftItemsPageState();
   setFieldValuesFromState();
   renderTypeSection();
   renderSelectedItem();
@@ -741,6 +815,20 @@
   addItemButton.addEventListener("click", addSelectedItem);
   draftItemsBody.addEventListener("click", handleDraftTableClick);
   draftItemsBody.addEventListener("change", handleDraftTableChange);
+  draftItemsPrevPageButton.addEventListener("click", function () {
+    draftItemsUiState.page = Math.max(draftItemsUiState.page - 1, 1);
+    renderItemsTable();
+  });
+  draftItemsNextPageButton.addEventListener("click", function () {
+    draftItemsUiState.page += 1;
+    renderItemsTable();
+  });
+  draftItemsPageSizeSelect.addEventListener("change", function () {
+    const currentFirstVisibleIndex = Math.max((draftItemsUiState.page - 1) * draftItemsUiState.pageSize, 0);
+    draftItemsUiState.pageSize = parsePositiveInt(draftItemsPageSizeSelect.value, 20);
+    draftItemsUiState.page = Math.floor(currentFirstVisibleIndex / draftItemsUiState.pageSize) + 1;
+    renderItemsTable();
+  });
   quantityInput.addEventListener("keydown", function (event) {
     if (event.key === "Enter") {
       event.preventDefault();

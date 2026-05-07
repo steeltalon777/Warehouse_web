@@ -28,6 +28,12 @@
                 <a href="{{ node.href }}" class="entity-tree-action entity-tree-action-edit" title="Редактировать">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                 </a>
+                {% if node.node_type == "item" %}
+                    <a href="{% url 'nomenclature:item_merge' %}?source_item_id={{ node.id }}" class="entity-tree-action" title="Слить">M</a>
+                    <a href="{% url 'nomenclature:item_split' node.id %}" class="entity-tree-action" title="Разделить">S</a>
+                {% elif node.node_type == "category" %}
+                    <a href="{% url 'nomenclature:category_merge' %}?source_category_id={{ node.id }}" class="entity-tree-action" title="Слить">M</a>
+                {% endif %}
                 <form method="post" action="{{ node.delete_url }}" onsubmit="return confirm('Удалить «{{ node.name }}»?')">
                     {% csrf_token %}
                     <button type="submit" class="entity-tree-action entity-tree-action-delete" title="Удалить">
@@ -41,7 +47,7 @@
     {% if node.children %}
         <ul id="{{ node.uid }}-children" class="entity-tree-children" {% if not node.expanded %}hidden{% endif %}>
             {% for node in node.children %}
-                {% include "catalog/partials/entity_tree_node.html" with node=node tree_mode=tree_mode only %}
+                {% include "catalog/partials/entity_tree_node.html" with node=node tree_mode=tree_mode %}
             {% endfor %}
         </ul>
     {% endif %}

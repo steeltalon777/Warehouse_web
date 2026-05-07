@@ -4,9 +4,8 @@ Documents API client module for SyncServer document endpoints.
 This module provides high-level methods for interacting with SyncServer
 documents API using the base SyncServerClient.
 
-Documents are stored on SyncServer as metadata + JSONB payload (not as
-PDF/DOCX files). The Django client is responsible for client-side DOCX→PDF
-rendering using local templates and LibreOffice.
+Documents are stored on SyncServer as metadata + JSONB payload. SyncServer
+renders the final HTML/PDF using document templates.
 
 Usage:
     from apps.sync_client.client import SyncServerClient
@@ -41,8 +40,8 @@ class DocumentsAPI:
     High-level client for SyncServer documents API.
 
     Provides methods to retrieve, list, and generate documents.
-    Documents are metadata + JSONB payload; actual PDF rendering
-    happens client-side in the Django app.
+    Documents are metadata + JSONB payload; PDF rendering happens on
+    SyncServer and is proxied by the Django app.
 
     Attributes:
         client (SyncServerClient): Underlying HTTP client instance
@@ -163,7 +162,7 @@ class DocumentsAPI:
         Endpoint: POST /documents/operations/{operation_id}/documents
 
         This creates a document record with metadata + JSONB payload on
-        SyncServer. The actual DOCX→PDF rendering is done client-side.
+        SyncServer. The final PDF is rendered by SyncServer.
 
         Args:
             operation_id: Operation UUID identifier.
@@ -209,6 +208,27 @@ class DocumentsAPI:
         return self.client.post(
             f"/documents/operations/{operation_id}/documents",
             params=params,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+    def render_document_pdf(
+        self,
+        document_id: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> tuple[bytes, dict[str, str]]:
+        """
+        Render a document as PDF on SyncServer.
+
+        Endpoint: GET /documents/{document_id}/render?format=pdf
+        """
+        logger.debug("Rendering document PDF", extra={"document_id": document_id})
+        return self.client.get_bytes(
+            f"/documents/{document_id}/render",
+            params={"format": "pdf"},
+            accept="application/pdf",
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )

@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Разделение ТМЦ{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1>Разделение ТМЦ</h1>
+    <p class="catalog-page-note">Исходная ТМЦ: <strong>{{ source_item.name }}</strong> (SKU: {{ source_item.sku|default:"—" }})</p>
+    <p class="catalog-page-note">Операция создаст новую ТМЦ и перенесет указанные остатки через ADJUSTMENT.</p>
+
+    <form method="post" class="workspace-filters">
+        {% csrf_token %}
+        <div class="form-row"><label>SKU новой ТМЦ</label><input name="sku" /></div>
+        <div class="form-row"><label>Название новой ТМЦ</label><input name="name" required /></div>
+        <div class="form-row">
+            <label>Категория</label>
+            <select name="category_id" required>
+                {% for category in categories %}<option value="{{ category.id }}">{{ category.name }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="form-row">
+            <label>Ед. изм.</label>
+            <select name="unit_id" required>
+                {% for unit in units %}<option value="{{ unit.id }}">{{ unit.name }} ({{ unit.symbol }})</option>{% endfor %}
+            </select>
+        </div>
+        <div class="form-row"><label>Описание</label><input name="description" /></div>
+        <div class="form-row"><label>Комментарий</label><input name="comment" /></div>
+
+        <h3>Остатки по складам</h3>
+        <div class="workspace-table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Склад</th>
+                        <th>Текущий остаток source</th>
+                        <th>Перенести в новую ТМЦ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in balances %}
+                    <tr>
+                        <td>{{ row.site_name }} (ID {{ row.site_id }})</td>
+                        <td>{{ row.qty }}</td>
+                        <td>
+                            <input type="hidden" name="site_id" value="{{ row.site_id }}" />
+                            <input name="qty" type="number" min="0" step="0.001" value="0" />
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="3" class="catalog-empty-state">Нет доступных остатков по складам.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="form-row workspace-filter-actions">
+            <button type="submit">Выполнить разделение</button>
+            <a href="{% url 'nomenclature:item_list' %}" class="btn btn-secondary">Назад</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

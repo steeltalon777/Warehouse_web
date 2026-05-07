@@ -10,6 +10,7 @@
         </div>
         <div class="workspace-page-actions">
             <a href="{{ create_item_url }}" class="btn">Создать ТМЦ</a>
+            <a href="{% url 'nomenclature:item_merge' %}" class="btn btn-secondary">Слить ТМЦ</a>
         </div>
     </div>
 
@@ -51,13 +52,14 @@
             <div class="workspace-table-wrap">
                 <table>
                     <thead>
-                        <tr>
-                            <th>Название</th>
-                            <th>SKU</th>
-                            <th>Категория</th>
-                            <th>Активна</th>
-                            <th>Действия</th>
-                        </tr>
+                    <tr>
+                        <th>Название</th>
+                        <th>SKU</th>
+                        <th>Категория</th>
+                        <th>Ключевые слова</th>
+                        <th>Активна</th>
+                        <th>Действия</th>
+                    </tr>
                     </thead>
                     <tbody>
     {% for item in items %}
@@ -74,6 +76,15 @@
             {% endif %}
         </td>
         <td>
+            {% if item.hashtags %}
+                {% for tag in item.hashtags %}
+                    <span class="hashtag-pill">{{ tag }}</span>
+                {% endfor %}
+            {% else %}
+                <span style="color:var(--muted);">—</span>
+            {% endif %}
+        </td>
+        <td>
             <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
                 <input type="checkbox" name="active_{{ item.id }}" {% if item.is_active %}checked{% endif %} class="table-checkbox">
                 <span style="font-size:13px; color:var(--muted);">Активна</span>
@@ -83,6 +94,8 @@
             <div class="table-actions">
                 <button type="button" class="btn btn-small btn-success" title="Сохранить изменения (пока пустышка)">Применить</button>
                 <a href="{% url 'nomenclature:item_update' item.id %}" class="btn btn-small btn-secondary">Редактировать</a>
+                <a href="{% url 'nomenclature:item_merge' %}?source_item_id={{ item.id }}" class="btn btn-small btn-secondary">Слить</a>
+                <a href="{% url 'nomenclature:item_split' item.id %}" class="btn btn-small btn-secondary">Разделить</a>
                 {% if not item.is_active %}
                 <form method="post" action="{% url 'nomenclature:item_delete' item.id %}" style="display:inline" data-loading-form data-loading-scope="page" data-loading-overlay-text="Удаление ТМЦ...">
                     {% csrf_token %}
@@ -93,7 +106,7 @@
         </td>
     </tr>
     {% empty %}
-    <tr><td colspan="5" class="catalog-empty-state">По текущим условиям ТМЦ не найдены.</td></tr>
+    <tr><td colspan="6" class="catalog-empty-state">По текущим условиям ТМЦ не найдены.</td></tr>
     {% endfor %}
 </tbody>
                 </table>

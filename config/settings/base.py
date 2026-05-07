@@ -29,6 +29,15 @@ DEBUG = env_bool("DEBUG", False)
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", ["127.0.0.1", "localhost"] if DEBUG else [])
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", [])
 
+# -------------------------------------------------------------------
+# Global organization identity
+# -------------------------------------------------------------------
+ORGANIZATION_FULL_NAME = os.getenv(
+    "ORGANIZATION_FULL_NAME",
+    'Общество с ограниченной ответственностью Автоматизированные системы "Горизонт"',
+).strip()
+ORGANIZATION_SHORT_NAME = os.getenv("ORGANIZATION_SHORT_NAME", 'ООО АС "Горизонт"').strip()
+
 # Django auth in this project is a technical admin/staff layer.
 # Warehouse domain users/roles/sites are owned by SyncServer.
 INSTALLED_APPS = [

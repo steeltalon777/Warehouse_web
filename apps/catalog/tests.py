@@ -63,6 +63,26 @@ class NomenclatureTreeViewTests(TestCase):
         self.assertContains(response, "Дерево номенклатуры")
         self.assertContains(response, "Обновить кэш поиска операций")
 
+    @patch("apps.catalog.views.can_manage_catalog", return_value=True)
+    @patch("apps.catalog.views.can_use_client", return_value=True)
+    @patch("apps.catalog.views._build_catalog_service")
+    def test_tree_delete_forms_include_csrf_token(
+        self,
+        build_catalog_service: Mock,
+        _can_use_client: Mock,
+        _can_manage_catalog: Mock,
+    ) -> None:
+        build_catalog_service.return_value = SimpleNamespace(
+            browse_all_items=Mock(return_value=ServiceResult(ok=True, data=[{"id": 101, "name": "Кабель", "category_id": 1}])),
+            list_admin_categories=Mock(return_value=ServiceResult(ok=True, data=[{"id": 1, "name": "Электрика", "is_active": True}])),
+        )
+
+        response = self.client.get(reverse("nomenclature:tree"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "action=\"/nomenclature/categories/1/delete/\"", html=False)
+        self.assertContains(response, 'name="csrfmiddlewaretoken"', html=False)
+
 
 class CategoryListViewTests(TestCase):
     def setUp(self) -> None:
@@ -228,6 +248,47 @@ class NomenclatureDeleteViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response["Location"], reverse("nomenclature:category_list"))
         service.delete_category.assert_called_once_with("1")
+
+    @patch("apps.catalog.views.can_manage_catalog", return_value=True)
+    @patch("apps.catalog.views.can_use_client", return_value=True)
+    @patch("apps.catalog.views._build_catalog_service")
+    def test_category_delete_confirm_for_root_mentions_uncategorized(
+        self,
+        build_catalog_service: Mock,
+        _can_use_client: Mock,
+        _can_manage_catalog: Mock,
+    ) -> None:
+        service = SimpleNamespace(
+            get_category=Mock(return_value=ServiceResult(ok=True, data={"id": 1, "name": "Root", "parent_id": None})),
+            delete_category=Mock(return_value=ServiceResult(ok=True)),
+        )
+        build_catalog_service.return_value = service
+
+        response = self.client.get(reverse("nomenclature:category_delete", kwargs={"pk": 1}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "корневой категории будут перенесены в системную категорию")
+        self.assertContains(response, "Без категории")
+
+    @patch("apps.catalog.views.can_manage_catalog", return_value=True)
+    @patch("apps.catalog.views.can_use_client", return_value=True)
+    @patch("apps.catalog.views._build_catalog_service")
+    def test_category_delete_confirm_for_nested_mentions_parent_transfer(
+        self,
+        build_catalog_service: Mock,
+        _can_use_client: Mock,
+        _can_manage_catalog: Mock,
+    ) -> None:
+        service = SimpleNamespace(
+            get_category=Mock(return_value=ServiceResult(ok=True, data={"id": 2, "name": "Child", "parent_id": 1})),
+            delete_category=Mock(return_value=ServiceResult(ok=True)),
+        )
+        build_catalog_service.return_value = service
+
+        response = self.client.get(reverse("nomenclature:category_delete", kwargs={"pk": 2}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "будут перенесены в родительскую категорию")
 
     @patch("apps.catalog.views.can_manage_catalog", return_value=True)
     @patch("apps.catalog.views.can_use_client", return_value=True)

@@ -205,7 +205,6 @@ class OperationCreatePayloadQuantityTests(SimpleTestCase):
         self.assertNotIn("client_request_id", payload)
         self.assertEqual(payload["lines"][0]["item_id"], 10)
         self.assertEqual(payload["lines"][0]["qty"], "2")
-
     def test_create_payload_temporary_item_requires_name_and_sku(self) -> None:
         with self.assertRaisesMessage(ValidationError, "Для временной ТМЦ укажите наименование."):
             _build_create_payload(
@@ -241,6 +240,29 @@ class OperationCreatePayloadQuantityTests(SimpleTestCase):
                 },
                 operate_site_ids={1},
             )
+
+
+class OperationPageServiceSiteNormalizationTests(SimpleTestCase):
+    def test_normalize_sites_adds_id_alias(self) -> None:
+        sites = OperationPageService._normalize_sites(
+            [
+                {
+                    "site_id": 4,
+                    "code": "WH-4",
+                    "name": "Warehouse 4",
+                    "permissions": {
+                        "can_view": True,
+                        "can_operate": True,
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0]["id"], 4)
+        self.assertEqual(sites[0]["site_id"], 4)
+        self.assertEqual(sites[0]["name"], "Warehouse 4")
+        self.assertEqual(sites[0]["code"], "WH-4")
 
 
 class OperationCopyDocumentTests(SimpleTestCase):

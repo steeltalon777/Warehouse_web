@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+
 from django.contrib import admin, messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
@@ -169,14 +171,14 @@ class SyncUserBindingAdmin(admin.ModelAdmin):
                 )
 
         if repaired:
-            self.message_user(request, f"Исправлено binding-записей: {repaired}.", level=messages.success)
+            self.message_user(request, f"Исправлено binding-записей: {repaired}.", level="success")
         if failed:
-            self.message_user(request, f"Не удалось восстановить binding-записей: {failed}.", level=messages.error)
+            self.message_user(request, f"Не удалось восстановить binding-записей: {failed}.", level="error")
 
     @admin.action(description="Mark selected bindings as repair required")
     def mark_selected_for_repair(self, request: HttpRequest, queryset):
         updated = queryset.update(sync_status=SyncStatus.REPAIR_REQUIRED, updated_at=timezone.now())
-        self.message_user(request, f"Помечено для ремонта binding-записей: {updated}.", level=messages.warning)
+        self.message_user(request, f"Помечено для ремонта binding-записей: {updated}.", level="warning")
 
 
 @admin.register(SyncDeviceBinding)
@@ -196,6 +198,7 @@ class SyncDeviceBindingAdmin(admin.ModelAdmin):
     readonly_fields = (
         "syncserver_device_id",
         "sync_device_token",
+        "sync_status",
         "last_sync_at",
         "last_sync_error",
         "last_sync_payload_pretty",
@@ -287,46 +290,46 @@ class SyncDeviceBindingAdmin(admin.ModelAdmin):
         binding = get_object_or_404(SyncDeviceBinding, pk=object_id)
         try:
             DeviceSyncService().sync_existing_binding(binding=binding)
-            self.message_user(request, "Устройство успешно синхронизировано с SyncServer.", level=messages.success)
+            self.message_user(request, "Устройство успешно синхронизировано с SyncServer.", level="success")
         except SyncServerAPIError as exc:
             DeviceSyncService().mark_failure(binding=binding, error=exc)
-            self.message_user(request, f"SyncServer вернул ошибку: {exc}", level=messages.error)
+            self.message_user(request, f"SyncServer вернул ошибку: {exc}", level="error")
         except Exception as exc:
             DeviceSyncService().mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
-            self.message_user(request, f"Не удалось синхронизировать устройство: {exc}", level=messages.error)
+            self.message_user(request, f"Не удалось синхронизировать устройство: {exc}", level="error")
         return redirect(self._change_url(binding.pk))
 
     def rotate_token_view(self, request: HttpRequest, object_id: str):
         binding = get_object_or_404(SyncDeviceBinding, pk=object_id)
         if not binding.syncserver_device_id:
-            self.message_user(request, "Нет SyncServer device id для rotate-token.", level=messages.error)
+            self.message_user(request, "Нет SyncServer device id для rotate-token.", level="error")
             return redirect(self._change_url(binding.pk))
         try:
             response = DeviceSyncService().rotate_token(binding.syncserver_device_id)
             DeviceSyncService().apply_rotated_token(binding=binding, rotate_response=response)
-            self.message_user(request, "Токен устройства перевыпущен и сохранён локально.", level=messages.success)
+            self.message_user(request, "Токен устройства перевыпущен и сохранён локально.", level="success")
         except SyncServerAPIError as exc:
             DeviceSyncService().mark_failure(binding=binding, error=exc)
-            self.message_user(request, f"Rotate-token завершился ошибкой: {exc}", level=messages.error)
+            self.message_user(request, f"Rotate-token завершился ошибкой: {exc}", level="error")
         except Exception as exc:
             DeviceSyncService().mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
-            self.message_user(request, f"Не удалось перевыпустить токен: {exc}", level=messages.error)
+            self.message_user(request, f"Не удалось перевыпустить токен: {exc}", level="error")
         return redirect(self._change_url(binding.pk))
 
     def repair_from_syncserver_view(self, request: HttpRequest, object_id: str):
         binding = get_object_or_404(SyncDeviceBinding, pk=object_id)
         if not binding.syncserver_device_id:
-            self.message_user(request, "Нет SyncServer binding для восстановления.", level=messages.error)
+            self.message_user(request, "Нет SyncServer binding для восстановления.", level="error")
             return redirect(self._change_url(binding.pk))
         try:
             DeviceSyncService().repair_binding_from_remote(binding=binding)
-            self.message_user(request, "Карточка устройства восстановлена из SyncServer.", level=messages.success)
+            self.message_user(request, "Карточка устройства восстановлена из SyncServer.", level="success")
         except SyncServerAPIError as exc:
             DeviceSyncService().mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
-            self.message_user(request, f"Repair из SyncServer завершился ошибкой: {exc}", level=messages.error)
+            self.message_user(request, f"Repair из SyncServer завершился ошибкой: {exc}", level="error")
         except Exception as exc:
             DeviceSyncService().mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
-            self.message_user(request, f"Не удалось восстановить устройство из SyncServer: {exc}", level=messages.error)
+            self.message_user(request, f"Не удалось восстановить устройство из SyncServer: {exc}", level="error")
         return redirect(self._change_url(binding.pk))
 
     @admin.action(description="Repair selected device bindings from SyncServer")
@@ -342,14 +345,14 @@ class SyncDeviceBindingAdmin(admin.ModelAdmin):
                 failed += 1
                 service.mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
         if repaired:
-            self.message_user(request, f"Исправлено device binding-записей: {repaired}.", level=messages.success)
+            self.message_user(request, f"Исправлено device binding-записей: {repaired}.", level="success")
         if failed:
-            self.message_user(request, f"Не удалось восстановить device binding-записей: {failed}.", level=messages.error)
+            self.message_user(request, f"Не удалось восстановить device binding-записей: {failed}.", level="error")
 
     @admin.action(description="Mark selected device bindings as repair required")
     def mark_selected_for_repair(self, request: HttpRequest, queryset):
         updated = queryset.update(sync_status=SyncStatus.REPAIR_REQUIRED, updated_at=timezone.now())
-        self.message_user(request, f"Помечено для ремонта device binding-записей: {updated}.", level=messages.warning)
+        self.message_user(request, f"Помечено для ремонта device binding-записей: {updated}.", level="warning")
 
     def _change_url(self, object_id: int) -> str:
         return reverse("admin:users_syncdevicebinding_change", args=[object_id])
@@ -421,6 +424,8 @@ class SyncManagedUserAdmin(BaseUserAdmin):
         ),
     )
 
+    superuser_fieldsets = BaseUserAdmin.fieldsets
+
     def get_queryset(self, request: HttpRequest):
         return super().get_queryset(request).select_related("sync_binding")
 
@@ -446,16 +451,15 @@ class SyncManagedUserAdmin(BaseUserAdmin):
 
         base_form = self.add_form if obj is None else self.form
 
-        class BoundForm(base_form):
-            pass
-
-        BoundForm.site_choices = site_choices
+        form_attrs = {name: copy.deepcopy(field) for name, field in base_form.declared_fields.items()}
+        form_attrs["site_choices"] = site_choices
+        BoundForm = type(f"{base_form.__name__}Bound", (base_form,), form_attrs)
         kwargs["form"] = BoundForm
         return super().get_form(request, obj, change=change, **kwargs)
 
     def get_fieldsets(self, request: HttpRequest, obj=None):
         if obj and obj.is_superuser:
-            return super().get_fieldsets(request, obj)
+            return self.superuser_fieldsets
         return self.add_fieldsets if obj is None else self.fieldsets
 
     def get_readonly_fields(self, request: HttpRequest, obj=None):
@@ -561,22 +565,22 @@ class SyncManagedUserAdmin(BaseUserAdmin):
             )
         except SyncServerAPIError as exc:
             UserSyncService().mark_failure(binding=binding, error=exc)
-            self.message_user(request, f"SyncServer вернул ошибку: {exc}", level=messages.error)
+            self.message_user(request, f"SyncServer вернул ошибку: {exc}", level="error")
         except Exception as exc:
             UserSyncService().mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
-            self.message_user(request, f"Не удалось синхронизировать пользователя: {exc}", level=messages.error)
+            self.message_user(request, f"Не удалось синхронизировать пользователя: {exc}", level="error")
 
         return redirect(self._change_url(user.pk))
 
     def rotate_token_view(self, request: HttpRequest, object_id: str):
         user = get_object_or_404(User, pk=object_id)
         if user.is_superuser:
-            self.message_user(request, "Root token не ротируется через API.", level=messages.warning)
+            self.message_user(request, "Root token не ротируется через API.", level="warning")
             return redirect(self._change_url(user.pk))
 
         binding = self._get_binding(user)
         if binding is None or not binding.syncserver_user_id:
-            self.message_user(request, "Нет SyncServer user id для rotate-token.", level=messages.error)
+            self.message_user(request, "Нет SyncServer user id для rotate-token.", level="error")
             return redirect(self._change_url(user.pk))
 
         try:
@@ -589,33 +593,33 @@ class SyncManagedUserAdmin(BaseUserAdmin):
             )
         except SyncServerAPIError as exc:
             UserSyncService().mark_failure(binding=binding, error=exc)
-            self.message_user(request, f"Rotate-token завершился ошибкой: {exc}", level=messages.error)
+            self.message_user(request, f"Rotate-token завершился ошибкой: {exc}", level="error")
         except Exception as exc:
             UserSyncService().mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
-            self.message_user(request, f"Не удалось перевыпустить токен: {exc}", level=messages.error)
+            self.message_user(request, f"Не удалось перевыпустить токен: {exc}", level="error")
 
         return redirect(self._change_url(user.pk))
 
     def repair_from_syncserver_view(self, request: HttpRequest, object_id: str):
         user = get_object_or_404(User, pk=object_id)
         if user.is_superuser:
-            self.message_user(request, "Root-пользователь не ремонтируется через SyncServer repair flow.", level=messages.warning)
+            self.message_user(request, "Root-пользователь не ремонтируется через SyncServer repair flow.", level="warning")
             return redirect(self._change_url(user.pk))
 
         binding = self._get_binding(user)
         if binding is None or not binding.syncserver_user_id:
-            self.message_user(request, "Нет SyncServer binding для восстановления.", level=messages.error)
+            self.message_user(request, "Нет SyncServer binding для восстановления.", level="error")
             return redirect(self._change_url(user.pk))
 
         try:
             UserSyncService().repair_binding_from_remote(user=user, binding=binding)
-            self.message_user(request, "Карточка пользователя восстановлена из SyncServer.", level=messages.success)
+            self.message_user(request, "Карточка пользователя восстановлена из SyncServer.", level="success")
         except SyncServerAPIError as exc:
             UserSyncService().mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
-            self.message_user(request, f"Repair из SyncServer завершился ошибкой: {exc}", level=messages.error)
+            self.message_user(request, f"Repair из SyncServer завершился ошибкой: {exc}", level="error")
         except Exception as exc:
             UserSyncService().mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
-            self.message_user(request, f"Не удалось восстановить пользователя из SyncServer: {exc}", level=messages.error)
+            self.message_user(request, f"Не удалось восстановить пользователя из SyncServer: {exc}", level="error")
 
         return redirect(self._change_url(user.pk))
 

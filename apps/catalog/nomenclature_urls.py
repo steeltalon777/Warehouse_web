@@ -12,6 +12,7 @@ urlpatterns = [
     path("categories/create/", views.CategoryCreateView.as_view(), name="category_create"),
     path("categories/<int:pk>/edit/", views.CategoryUpdateView.as_view(), name="category_update"),
     path("categories/<int:pk>/delete/", views.CategoryDeleteView.as_view(), name="category_delete"),
+    path("categories/merge/", views.CategoryMergeView.as_view(), name="category_merge"),
     path("categories/<int:pk>/deactivate/", views.CategoryDeleteView.as_view(), name="category_deactivate"),
     path("categories/tree/", views.CategoryTreeView.as_view(), name="category_tree"),
     path("units/", views.UnitListView.as_view(), name="unit_list"),
@@ -22,5 +23,7 @@ urlpatterns = [
     path("items/create/", views.ItemCreateView.as_view(), name="item_create"),
     path("items/<int:pk>/edit/", views.ItemUpdateView.as_view(), name="item_update"),
     path("items/<int:pk>/delete/", views.ItemDeactivateView.as_view(), name="item_delete"),
+    path("items/merge/", views.ItemMergeView.as_view(), name="item_merge"),
+    path("items/<int:pk>/split/", views.ItemSplitView.as_view(), name="item_split"),
     path("items/<int:pk>/deactivate/", views.ItemDeactivateView.as_view(), name="item_deactivate"),
 ]

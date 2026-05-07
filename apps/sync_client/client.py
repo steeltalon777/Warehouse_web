@@ -318,6 +318,62 @@ class SyncServerClient:
         except ValueError:
             return {"detail": response.text}
 
+    def _request_bytes(
+        self,
+        method: str,
+        path: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+        params: dict[str, Any] | None = None,
+        accept: str = "application/octet-stream",
+    ) -> tuple[bytes, dict[str, str]]:
+        normalized_path = self._normalize_path(path)
+        url = f"{self.base_url}{normalized_path}"
+        headers = self.build_headers(
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+        headers["Accept"] = accept
+
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    params=params,
+                )
+        except httpx.TimeoutException as exc:
+            logger.exception(
+                "SyncServer timeout",
+                extra={"sync_method": method, "sync_path": normalized_path},
+            )
+            raise SyncBackendUnavailable(
+                "SyncServer не ответил вовремя.",
+                method=method,
+                path=normalized_path,
+            ) from exc
+        except httpx.RequestError as exc:
+            logger.exception(
+                "SyncServer unreachable",
+                extra={"sync_method": method, "sync_path": normalized_path},
+            )
+            raise SyncBackendUnavailable(
+                "SyncServer недоступен.",
+                method=method,
+                path=normalized_path,
+            ) from exc
+
+        if response.status_code >= 400:
+            self._raise_for_response(
+                response,
+                method=method,
+                path=normalized_path,
+            )
+
+        return response.content, dict(response.headers)
+
     def get(
         self,
         path: str,
@@ -332,6 +388,24 @@ class SyncServerClient:
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
             params=params,
+        )
+
+    def get_bytes(
+        self,
+        path: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+        params: dict[str, Any] | None = None,
+        accept: str = "application/octet-stream",
+    ) -> tuple[bytes, dict[str, str]]:
+        return self._request_bytes(
+            "GET",
+            path,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+            params=params,
+            accept=accept,
         )
 
     def post(

@@ -11,6 +11,20 @@
     </div>
 
     <div class="card catalog-form-card">
+        <p>
+            Вы удаляете категорию <strong>{{ category_name }}</strong>.
+            Удаление архивное: категория станет недоступна в обычных списках.
+        </p>
+        {% if is_root %}
+            <p>
+                Дочерние категории и ТМЦ этой корневой категории будут перенесены в системную категорию
+                <strong>Без категории</strong>.
+            </p>
+        {% else %}
+            <p>
+                Дочерние категории и ТМЦ будут перенесены в родительскую категорию удаляемого узла.
+            </p>
+        {% endif %}
         <form method="post" data-loading-form data-loading-scope="page" data-loading-overlay-text="Удаление категории...">
             {% csrf_token %}
             <div class="catalog-actions">

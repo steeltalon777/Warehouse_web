@@ -1146,6 +1146,13 @@ button:active, .btn:active {
  display:flex;
  align-items:center;
  gap:10px;
+ flex-wrap:wrap;
+}
+
+.operation-pagination-size{
+ display:inline-flex;
+ align-items:center;
+ gap:8px;
 }
 
 .operation-field-hint{
@@ -1338,4 +1345,107 @@ button.is-loading{
 }
 .btn-success:hover {
     background: #15803d;
+}
+
+.tag-input {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 6px 8px;
+    background: #fff;
+    min-height: 42px;
+    align-items: center;
+    cursor: text;
+}
+
+.tag-input:focus-within {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 2px rgba(29, 78, 216, 0.15);
+    outline: none;
+}
+
+.tag-input__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+}
+
+.tag-input__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    font-size: 13px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.tag-input__remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: #1d4ed8;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.15s ease;
+}
+
+.tag-input__remove:hover {
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.08);
+}
+
+.tag-input__field {
+    flex: 1;
+    min-width: 120px;
+    border: none;
+    outline: none;
+    padding: 4px 0;
+    font-size: 14px;
+    background: transparent;
+    width: auto;
+}
+
+.field-help {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+    line-height: 1.4;
+}
+
+.field-errors {
+    color: #dc2626;
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+.field-errors ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.hashtag-pill {
+    display: inline-block;
+    background: #dbeafe;
+    color: #1d4ed8;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin: 2px 4px 2px 0;
+    white-space: nowrap;
 }

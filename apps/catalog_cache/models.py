@@ -12,6 +12,7 @@ class CatalogCacheItem(models.Model):
     category_name = models.CharField(max_length=255, blank=True)
     unit_symbol = models.CharField(max_length=64, blank=True)
     is_active = models.BooleanField(default=True)
+    hashtags = models.JSONField(null=True, blank=True)
     source_updated_at = models.DateTimeField(null=True, blank=True)
     synced_at = models.DateTimeField()
 

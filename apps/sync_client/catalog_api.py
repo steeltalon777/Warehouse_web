@@ -587,6 +587,34 @@ class CatalogAPI:
             acting_site_id=acting_site_id,
         )
 
+    def merge_items(
+        self,
+        payload: dict[str, Any],
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        return self.client.post(
+            "/catalog/admin/items/merge",
+            json=payload,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+    def split_item(
+        self,
+        payload: dict[str, Any],
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        return self.client.post(
+            "/catalog/admin/items/split",
+            json=payload,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
     def list_admin_categories(
         self,
         filters: Optional[dict[str, Any]] = None,
@@ -745,6 +773,20 @@ class CatalogAPI:
         logger.debug("Deleting catalog category", extra={"category_id": category_id})
         return self.client.delete(
             f"/catalog/admin/categories/{category_id}",
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+    def merge_categories(
+        self,
+        payload: dict[str, Any],
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        return self.client.post(
+            "/catalog/admin/categories/merge",
+            json=payload,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )

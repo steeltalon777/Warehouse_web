@@ -51,6 +51,17 @@ class ItemForm(forms.Form):
     category_id = forms.ChoiceField(required=False)
     unit_id = forms.ChoiceField(required=True)
     is_active = forms.BooleanField(required=False, initial=True)
+    hashtags = forms.CharField(
+        required=False,
+        label="Ключевые слова",
+        help_text="Например: Toyota, оригинал, тормозные колодки",
+        widget=forms.TextInput(
+            attrs={
+                "data-tag-input": "true",
+                "placeholder": "Введите слово и нажмите Enter...",
+            }
+        ),
+    )
 
     def __init__(self, *args, categories=None, units=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -89,6 +100,9 @@ class ItemForm(forms.Form):
                 self.initial["unit_id"] = default_unit_id
                 self.fields["unit_id"].initial = default_unit_id
 
+        if self.initial.get("hashtags") and isinstance(self.initial["hashtags"], list):
+            self.initial["hashtags"] = ", ".join(self.initial["hashtags"])
+
     def clean_sku(self):
         value = self.cleaned_data.get("sku")
         if value is None or value.strip() == "":
@@ -106,3 +120,18 @@ class ItemForm(forms.Form):
         if value in (None, ""):
             raise forms.ValidationError("Выберите единицу измерения.")
         return int(value)
+
+    def clean_hashtags(self):
+        value = self.cleaned_data.get("hashtags")
+        if not value:
+            return None
+        if isinstance(value, list):
+            return value
+        tags = [t.strip().lower().lstrip("#") for t in value.split(",") if t.strip()]
+        seen = set()
+        result = []
+        for tag in tags:
+            if tag not in seen:
+                seen.add(tag)
+                result.append(tag)
+        return result if result else None

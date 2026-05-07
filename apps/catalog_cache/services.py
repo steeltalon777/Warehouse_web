@@ -93,12 +93,16 @@ class CatalogCacheSyncService:
             category_id = self._normalize_id(item.get("category_id"))
             category_name = self._normalize_str(item.get("category_name"), limit=255)
             unit_symbol = self._normalize_str(item.get("unit_symbol"), limit=64)
+            hashtags = item.get("hashtags")
+            if not isinstance(hashtags, list):
+                hashtags = None
             search_text = self._build_search_text(
                 sync_id=sync_id,
                 name=name,
                 sku=sku,
                 category_name=category_name,
                 unit_symbol=unit_symbol,
+                hashtags=hashtags,
             )
             records.append(
                 CatalogCacheItem(
@@ -110,6 +114,7 @@ class CatalogCacheSyncService:
                     category_name=category_name,
                     unit_symbol=unit_symbol,
                     is_active=bool(item.get("is_active", True)),
+                    hashtags=hashtags,
                     source_updated_at=self._parse_remote_datetime(
                         item.get("updated_at") or item.get("source_updated_at")
                     ),
@@ -133,6 +138,7 @@ class CatalogCacheSyncService:
                     "category_name",
                     "unit_symbol",
                     "is_active",
+                    "hashtags",
                     "source_updated_at",
                     "synced_at",
                 ],
@@ -168,8 +174,11 @@ class CatalogCacheSyncService:
         sku: str,
         category_name: str,
         unit_symbol: str,
+        hashtags: list[str] | None = None,
     ) -> str:
         parts = [name, sku, category_name, unit_symbol, sync_id]
+        if hashtags:
+            parts.extend(hashtags)
         normalized_parts = [part.strip().lower() for part in parts if part and part.strip()]
         return " ".join(normalized_parts)
 
@@ -221,6 +230,7 @@ class CatalogLookupService:
             "sku": item.sku,
             "unit_symbol": item.unit_symbol,
             "category_name": item.category_name,
+            "hashtags": item.hashtags,
             "is_active": item.is_active,
         }
 
@@ -231,10 +241,14 @@ class CatalogLookupService:
     @classmethod
     def _build_query_variants(cls, query: str) -> list[str]:
         variants: list[str] = []
-        for candidate in (query, cls._swap_keyboard_layout(query)):
+        candidates = [query, cls._swap_keyboard_layout(query)]
+        for candidate in candidates:
             normalized = cls._normalize_query(candidate)
             if normalized and normalized not in variants:
                 variants.append(normalized)
+            stripped = normalized.lstrip("#")
+            if stripped and stripped != normalized and stripped not in variants:
+                variants.append(stripped)
         return variants
 
     @classmethod

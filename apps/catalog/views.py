@@ -186,10 +186,14 @@ def _filter_manage_categories(categories: list[dict]) -> list[dict]:
 
 def _matches_item_search(item: dict, search: str) -> bool:
     search_term = search.casefold()
-    return (
-        search_term in str(item.get("name") or "").casefold()
-        or search_term in str(item.get("sku") or "").casefold()
-    )
+    if search_term in str(item.get("name") or "").casefold():
+        return True
+    if search_term in str(item.get("sku") or "").casefold():
+        return True
+    for tag in item.get("hashtags") or []:
+        if search_term in str(tag).casefold():
+            return True
+    return False
 
 
 def _matches_unit_search(unit: dict, search: str) -> bool:
@@ -543,6 +547,17 @@ class CategoryDeleteView(CatalogManageAccessMixin, View):
             return None, result
         return _normalize_category(result.data or {}), result
 
+    def _build_page_context(self, category_id: str | int, category: dict) -> dict:
+        is_root = not category.get("parent_id")
+        return {
+            "category_id": category_id,
+            "category_name": category.get("name") or "",
+            "is_root": is_root,
+            "page_title": "Удаление категории",
+            "page_note": "Категория будет удалена через SyncServer API.",
+            "back_url": reverse("nomenclature:category_list"),
+        }
+
     def get(self, request, pk):
         category, result = self._get_category(pk)
         if category is None:
@@ -552,12 +567,7 @@ class CategoryDeleteView(CatalogManageAccessMixin, View):
         return render(
             request,
             self.template_name,
-            {
-                "category_id": pk,
-                "page_title": "Удаление категории",
-                "page_note": "Категория будет удалена через SyncServer API.",
-                "back_url": reverse("nomenclature:category_list"),
-            },
+            self._build_page_context(pk, category),
         )
 
     def post(self, request, pk):
@@ -576,12 +586,7 @@ class CategoryDeleteView(CatalogManageAccessMixin, View):
         return render(
             request,
             self.template_name,
-            {
-                "category_id": pk,
-                "page_title": "Удаление категории",
-                "page_note": "Категория будет удалена через SyncServer API.",
-                "back_url": reverse("nomenclature:category_list"),
-            },
+            self._build_page_context(pk, category),
         )
 
 
@@ -936,3 +941,146 @@ class ItemDeactivateView(CatalogManageAccessMixin, View):
         else:
             messages.error(request, result.form_error)
         return redirect(self.success_url)
+
+
+class ItemMergeView(CatalogManageAccessMixin, TemplateView):
+    template_name = "catalog/item_merge.html"
+
+    def get(self, request, *args, **kwargs):
+        items_result = self.service.list_admin_items()
+        items = _normalize_items(items_result.data or []) if items_result.ok else []
+        if not items_result.ok:
+            messages.error(request, items_result.form_error)
+        return render(
+            request,
+            self.template_name,
+            {
+                "items": items,
+                "source_item_id": (request.GET.get("source_item_id") or "").strip(),
+                "target_item_id": (request.GET.get("target_item_id") or "").strip(),
+            },
+        )
+
+    def post(self, request, *args, **kwargs):
+        source_id = (request.POST.get("source_item_id") or "").strip()
+        target_id = (request.POST.get("target_item_id") or "").strip()
+        comment = (request.POST.get("comment") or "").strip() or None
+        if not source_id or not target_id:
+            messages.error(request, "Выберите source и target ТМЦ.")
+            return self.get(request, *args, **kwargs)
+
+        result = self.service.merge_items(source_id, target_id, comment=comment)
+        if result.ok:
+            messages.success(request, "ТМЦ успешно объединены.")
+            return redirect("nomenclature:item_list")
+
+        messages.error(request, result.form_error)
+        return self.get(request, *args, **kwargs)
+
+
+class CategoryMergeView(CatalogManageAccessMixin, TemplateView):
+    template_name = "catalog/category_merge.html"
+
+    def get(self, request, *args, **kwargs):
+        categories, result = self._get_manage_categories_flat()
+        if not result.ok:
+            messages.error(request, result.form_error)
+        return render(
+            request,
+            self.template_name,
+            {
+                "categories": categories,
+                "source_category_id": (request.GET.get("source_category_id") or "").strip(),
+                "target_category_id": (request.GET.get("target_category_id") or "").strip(),
+            },
+        )
+
+    def post(self, request, *args, **kwargs):
+        source_id = (request.POST.get("source_category_id") or "").strip()
+        target_id = (request.POST.get("target_category_id") or "").strip()
+        comment = (request.POST.get("comment") or "").strip() or None
+        if not source_id or not target_id:
+            messages.error(request, "Выберите source и target категорию.")
+            return self.get(request, *args, **kwargs)
+
+        result = self.service.merge_categories(source_id, target_id, comment=comment)
+        if result.ok:
+            messages.success(request, "Категории успешно объединены.")
+            return redirect("nomenclature:category_list")
+
+        messages.error(request, result.form_error)
+        return self.get(request, *args, **kwargs)
+
+
+class ItemSplitView(CatalogManageAccessMixin, TemplateView):
+    template_name = "catalog/item_split.html"
+
+    def get(self, request, pk: int, *args, **kwargs):
+        item_result = self.service.get_item(str(pk))
+        if not item_result.ok:
+            messages.error(request, item_result.form_error)
+            raise Http404("ТМЦ не найдена")
+        categories, _ = self._get_manage_categories_flat()
+        units_result = self.service.list_admin_units()
+        units = _normalize_units(units_result.data or []) if units_result.ok else []
+        balances_result = self.service.get_item_balances(pk)
+        balances = balances_result.data if balances_result.ok and isinstance(balances_result.data, list) else []
+        normalized_balances = []
+        for row in balances:
+            if not isinstance(row, dict):
+                continue
+            qty = str(row.get("qty") or row.get("quantity") or "0")
+            normalized_balances.append(
+                {
+                    "site_id": row.get("site_id"),
+                    "site_name": row.get("site_name") or f"Склад {row.get('site_id')}",
+                    "qty": qty,
+                }
+            )
+        return render(
+            request,
+            self.template_name,
+            {
+                "source_item": _normalize_item(item_result.data or {}),
+                "categories": categories,
+                "units": units,
+                "balances": normalized_balances,
+            },
+        )
+
+    def post(self, request, pk: int, *args, **kwargs):
+        source_result = self.service.get_item(str(pk))
+        if not source_result.ok:
+            messages.error(request, source_result.form_error)
+            raise Http404("ТМЦ не найдена")
+
+        site_ids = request.POST.getlist("site_id")
+        qtys = request.POST.getlist("qty")
+        site_quantities: list[dict] = []
+        for site_id, qty in zip(site_ids, qtys, strict=False):
+            site_id_val = (site_id or "").strip()
+            qty_val = (qty or "").strip()
+            if not site_id_val or not qty_val:
+                continue
+            site_quantities.append({"site_id": int(site_id_val), "qty": qty_val})
+
+        payload = {
+            "source_item_id": int(pk),
+            "target_item": {
+                "sku": (request.POST.get("sku") or "").strip() or None,
+                "name": (request.POST.get("name") or "").strip(),
+                "category_id": int(request.POST.get("category_id")),
+                "unit_id": int(request.POST.get("unit_id")),
+                "description": (request.POST.get("description") or "").strip() or None,
+            },
+            "site_quantities": site_quantities,
+            "comment": (request.POST.get("comment") or "").strip() or None,
+        }
+
+        result = self.service.split_item(payload)
+        if result.ok:
+            messages.success(request, "ТМЦ успешно разделена: новая позиция создана.")
+            return redirect("nomenclature:item_list")
+
+        messages.error(request, result.form_error)
+        return self.get(request, pk, *args, **kwargs)

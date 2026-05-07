@@ -102,6 +102,7 @@ class OperationPageService:
                 continue
             normalized.append(
                 {
+                    "id": site_id,
                     "site_id": site_id,
                     "name": str(site.get("name") or site.get("code") or site_id),
                     "code": str(site.get("code") or ""),

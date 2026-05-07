@@ -237,6 +237,62 @@
     </div>
 
     <div class="card">
+      <h3>Печатные формы</h3>
+      <p class="operation-page-note">
+        Накладная формируется по операции, акт приёмки — после завершённой
+        приёмки.
+      </p>
+
+      {% if operation.status != "cancelled" %}
+      <form
+        method="post"
+        action="{% url 'documents:operation_generate' operation.id %}"
+        target="_blank"
+        data-loading-form
+        data-loading-scope="form"
+      >
+        {% csrf_token %}
+        <input type="hidden" name="document_type" value="waybill" />
+        <button type="submit" class="btn operation-action-button">
+          Сформировать накладную PDF
+        </button>
+      </form>
+
+      {% if operation.acceptance_state == "resolved" %}
+      <form
+        method="post"
+        action="{% url 'documents:operation_generate' operation.id %}"
+        target="_blank"
+        data-loading-form
+        data-loading-scope="form"
+      >
+        {% csrf_token %}
+        <input type="hidden" name="document_type" value="acceptance_certificate" />
+        <button type="submit" class="btn btn-secondary operation-action-button">
+          Сформировать акт приёмки PDF
+        </button>
+      </form>
+      {% endif %}
+      {% endif %}
+
+      {% if operation_documents %}
+      <div class="operation-documents-list">
+        {% for document in operation_documents %}
+        <a
+          href="{% url 'documents:pdf' document.id %}"
+          target="_blank"
+          class="btn btn-secondary operation-action-button"
+        >
+          Открыть {{ document.type_label }}{% if document.document_number %} №{{ document.document_number }}{% endif %}
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="operation-page-note">Печатные формы ещё не сформированы.</p>
+      {% endif %}
+    </div>
+
+    <div class="card">
       <h3>Состояние</h3>
       <ul class="operation-status-list">
         <li>

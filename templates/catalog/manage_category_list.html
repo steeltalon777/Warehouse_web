@@ -10,6 +10,7 @@
         </div>
         <div class="workspace-page-actions">
             <a href="{% url 'nomenclature:category_create' %}" class="btn">Создать категорию</a>
+            <a href="{% url 'nomenclature:category_merge' %}" class="btn btn-secondary">Слить категории</a>
         </div>
     </div>
 
@@ -67,6 +68,7 @@
             <div class="table-actions">
                 <button type="button" class="btn btn-small btn-success" title="Сохранить изменения (пока пустышка)">Применить</button>
                 <a href="{% url 'nomenclature:category_update' category.id %}" class="btn btn-small btn-secondary">Редактировать</a>
+                <a href="{% url 'nomenclature:category_merge' %}?source_category_id={{ category.id }}" class="btn btn-small btn-secondary">Слить</a>
                 <button type="button" class="btn btn-small btn-danger">Удалить</button>
             </div>
         </td>
@@ -74,7 +76,7 @@
     {% empty %}
     <tr><td colspan="4" class="catalog-empty-state">По текущим условиям категории не найдены.</td></tr>
     {% endfor %}
-</tbody>Д
+</tbody>
                 </table>
             </div>
         {% else %}
