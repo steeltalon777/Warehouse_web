@@ -77,9 +77,6 @@ def _get_user_default_site_id(request) -> str:
 
 
 def _get_default_balance_site_id(request) -> str:
-    role = request.session.get("sync_role") or get_user_role(request.user)
-    if role == "storekeeper":
-        return _get_user_default_site_id(request)
     return ""
 
 

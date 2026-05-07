@@ -122,17 +122,23 @@ class SyncServerClient:
             if getattr(request_user, "is_superuser", False):
                 return self.root_user_token
 
-            token = self._get_binding_token_for_user(request_user)
-            if token:
-                logger.info("Resolved user token from sync_binding for user %s", request_user.username)
-                return token
-            logger.error(
-                "Sync user token is not configured for Django user '%s'",
-                request_user.username,
-            )
-            raise RuntimeError(
-                f"Sync user token is not configured for Django user '{request_user.username}'."
-            )
+        token = self._get_binding_token_for_user(request_user)
+        if token:
+            logger.info("Resolved user token from sync_binding for user %s", request_user.username)
+            return token
+
+        session_token = self._get_session_token()
+        if session_token:
+            logger.info("Resolved user token from session for user %s", request_user.username)
+            return session_token
+
+        logger.error(
+            "Sync user token is not configured for Django user '%s'",
+            request_user.username,
+        )
+        raise RuntimeError(
+            f"Sync user token is not configured for Django user '{request_user.username}'."
+        )
 
         lookup_user_id = acting_user_id if acting_user_id is not None else self.default_user_id
         if lookup_user_id not in (None, ""):
@@ -159,6 +165,12 @@ class SyncServerClient:
         except UserModel.DoesNotExist:
             return ""
         return SyncServerClient._get_binding_token_for_user(user)
+
+    def _get_session_token(self) -> str:
+        request_session = getattr(self.request, "session", None)
+        if request_session is None:
+            return ""
+        return (request_session.get("sync_user_token") or "").strip()
 
     def _normalize_path(self, path: str) -> str:
         if not path:
