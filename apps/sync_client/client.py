@@ -132,22 +132,11 @@ class SyncServerClient:
             logger.info("Resolved user token from session for user %s", request_user.username)
             return session_token
 
-        logger.error(
-            "Sync user token is not configured for Django user '%s'",
+        logger.warning(
+            "Sync user token not in binding/session for Django user '%s', falling back to root token",
             request_user.username,
         )
-        raise RuntimeError(
-            f"Sync user token is not configured for Django user '{request_user.username}'."
-        )
-
-        lookup_user_id = acting_user_id if acting_user_id is not None else self.default_user_id
-        if lookup_user_id not in (None, ""):
-            token = self._get_binding_token_for_user_id(lookup_user_id)
-            if token:
-                return token
-
-        logger.error("Unable to resolve SyncServer user token for the current request. acting_user_id=%s, default_user_id=%s, request.user=%s", acting_user_id, self.default_user_id, getattr(self.request, 'user', None))
-        raise RuntimeError("Unable to resolve SyncServer user token for the current request.")
+        return self.root_user_token
 
     @staticmethod
     def _get_binding_token_for_user(user) -> str:
