@@ -66,6 +66,7 @@
           <th>ID</th>
           <th>Тип</th>
           <th>Статус</th>
+          <th>Приёмка</th>
           <th>Склад / направление</th>
           <th>Строки</th>
           <th>Создана</th>
@@ -78,6 +79,7 @@
           <td><a href="{% url 'operations:detail' op.id %}">{{ op.id|truncatechars:12 }}</a></td>
           <td>{{ op.type_label }}</td>
           <td><span class="operation-status-chip operation-status-chip-{{ op.status_tone }}">{{ op.status_label }}</span></td>
+          <td><span class="operation-status-chip operation-status-chip-{{ op.acceptance_state_tone }}">{{ op.acceptance_state_label }}</span></td>
           <td>
             {% if op.operation_type == "MOVE" %}
             {{ op.source_site_name }} → {{ op.destination_site_name }}
@@ -94,7 +96,7 @@
         </tr>
         {% empty %}
         <tr>
-          <td colspan="7" class="operation-empty-table">Операции не найдены. Измените фильтры или создайте новый документ.</td>
+          <td colspan="8" class="operation-empty-table">Операции не найдены. Измените фильтры или создайте новый документ.</td>
         </tr>
         {% endfor %}
       </tbody>

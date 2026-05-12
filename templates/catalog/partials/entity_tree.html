@@ -1,7 +1,7 @@
 {% if tree_nodes %}
     <ul class="entity-tree">
         {% for node in tree_nodes %}
-            {% include "catalog/partials/entity_tree_node.html" with node=node tree_mode=tree_mode only %}
+            {% include "catalog/partials/entity_tree_node.html" with node=node tree_mode=tree_mode %}
         {% endfor %}
     </ul>
 {% else %}

@@ -1,5 +1,16 @@
 from django import forms
 
+from apps.catalog.constants import DEFAULT_ITEM_UNIT_SYMBOL
+
+
+def find_default_unit_id(units: list[dict] | None) -> str | None:
+    for item in units or []:
+        symbol = str(item.get("symbol") or "").strip().lower()
+        unit_id = str(item.get("id") or item.get("unit_id") or "").strip()
+        if symbol == DEFAULT_ITEM_UNIT_SYMBOL and unit_id:
+            return unit_id
+    return None
+
 
 class CategoryForm(forms.Form):
     name = forms.CharField(max_length=200)
@@ -40,6 +51,17 @@ class ItemForm(forms.Form):
     category_id = forms.ChoiceField(required=False)
     unit_id = forms.ChoiceField(required=True)
     is_active = forms.BooleanField(required=False, initial=True)
+    hashtags = forms.CharField(
+        required=False,
+        label="Ключевые слова",
+        help_text="Например: Toyota, оригинал, тормозные колодки",
+        widget=forms.TextInput(
+            attrs={
+                "data-tag-input": "true",
+                "placeholder": "Введите слово и нажмите Enter...",
+            }
+        ),
+    )
 
     def __init__(self, *args, categories=None, units=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -72,6 +94,21 @@ class ItemForm(forms.Form):
             }
         )
 
+        if not self.is_bound and not self.initial.get("unit_id"):
+            default_unit_id = find_default_unit_id(units)
+            if default_unit_id:
+                self.initial["unit_id"] = default_unit_id
+                self.fields["unit_id"].initial = default_unit_id
+
+        if self.initial.get("hashtags") and isinstance(self.initial["hashtags"], list):
+            self.initial["hashtags"] = ", ".join(self.initial["hashtags"])
+
+    def clean_sku(self):
+        value = self.cleaned_data.get("sku")
+        if value is None or value.strip() == "":
+            return None
+        return value.strip()
+
     def clean_category_id(self):
         value = self.cleaned_data.get("category_id")
         if value in (None, ""):
@@ -83,3 +120,18 @@ class ItemForm(forms.Form):
         if value in (None, ""):
             raise forms.ValidationError("Выберите единицу измерения.")
         return int(value)
+
+    def clean_hashtags(self):
+        value = self.cleaned_data.get("hashtags")
+        if not value:
+            return None
+        if isinstance(value, list):
+            return value
+        tags = [t.strip().lower().lstrip("#") for t in value.split(",") if t.strip()]
+        seen = set()
+        result = []
+        for tag in tags:
+            if tag not in seen:
+                seen.add(tag)
+                result.append(tag)
+        return result if result else None

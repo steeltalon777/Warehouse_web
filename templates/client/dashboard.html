@@ -13,5 +13,16 @@
     <p>Создание и контроль движений.</p>
     <a class="btn" href="{% url 'operations:list' %}">Открыть</a>
   </div>
+
+  {% if pending_summary %}
+  <div class="card">
+    <div class="kpi">
+      Ожидают приёмки
+      <span class="badge badge-warning">{{ pending_summary.operation_count }}</span>
+    </div>
+    <p>{{ pending_summary.line_count }} позиций</p>
+    <a class="btn" href="{% url 'operations:pending_acceptance' %}">Открыть приёмку</a>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

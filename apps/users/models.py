@@ -125,3 +125,40 @@ class SyncUserBinding(models.Model):
 
     def __str__(self) -> str:
         return f"Sync binding for {self.user.username}"
+
+
+class SyncDeviceBinding(models.Model):
+    """Local binding for a SyncServer-managed device."""
+
+    syncserver_device_id = models.PositiveIntegerField(unique=True, null=True, blank=True)
+    device_code = models.CharField(max_length=100, unique=True)
+    device_name = models.CharField(max_length=255)
+    sync_device_token = models.CharField(max_length=255, blank=True)
+    is_active = models.BooleanField(default=True)
+    sync_status = models.CharField(
+        max_length=32,
+        choices=SyncStatus.choices,
+        default=SyncStatus.PENDING,
+    )
+    last_sync_at = models.DateTimeField(null=True, blank=True)
+    last_sync_error = models.TextField(blank=True)
+    last_sync_payload = models.JSONField(default=dict, blank=True)
+    token_rotated_at = models.DateTimeField(null=True, blank=True)
+    manual_token_updated_at = models.DateTimeField(null=True, blank=True)
+    manual_token_updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="manual_sync_device_token_updates",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["device_code"]
+        verbose_name = "Устройство SyncServer"
+        verbose_name_plural = "Устройства SyncServer"
+
+    def __str__(self) -> str:
+        return self.device_name or self.device_code

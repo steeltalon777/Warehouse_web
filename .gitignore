@@ -36,3 +36,11 @@ staticfiles/
 
 # mypy
 .mypy_cache/
+
+# Generated AI/repository maps
+repo_map_*.md
+repo_map_*.txt
+repo_map_*.json
+repo_map.txt
+repo_map.json
+

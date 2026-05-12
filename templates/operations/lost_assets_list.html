@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% load permission_tags %}
+
+{% block title %}Потерянные активы — Склад{% endblock %}
+
+{% block content %}
+<div class="operation-page-header">
+  <div>
+    <h1>Потерянные активы</h1>
+    <p class="text-muted">
+      Позиции, по которым зафиксирована недостача при приёмке
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  <form method="get" action="{% url 'operations:lost_assets' %}">
+    <div class="form-row">
+      <label for="search">Поиск</label>
+      <input type="text" id="search" name="search" value="{{ search|default:'' }}"
+             placeholder="Товар, номер документа…" class="form-control">
+    </div>
+    <div class="form-row">
+      <label for="site_id">Склад</label>
+      <select id="site_id" name="site_id" class="form-control">
+        <option value="">Все склады</option>
+        {% for site in available_sites %}
+        <option value="{{ site.id }}" {% if site_id|stringformat:"s" == site.id|stringformat:"s" %}selected{% endif %}>
+          {{ site.name }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="operation_id">Номер операции</label>
+      <input type="text" id="operation_id" name="operation_id" value="{{ operation_id_filter|default:'' }}"
+             placeholder="ID операции" class="form-control">
+    </div>
+    <div class="form-row operation-filter-actions">
+      <button type="submit" class="btn btn-primary">Применить</button>
+      <a href="{% url 'operations:lost_assets' %}" class="btn btn-outline">Сбросить</a>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  {% if items %}
+  <div class="operation-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Товар</th>
+          <th>Количество</th>
+          <th>Операция</th>
+          <th>Склад назначения</th>
+          <th>Статус</th>
+          <th>Дата</th>
+          <th>Действия</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td>
+            <a href="{% url 'operations:lost_asset_detail' operation_line_id=item.operation_line_id %}">
+              {{ item.item_name|default:item.item_id }}
+            </a>
+            {% if item.item_code %}
+            <br><small class="text-muted">{{ item.item_code }}</small>
+            {% endif %}
+          </td>
+          <td>{{ item.lost_qty }}</td>
+          <td>
+            <a href="{% url 'operations:detail' operation_id=item.operation_id %}">
+              {{ item.document_number|default:item.operation_id|truncatechars:16 }}
+            </a>
+          </td>
+          <td>{{ item.destination_site_name|default:"—" }}</td>
+          <td>
+            {% if item.status == "resolved" %}
+            <span class="badge badge-success">Решено</span>
+            {% else %}
+            <span class="badge badge-danger">Открыто</span>
+            {% endif %}
+          </td>
+          <td>{{ item.created_at|default:"—" }}</td>
+          <td class="action-cell">
+            <a href="{% url 'operations:lost_asset_detail' operation_line_id=item.operation_line_id %}"
+               class="btn btn-sm btn-primary">Подробнее</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if page_count > 1 %}
+  <div class="operation-pagination">
+    <div class="operation-pagination-actions">
+      {% if page > 1 %}
+      <a href="?page={{ page|add:-1 }}&search={{ search|urlencode }}&site_id={{ site_id|default:'' }}&operation_id={{ operation_id_filter|default:'' }}"
+         class="btn btn-sm btn-outline">← Назад</a>
+      {% endif %}
+      <span class="pagination-info">Страница {{ page }} из {{ page_count }}</span>
+      {% if page < page_count %}
+      <a href="?page={{ page|add:1 }}&search={{ search|urlencode }}&site_id={{ site_id|default:'' }}&operation_id={{ operation_id_filter|default:'' }}"
+         class="btn btn-sm btn-outline">Вперёд →</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="empty-state">
+    <p>Нет потерянных активов.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

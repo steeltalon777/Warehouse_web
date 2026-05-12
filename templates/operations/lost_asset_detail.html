@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% load permission_tags %}
+{% block title %}Потерянный актив — {{ item.item_name|default:operation_line_id }} — Склад{% endblock %}
+{% block content %}
+<div class="operation-page-header">
+  <div>
+    <h1>Потерянный актив</h1>
+    <p class="text-muted">{{ item.item_name|default:operation_line_id }}</p>
+  </div>
+  <div>
+    <a href="{% url 'operations:lost_assets' %}" class="btn btn-outline"
+      >← К списку</a
+    >
+    <a
+      href="{% url 'operations:detail' operation_id=item.operation_id %}"
+      class="btn btn-outline"
+      >Документ</a
+    >
+  </div>
+</div>
+
+<div class="operation-detail-layout">
+  <div>
+    <div class="card">
+      <div class="operation-section-head">
+        <div>
+          <h2>Информация об активе</h2>
+        </div>
+      </div>
+      <dl class="operation-detail-grid">
+        <div>
+          <dt>Товар</dt>
+          <dd>{{ item.item_name|default:"—" }}</dd>
+        </div>
+        {% if item.item_code %}
+        <div>
+          <dt>Код товара</dt>
+          <dd>{{ item.item_code }}</dd>
+        </div>
+        {% endif %}
+        <div>
+          <dt>Потерянное количество</dt>
+          <dd>{{ item.lost_qty }}</dd>
+        </div>
+        <div>
+          <dt>Операция</dt>
+          <dd>
+            <a
+              href="{% url 'operations:detail' operation_id=item.operation_id %}"
+            >
+              {{ item.document_number|default:item.operation_id }}
+            </a>
+          </dd>
+        </div>
+        <div>
+          <dt>Склад назначения</dt>
+          <dd>{{ item.destination_site_name|default:"—" }}</dd>
+        </div>
+        {% if item.source_site_name %}
+        <div>
+          <dt>Склад-источник</dt>
+          <dd>{{ item.source_site_name }}</dd>
+        </div>
+        {% endif %}
+        <div>
+          <dt>Статус</dt>
+          <dd>
+            {% if item.status == "resolved" %}
+            <span class="badge badge-success">Решено</span>
+            {% else %}
+            <span class="badge badge-danger">Открыто</span>
+            {% endif %}
+          </dd>
+        </div>
+        {% if item.resolved_action %}
+        <div>
+          <dt>Способ решения</dt>
+          <dd>{{ item.resolved_action_label|default:item.resolved_action }}</dd>
+        </div>
+        {% endif %} {% if item.resolved_note %}
+        <div>
+          <dt>Примечание к решению</dt>
+          <dd>{{ item.resolved_note }}</dd>
+        </div>
+        {% endif %}
+        <div>
+          <dt>Дата создания</dt>
+          <dd>{{ item.created_at|default:"—" }}</dd>
+        </div>
+      </dl>
+    </div>
+  </div>
+
+  <aside>
+    {% if item.status != "resolved" and item.available_actions %}
+    <div class="card">
+      <div class="operation-section-head">
+        <div>
+          <h2>Разрешить потерю</h2>
+        </div>
+      </div>
+
+      <form
+        method="post"
+        action="{% url 'operations:lost_asset_resolve' operation_line_id=operation_line_id %}"
+      >
+        {% csrf_token %}
+
+        <div class="form-group">
+          <label>Действие</label>
+          {% for action in item.available_actions %}
+          <div class="radio-item">
+            <label>
+              <input
+                type="radio"
+                name="action"
+                value="{{ action.value }}"
+                {%
+                if
+                forloop.first
+                %}checked{%
+                endif
+                %}
+                required
+              />
+              {{ action.label }}
+            </label>
+            {% if action.description %}
+            <br /><small class="text-muted">{{ action.description }}</small>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+
+        <div class="form-group">
+          <label for="qty">Количество</label>
+          <input
+            type="number"
+            id="qty"
+            name="qty"
+            value="{{ item.lost_qty }}"
+            step="0.001"
+            min="0.001"
+            max="{{ item.lost_qty }}"
+            class="form-control"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="note">Примечание</label>
+          <textarea
+            id="note"
+            name="note"
+            class="form-control"
+            rows="2"
+            placeholder="Причина потери…"
+          ></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="responsible_recipient_id">Ответственный получатель</label>
+          <select
+            id="responsible_recipient_id"
+            name="responsible_recipient_id"
+            class="form-control"
+          >
+            <option value="">Не указан</option>
+            {% for recipient in recipients %}
+            <option value="{{ recipient.id }}">{{ recipient.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {% if form_errors %}
+        <div class="alert alert-danger">
+          <ul>
+            {% for error in form_errors %}
+            <li>{{ error }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+
+        <button
+          type="submit"
+          class="btn btn-primary"
+          style="width: 100%; margin-top: 0.5rem"
+        >
+          Подтвердить
+        </button>
+      </form>
+    </div>
+    {% elif item.status == "resolved" %}
+    <div class="card">
+      <div class="empty-state">
+        <p>Потеря уже разрешена.</p>
+      </div>
+    </div>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

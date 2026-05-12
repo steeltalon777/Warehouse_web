@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="workspace-page-header">
+  <div>
+    <h1>{{ page_title }}</h1>
+    <p class="catalog-page-note">{{ page_note }}</p>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Источник данных</h3>
+  <table class="data-table">
+    <tbody>
+      <tr>
+        <th>ID временной ТМЦ</th>
+        <td><code>{{ item.id }}</code></td>
+      </tr>
+      <tr>
+        <th>Название</th>
+        <td>{{ item.name|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>SKU</th>
+        <td>{{ item.sku|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Категория</th>
+        <td>{{ item.category_name|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Единица</th>
+        <td>{{ item.unit_symbol|default:item.unit_name|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th>Описание</th>
+        <td>{{ item.description|default:"—" }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card catalog-form-card">
+  <p class="catalog-page-note">
+    Сначала создаётся новая постоянная ТМЦ, затем временная ТМЦ автоматически объединяется с ней.
+  </p>
+
+  <form
+    method="post"
+    data-loading-form
+    data-loading-scope="page"
+    data-loading-overlay-text="Преобразование временной ТМЦ..."
+  >
+    {% csrf_token %}
+    {{ form.as_p }}
+    <div class="catalog-actions">
+      <button type="submit" data-loading-text="Преобразование...">Сохранить и преобразовать</button>
+      <a class="btn btn-secondary" href="{{ back_url }}">Назад к временной ТМЦ</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

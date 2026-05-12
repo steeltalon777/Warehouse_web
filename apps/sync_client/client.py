@@ -122,20 +122,21 @@ class SyncServerClient:
             if getattr(request_user, "is_superuser", False):
                 return self.root_user_token
 
-            token = self._get_binding_token_for_user(request_user)
-            if token:
-                return token
-            raise RuntimeError(
-                f"Sync user token is not configured for Django user '{request_user.username}'."
-            )
+        token = self._get_binding_token_for_user(request_user)
+        if token:
+            logger.info("Resolved user token from sync_binding for user %s", request_user.username)
+            return token
 
-        lookup_user_id = acting_user_id if acting_user_id is not None else self.default_user_id
-        if lookup_user_id not in (None, ""):
-            token = self._get_binding_token_for_user_id(lookup_user_id)
-            if token:
-                return token
+        session_token = self._get_session_token()
+        if session_token:
+            logger.info("Resolved user token from session for user %s", request_user.username)
+            return session_token
 
-        raise RuntimeError("Unable to resolve SyncServer user token for the current request.")
+        logger.warning(
+            "Sync user token not in binding/session for Django user '%s', falling back to root token",
+            request_user.username,
+        )
+        return self.root_user_token
 
     @staticmethod
     def _get_binding_token_for_user(user) -> str:
@@ -153,6 +154,12 @@ class SyncServerClient:
         except UserModel.DoesNotExist:
             return ""
         return SyncServerClient._get_binding_token_for_user(user)
+
+    def _get_session_token(self) -> str:
+        request_session = getattr(self.request, "session", None)
+        if request_session is None:
+            return ""
+        return (request_session.get("sync_user_token") or "").strip()
 
     def _normalize_path(self, path: str) -> str:
         if not path:
@@ -243,6 +250,17 @@ class SyncServerClient:
             acting_site_id=acting_site_id,
         )
 
+        logger.info(
+            "SyncServer request",
+            extra={
+                "sync_method": method,
+                "sync_url": url,
+                "sync_headers": {k: v for k, v in headers.items() if k != "X-User-Token"},
+                "sync_params": params,
+                "sync_json": json,
+            },
+        )
+
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 response = client.request(
@@ -273,6 +291,16 @@ class SyncServerClient:
                 path=normalized_path,
             ) from exc
 
+        logger.info(
+            "SyncServer response",
+            extra={
+                "sync_method": method,
+                "sync_path": normalized_path,
+                "sync_status_code": response.status_code,
+                "sync_response_headers": dict(response.headers),
+            },
+        )
+
         if response.status_code >= 400:
             self._raise_for_response(
                 response,
@@ -291,6 +319,62 @@ class SyncServerClient:
         except ValueError:
             return {"detail": response.text}
 
+    def _request_bytes(
+        self,
+        method: str,
+        path: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+        params: dict[str, Any] | None = None,
+        accept: str = "application/octet-stream",
+    ) -> tuple[bytes, dict[str, str]]:
+        normalized_path = self._normalize_path(path)
+        url = f"{self.base_url}{normalized_path}"
+        headers = self.build_headers(
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+        headers["Accept"] = accept
+
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    params=params,
+                )
+        except httpx.TimeoutException as exc:
+            logger.exception(
+                "SyncServer timeout",
+                extra={"sync_method": method, "sync_path": normalized_path},
+            )
+            raise SyncBackendUnavailable(
+                "SyncServer не ответил вовремя.",
+                method=method,
+                path=normalized_path,
+            ) from exc
+        except httpx.RequestError as exc:
+            logger.exception(
+                "SyncServer unreachable",
+                extra={"sync_method": method, "sync_path": normalized_path},
+            )
+            raise SyncBackendUnavailable(
+                "SyncServer недоступен.",
+                method=method,
+                path=normalized_path,
+            ) from exc
+
+        if response.status_code >= 400:
+            self._raise_for_response(
+                response,
+                method=method,
+                path=normalized_path,
+            )
+
+        return response.content, dict(response.headers)
+
     def get(
         self,
         path: str,
@@ -305,6 +389,24 @@ class SyncServerClient:
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
             params=params,
+        )
+
+    def get_bytes(
+        self,
+        path: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+        params: dict[str, Any] | None = None,
+        accept: str = "application/octet-stream",
+    ) -> tuple[bytes, dict[str, str]]:
+        return self._request_bytes(
+            "GET",
+            path,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+            params=params,
+            accept=accept,
         )
 
     def post(

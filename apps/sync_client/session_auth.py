@@ -25,6 +25,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from django.conf import settings
 from django.http import HttpRequest
 
 from .auth_api import AuthAPI, get_auth_api
@@ -83,19 +84,17 @@ def store_syncserver_identity(request: HttpRequest) -> Optional[SyncIdentity]:
         # Get authentication context from SyncServer
         context = auth_api.get_context(request)
         
-        # Extract identity information from context
+        # Extract identity information from the current SyncServer schema,
+        # while remaining tolerant of older key names.
         user = context.get("user", {})
-        site = context.get("site", {})
-        sites = context.get("sites", [])
-        
-        # Get user token - check multiple possible locations
-        user_token = (
-            user.get("token") or 
-            request.session.get('user_token') or
-            # Some SyncServer implementations might return token in auth header
-            context.get("token")
-        )
-        
+        default_site = context.get("default_site") or context.get("site") or {}
+        available_sites = [
+            _normalize_sync_site(site)
+            for site in (context.get("available_sites") or context.get("sites") or [])
+        ]
+
+        user_token = _resolve_sync_user_token(request, context, user)
+
         if not user_token:
             logger.error("No user token found in SyncServer context")
             return None
@@ -104,10 +103,10 @@ def store_syncserver_identity(request: HttpRequest) -> Optional[SyncIdentity]:
         identity = SyncIdentity(
             user_token=user_token,
             user_id=user.get("id", ""),
-            role=user.get("role", "storekeeper"),
-            is_root=user.get("is_root", False),
-            available_sites=sites,
-            default_site_id=site.get("id")
+            role=context.get("role") or user.get("role", "storekeeper"),
+            is_root=bool(context.get("is_root", user.get("is_root", False))),
+            available_sites=available_sites,
+            default_site_id=default_site.get("site_id") or default_site.get("id")
         )
         
         # Store identity in session
@@ -259,6 +258,53 @@ def _store_identity_in_session(request: HttpRequest, identity: SyncIdentity) -> 
             "has_site": identity.site_id is not None
         }
     )
+
+
+def _resolve_sync_user_token(
+    request: HttpRequest,
+    context: dict[str, Any],
+    user: dict[str, Any],
+) -> str:
+    session = getattr(request, "session", None)
+
+    token_candidates = [
+        user.get("user_token"),
+        user.get("token"),
+        context.get("token"),
+        session.get("sync_user_token") if session is not None else None,
+        session.get("user_token") if session is not None else None,
+    ]
+    for candidate in token_candidates:
+        if candidate not in (None, ""):
+            logger.debug("Resolved SyncServer token from context/session")
+            return str(candidate)
+
+    request_user = getattr(request, "user", None)
+    if request_user is None or not getattr(request_user, "is_authenticated", False):
+        return ""
+
+    if getattr(request_user, "is_superuser", False):
+        token = getattr(settings, "SYNC_ROOT_USER_TOKEN", "").strip()
+        if token:
+            logger.debug("Resolved SyncServer token from root user fallback")
+        return token
+
+    try:
+        token = str(request_user.sync_binding.sync_user_token or "").strip()
+    except Exception:
+        token = ""
+
+    if token:
+        logger.debug("Resolved SyncServer token from sync binding fallback")
+
+    return token
+
+
+def _normalize_sync_site(site: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **site,
+        "id": site.get("id", site.get("site_id")),
+    }
 
 
 # Simple signal handlers for direct integration
