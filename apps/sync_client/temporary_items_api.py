@@ -166,23 +166,23 @@ class TemporaryItemsAPI:
                 response = {**response, "items": response.get("temporary_items", [])}
             response.setdefault("items", [])
             response.setdefault("total_count", len(response.get("items", [])))
-            response.setdefault("page", params.get("page", 1))
-            response.setdefault("page_size", params.get("page_size", len(response.get("items", [])) or 20))
+            response["page"] = int(response.get("page", params.get("page", 1)))
+            response["page_size"] = int(response.get("page_size", params.get("page_size", len(response.get("items", [])) or 20)))
             return response
 
         if isinstance(response, list):
             return {
                 "items": response,
                 "total_count": len(response),
-                "page": params.get("page", 1),
-                "page_size": params.get("page_size", len(response) or 20),
+                "page": int(params.get("page", 1)),
+                "page_size": int(params.get("page_size", len(response) or 20)),
             }
 
         logger.warning(
             "Unexpected response format from /temporary-items",
             extra={"response_type": type(response).__name__}
         )
-        return {"items": [], "total_count": 0, "page": 1, "page_size": params.get("page_size", 20)}
+        return {"items": [], "total_count": 0, "page": 1, "page_size": int(params.get("page_size", 20))}
 
     def get_temporary_item(
         self,

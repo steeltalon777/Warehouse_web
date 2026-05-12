@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from typing import Any
 
 from django.contrib import messages
@@ -33,8 +34,14 @@ class TemporaryItemListView(SyncContextMixin, View):
             messages.error(request, "У вас нет прав для управления каталогом.")
             return redirect("client:dashboard")
 
-        page = request.GET.get("page", 1)
-        page_size = request.GET.get("page_size", 20)
+        try:
+            page = int(request.GET.get("page", 1))
+        except (ValueError, TypeError):
+            page = 1
+        try:
+            page_size = int(request.GET.get("page_size", 20))
+        except (ValueError, TypeError):
+            page_size = 20
         status = request.GET.get("status")
         search = request.GET.get("search")
 
@@ -61,11 +68,14 @@ class TemporaryItemListView(SyncContextMixin, View):
             current_page = 1
             page_size = 20
 
+        total_pages = max(1, math.ceil(total_count / page_size)) if page_size > 0 else 1
+
         context = {
             "items": items,
             "total_count": total_count,
             "page": current_page,
             "page_size": page_size,
+            "total_pages": total_pages,
             "status": status,
             "search": search,
         }
@@ -353,3 +363,42 @@ class TemporaryItemDeleteView(SyncContextMixin, View):
                 pass
             messages.error(request, f"Не удалось удалить временную ТМЦ: {error_detail}")
             return redirect("temporary_items:delete", item_id=item_id)
+
+
+class TemporaryItemBulkDeleteView(SyncContextMixin, View):
+    """Массовое удаление временных ТМЦ (очистка завершённых)."""
+
+    def post(self, request, *args, **kwargs):
+        if not can_manage_catalog(request.user):
+            messages.error(request, "У вас нет прав для управления каталогом.")
+            return redirect("client:dashboard")
+
+        item_ids = request.POST.getlist("item_ids")
+        if not item_ids:
+            messages.warning(request, "Не выбрано ни одной временной ТМЦ для удаления.")
+            return redirect("temporary_items:list")
+
+        temp_api = TemporaryItemsAPI(self.client)
+        deleted_count = 0
+        failed_count = 0
+
+        for item_id in item_ids:
+            item_id = item_id.strip()
+            if not item_id:
+                continue
+            try:
+                temp_api.delete_temporary_item(item_id)
+                deleted_count += 1
+            except SyncServerAPIError:
+                failed_count += 1
+
+        if deleted_count:
+            messages.success(request, f"Удалено временных ТМЦ: {deleted_count}.")
+        if failed_count:
+            messages.warning(
+                request,
+                f"Не удалось удалить {failed_count} временных ТМЦ. "
+                f"Возможно, статус не позволяет удаление (требуется 'active').",
+            )
+
+        return redirect("temporary_items:list")
