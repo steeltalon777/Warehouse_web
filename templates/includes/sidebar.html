@@ -18,16 +18,16 @@
 <div class="sidebar-group">
     <div class="sidebar-group-title">Операции</div>
     <div class="sidebar-subnav">
-        <a href="{% url 'operations:create' %}" class="{% if url_name == 'create' %}sidebar-link-active{% endif %}">
+        <a href="{% url 'operations_ssr:create' %}" class="{% if url_name == 'create' %}sidebar-link-active{% endif %}">
             Создать операцию
         </a>
-        <a href="{% url 'operations:list' %}" class="{% if url_name == 'list' %}sidebar-link-active{% endif %}">
+        <a href="{% url 'operations_spa' %}" class="{% if url_name == 'list' %}sidebar-link-active{% endif %}">
             Список операций
         </a>
-        <a href="{% url 'operations:pending_acceptance' %}" class="{% if url_name == 'pending_acceptance' %}sidebar-link-active{% endif %}">
+        <a href="{% url 'operations_ssr:pending_acceptance' %}" class="{% if url_name == 'pending_acceptance' %}sidebar-link-active{% endif %}">
             Ожидающие приёмки
         </a>
-        <a href="{% url 'operations:lost_assets' %}" class="{% if url_name == 'lost_assets' %}sidebar-link-active{% endif %}">
+        <a href="{% url 'operations_ssr:lost_assets' %}" class="{% if url_name == 'lost_assets' %}sidebar-link-active{% endif %}">
             Непринятые
         </a>
     </div>
@@ -37,11 +37,12 @@
 <div class="sidebar-group">
     <div class="sidebar-group-title">Номенклатура</div>
     <div class="sidebar-subnav">
-        <a href="{% url 'nomenclature:tree' %}">Дерево номенклатуры</a>
-        <a href="{% url 'nomenclature:item_list' %}">ТМЦ</a>
-        <a href="{% url 'nomenclature:category_list' %}">Категории</a>
-        <a href="{% url 'nomenclature:unit_list' %}">Единицы измерения</a>
-        <a href="{% url 'temporary_items:list' %}">Временные ТМЦ</a>
+        <a href="/nomenclature/">Номенклатура (SPA)</a>
+        <a href="{% url 'nomenclature:tree' %}">Дерево (SSR)</a>
+        <a href="{% url 'nomenclature:item_list' %}">ТМЦ (SSR)</a>
+        <a href="{% url 'nomenclature:category_list' %}">Категории (SSR)</a>
+        <a href="{% url 'nomenclature:unit_list' %}">Единицы изм. (SSR)</a>
+        <a href="/temporary-items/">Временные ТМЦ</a>
     </div>
 </div>
 {% endif %}

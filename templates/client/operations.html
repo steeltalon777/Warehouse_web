@@ -12,7 +12,7 @@
     <input name="search" value="{{ search }}" placeholder="Поиск по номеру или товару">
     <button type="submit" data-loading-text="Загрузка...">Фильтр</button>
   </form>
-  <a class="btn" href="{% url 'operations:create' %}">Создать операцию</a>
+  <a class="btn" href="{% url 'operations_ssr:create' %}">Создать операцию</a>
 </div>
 <div class="card">
   <table>
@@ -26,7 +26,7 @@
     </tr>
     {% for op in operations %}
     <tr>
-      <td><a href="{% url 'operations:detail' op.id %}">{{ op.id }}</a></td>
+      <td><a href="{% url 'operations_ssr:detail' op.id %}">{{ op.id }}</a></td>
       <td>{{ op.operation_type|default:op.type }}</td>
       <td>{{ op.item_name|default:op.item_id }}</td>
       <td>{{ op.quantity }}</td>

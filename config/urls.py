@@ -16,22 +16,33 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.views.generic import RedirectView
 
+from apps.catalog.views import AngularStaticFilesView, OperationsSPAView, TemporaryItemsSPAView
 from apps.common.views import HealthCheckView, SyncHealthCheckView
 from apps.users.views import logout_view
 
 urlpatterns = [
+    # Angular built assets at root level (baseHref="/")
+    re_path(r"^(?P<path>[\w-]+\.(?:js|css|map))$", AngularStaticFilesView.as_view(), name="angular_asset"),
+    re_path(r"^(?P<path>favicon\.ico)$", AngularStaticFilesView.as_view(), name="angular_favicon"),
 
     path("admin/", admin.site.urls),
 
     path("catalog/", include("apps.catalog.urls")),
     path("nomenclature/", include("apps.catalog.nomenclature_urls")),
     path("client/", include("apps.client.urls")),
-    path("operations/", include("apps.operations.urls")),
+    # Operations SSR fallback — must come BEFORE SPA catch-all so ssr/ paths are not swallowed
+    path("operations/ssr/", include("apps.operations.ssr_urls")),
+    # Operations SPA — exact /operations/ and catch-all render Angular SPA
+    path("operations/", OperationsSPAView.as_view(), name="operations_spa"),
+    path("operations/<path:path>", OperationsSPAView.as_view(), name="operations_spa_catchall"),
     path("balances/", include("apps.balances.urls")),
-    path("temporary-items/", include("apps.temporary_items.urls")),
+    # Temporary Items SPA — exact /temporary-items/ renders Angular SPA (must come BEFORE SSR include)
+    path("temporary-items/", TemporaryItemsSPAView.as_view(), name="temporary_items_spa"),
+    path("temporary-items/<path:path>", TemporaryItemsSPAView.as_view(), name="temporary_items_spa_catchall"),
+    path("temporary-items/ssr/", include("apps.temporary_items.urls")),
     path("admin-panel/", include("apps.admin_panel.urls")),
     path("documents/", include("apps.documents.urls")),
     path("users/", include("apps.users.urls")),
@@ -51,6 +62,8 @@ urlpatterns = [
     ),
 
     path("healthz/", HealthCheckView.as_view(), name="healthz"),
+    path("bff/api/v1/", include("apps.bff_api.urls")),
+
     path("healthz/sync/", SyncHealthCheckView.as_view(), name="healthz_sync"),
 
     path("", RedirectView.as_view(url="/client/", permanent=False)),

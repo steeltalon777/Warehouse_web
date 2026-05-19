@@ -267,6 +267,8 @@ def _build_create_payload(
             unit_id = _to_int(item.get("unit_id"))
             if unit_id is None:
                 unit_id = default_unit_id
+            if unit_id is None:
+                raise ValidationError("Для временной ТМЦ выберите единицу измерения.")
             category_id = _to_int(item.get("category_id"))
             # category_id может быть None — это допустимо
 
@@ -417,7 +419,7 @@ class OperationDetailView(SyncContextMixin, TemplateView):
             if exc.status_code == 404:
                 raise Http404("Операция не найдена.") from exc
             messages.error(request, str(exc) or "Не удалось загрузить операцию.")
-            return redirect("operations:list")
+            return redirect("operations_ssr:list")
 
         operation_documents: list[dict[str, Any]] = []
         try:
@@ -431,8 +433,8 @@ class OperationDetailView(SyncContextMixin, TemplateView):
         context = {
             "operation": presented_operation,
             "operation_documents": operation_documents,
-            "submit_next_url": reverse("operations:detail", kwargs={"operation_id": operation_id}),
-            "cancel_next_url": reverse("operations:detail", kwargs={"operation_id": operation_id}),
+            "submit_next_url": reverse("operations_ssr:detail", kwargs={"operation_id": operation_id}),
+            "cancel_next_url": reverse("operations_ssr:detail", kwargs={"operation_id": operation_id}),
         }
         return render(request, self.template_name, context)
 
@@ -591,7 +593,7 @@ class OperationCreateView(SyncContextMixin, View):
                 form.add_error(None, _format_create_error(exc))
             else:
                 messages.success(request, "Операция создана.")
-                return redirect("operations:detail", operation_id=created.get("id"))
+                return redirect("operations_ssr:detail", operation_id=created.get("id"))
         else:
             raw_payload = (request.POST.get("draft_payload") or "").strip()
             if raw_payload:
@@ -648,8 +650,8 @@ class OperationCreateView(SyncContextMixin, View):
             "destination_sites": destination_sites,
             "can_create_operations": bool(operate_sites),
             "operation_type_options": service.operation_type_options(),
-            "item_search_url": reverse("operations:item_search"),
-            "item_create_url": reverse("operations:item_create"),
+            "item_search_url": reverse("operations_ssr:item_search"),
+            "item_create_url": reverse("operations_ssr:item_create"),
             "can_choose_source_site": service.can_choose_source_site(),
             "fixed_operating_site": fixed_operating_site,
             "fixed_operating_site_id": fixed_operating_site_id or "",
@@ -661,7 +663,7 @@ class OperationCreateView(SyncContextMixin, View):
 
 class SubmitOperationView(SyncContextMixin, View):
     def post(self, request, operation_id):
-        next_url = request.POST.get("next") or reverse("operations:detail", kwargs={"operation_id": operation_id})
+        next_url = request.POST.get("next") or reverse("operations_ssr:detail", kwargs={"operation_id": operation_id})
 
         try:
             OperationsAPI(self.client).submit_operation(operation_id, payload={"submit": True})
@@ -675,7 +677,7 @@ class SubmitOperationView(SyncContextMixin, View):
             operation = OperationsAPI(self.client).get_operation(operation_id)
             op_type = str(operation.get("operation_type") or "").strip().upper()
             if op_type == "RECEIVE":
-                return redirect("operations:acceptance_detail", operation_id=operation_id)
+                return redirect("operations_ssr:acceptance_detail", operation_id=operation_id)
         except Exception:
             pass
 
@@ -684,7 +686,7 @@ class SubmitOperationView(SyncContextMixin, View):
 
 class CancelOperationView(SyncContextMixin, View):
     def post(self, request, operation_id):
-        next_url = request.POST.get("next") or reverse("operations:detail", kwargs={"operation_id": operation_id})
+        next_url = request.POST.get("next") or reverse("operations_ssr:detail", kwargs={"operation_id": operation_id})
         reason = (request.POST.get("reason") or "").strip()
         payload: dict[str, Any] = {"cancel": True}
         if reason:
@@ -788,7 +790,7 @@ class AcceptanceDetailView(SyncContextMixin, TemplateView):
             if exc.status_code == 404:
                 raise Http404("Операция не найдена.") from exc
             messages.error(request, str(exc) or "Не удалось загрузить операцию.")
-            return redirect("operations:pending_acceptance")
+            return redirect("operations_ssr:pending_acceptance")
 
         try:
             pending_data = _load_pending_acceptance_for_operation(assets_api, operation_id)
@@ -801,7 +803,7 @@ class AcceptanceDetailView(SyncContextMixin, TemplateView):
         context = {
             "view_model": view_model,
             "operation_id": operation_id,
-            "back_url": reverse("operations:pending_acceptance"),
+            "back_url": reverse("operations_ssr:pending_acceptance"),
         }
         return render(request, self.template_name, context)
 
@@ -817,12 +819,12 @@ class AcceptanceSubmitView(SyncContextMixin, View):
             pending_data = _load_pending_acceptance_for_operation(assets_api, operation_id)
         except SyncServerAPIError as exc:
             messages.error(request, str(exc) or "Не удалось загрузить актуальные данные приёмки.")
-            return redirect("operations:acceptance_detail", operation_id=operation_id)
+            return redirect("operations_ssr:acceptance_detail", operation_id=operation_id)
 
         pending_rows = pending_data.get("items", [])
         if not pending_rows:
             messages.warning(request, "Операция уже полностью обработана.")
-            return redirect("operations:acceptance_detail", operation_id=operation_id)
+            return redirect("operations_ssr:acceptance_detail", operation_id=operation_id)
 
         # Build remaining_by_line map
         remaining_by_line: dict[int | str, Decimal] = {}
@@ -863,7 +865,7 @@ class AcceptanceSubmitView(SyncContextMixin, View):
             )
         except ValidationError as exc:
             messages.error(request, exc.message)
-            return redirect("operations:acceptance_detail", operation_id=operation_id)
+            return redirect("operations_ssr:acceptance_detail", operation_id=operation_id)
 
         payload = {"lines": payload_lines}
 
@@ -879,9 +881,9 @@ class AcceptanceSubmitView(SyncContextMixin, View):
                 messages.error(request, "У вас нет прав на приёмку этой операции.")
             else:
                 messages.error(request, str(exc) or "Не удалось выполнить приёмку.")
-            return redirect("operations:acceptance_detail", operation_id=operation_id)
+            return redirect("operations_ssr:acceptance_detail", operation_id=operation_id)
 
-        return redirect("operations:acceptance_detail", operation_id=operation_id)
+        return redirect("operations_ssr:acceptance_detail", operation_id=operation_id)
 
 
 # ------------------------------------------------------------------
@@ -961,7 +963,7 @@ class LostAssetDetailView(SyncContextMixin, TemplateView):
             if exc.status_code == 404:
                 raise Http404("Запись потери не найдена.") from exc
             messages.error(request, str(exc) or "Не удалось загрузить данные потери.")
-            return redirect("operations:lost_assets")
+            return redirect("operations_ssr:lost_assets")
 
         presented = service.present_lost_asset_detail(lost_asset)
 
@@ -979,7 +981,7 @@ class LostAssetDetailView(SyncContextMixin, TemplateView):
             "item": presented,
             "operation_line_id": operation_line_id,
             "recipients": recipients,
-            "back_url": reverse("operations:lost_assets"),
+            "back_url": reverse("operations_ssr:lost_assets"),
         }
         return render(request, self.template_name, context)
 
@@ -997,7 +999,7 @@ class LostAssetResolveView(SyncContextMixin, View):
                 messages.error(request, "Запись потери не найдена или уже разрешена.")
             else:
                 messages.error(request, str(exc) or "Не удалось загрузить данные потери.")
-            return redirect("operations:lost_assets")
+            return redirect("operations_ssr:lost_assets")
 
         presented = service.present_lost_asset_detail(lost_asset)
         max_qty = service._to_decimal(lost_asset.get("qty") or lost_asset.get("lost_qty") or 0) or Decimal("0")
@@ -1015,7 +1017,7 @@ class LostAssetResolveView(SyncContextMixin, View):
             )
         except ValidationError as exc:
             messages.error(request, exc.message)
-            return redirect("operations:lost_asset_detail", operation_line_id=operation_line_id)
+            return redirect("operations_ssr:lost_asset_detail", operation_line_id=operation_line_id)
 
         try:
             assets_api.resolve_lost_asset(operation_line_id, payload)
@@ -1029,6 +1031,6 @@ class LostAssetResolveView(SyncContextMixin, View):
                 messages.error(request, "У вас нет прав на разрешение этой потери.")
             else:
                 messages.error(request, str(exc) or "Не удалось разрешить потерю.")
-            return redirect("operations:lost_asset_detail", operation_line_id=operation_line_id)
+            return redirect("operations_ssr:lost_asset_detail", operation_line_id=operation_line_id)
 
-        return redirect("operations:lost_assets")
+        return redirect("operations_ssr:lost_assets")

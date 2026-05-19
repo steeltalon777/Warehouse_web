@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Операции{% endblock %}
+
+{% block head_extra %}
+  <base href="/">
+  {% if spa_css %}
+    <link rel="stylesheet" href="{{ spa_css }}">
+  {% endif %}
+  {% if spa_inline_styles %}
+    <style>{{ spa_inline_styles }}</style>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+  <app-root></app-root>
+{% endblock %}
+
+{% block body_extra %}
+  {% if spa_scripts %}
+    {% for src in spa_scripts %}
+      <script src="{{ src }}" type="module"></script>
+    {% endfor %}
+  {% endif %}
+{% endblock %}

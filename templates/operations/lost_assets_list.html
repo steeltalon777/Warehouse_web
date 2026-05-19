@@ -14,7 +14,7 @@
 </div>
 
 <div class="card">
-  <form method="get" action="{% url 'operations:lost_assets' %}">
+  <form method="get" action="{% url 'operations_ssr:lost_assets' %}">
     <div class="form-row">
       <label for="search">Поиск</label>
       <input type="text" id="search" name="search" value="{{ search|default:'' }}"
@@ -38,7 +38,7 @@
     </div>
     <div class="form-row operation-filter-actions">
       <button type="submit" class="btn btn-primary">Применить</button>
-      <a href="{% url 'operations:lost_assets' %}" class="btn btn-outline">Сбросить</a>
+      <a href="{% url 'operations_ssr:lost_assets' %}" class="btn btn-outline">Сбросить</a>
     </div>
   </form>
 </div>
@@ -62,7 +62,7 @@
         {% for item in items %}
         <tr>
           <td>
-            <a href="{% url 'operations:lost_asset_detail' operation_line_id=item.operation_line_id %}">
+            <a href="{% url 'operations_ssr:lost_asset_detail' operation_line_id=item.operation_line_id %}">
               {{ item.item_name|default:item.item_id }}
             </a>
             {% if item.item_code %}
@@ -71,7 +71,7 @@
           </td>
           <td>{{ item.lost_qty }}</td>
           <td>
-            <a href="{% url 'operations:detail' operation_id=item.operation_id %}">
+            <a href="{% url 'operations_ssr:detail' operation_id=item.operation_id %}">
               {{ item.document_number|default:item.operation_id|truncatechars:16 }}
             </a>
           </td>
@@ -85,7 +85,7 @@
           </td>
           <td>{{ item.created_at|default:"—" }}</td>
           <td class="action-cell">
-            <a href="{% url 'operations:lost_asset_detail' operation_line_id=item.operation_line_id %}"
+            <a href="{% url 'operations_ssr:lost_asset_detail' operation_line_id=item.operation_line_id %}"
                class="btn btn-sm btn-primary">Подробнее</a>
           </td>
         </tr>
