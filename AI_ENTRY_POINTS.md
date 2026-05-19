@@ -1,50 +1,37 @@
 # AI Entry Points
 
-## Server Entrypoints
+## Server
 
-- `manage.py` - Django CLI entrypoint
-- `config/wsgi.py` - WSGI entrypoint for Gunicorn
-- `config/asgi.py` - ASGI entrypoint
-- `config/urls.py` - top-level URL routing
+- `manage.py` - Django CLI.
+- `config/urls.py` - root URL routing.
+- `config/wsgi.py` - WSGI entry point.
+- `config/asgi.py` - ASGI entry point.
 
-## API Layer
+## Web And BFF Layer
 
-- `apps/catalog/views.py`
-- `apps/client/views.py`
-- `apps/operations/views.py`
-- `apps/balances/views.py`
-- `apps/admin_panel/views.py`
-- `apps/users/admin.py`
+- `apps/catalog/views.py` - catalog/nomenclature views and BFF candidates.
+- `apps/catalog/services.py` - SyncServer-backed catalog orchestration.
+- `apps/users/admin.py` - Django admin integration.
+- `apps/users/services.py` - user/site sync orchestration.
+- `apps/operations/views.py` and `apps/operations/services.py` - operation UI.
+- `apps/balances/views.py` - balance UI.
 
-## Service Layer
-
-- `apps/users/services.py`
-- `apps/catalog/services.py`
-- `apps/client/services.py`
-
-## Repository / Data Layer
+## SyncServer Client Layer
 
 - `apps/sync_client/client.py`
-- `apps/sync_client/root_admin_client.py`
 - `apps/sync_client/catalog_api.py`
 - `apps/sync_client/operations_api.py`
 - `apps/sync_client/balances_api.py`
-- `apps/sync_client/access_api.py`
 - `apps/sync_client/admin_api.py`
 - `apps/sync_client/auth_api.py`
 - `apps/sync_client/session_auth.py`
+- `apps/sync_client/root_admin_client.py`
 
-## Models / Entities
+## Technical Models
 
 - `apps/users/models.py`
-- `apps/catalog/models.py` as legacy local ORM tail
+- `apps/catalog_cache/models.py`
 
-## Configuration
+## Tests
 
-- `config/settings/base.py`
-- `config/settings/development.py`
-- `config/settings/production.py`
-- `.env.example`
-- `requirements.txt`
-- `Dockerfile`
-- `docker-compose.yml`
+- `apps/*/tests.py`

@@ -283,12 +283,40 @@ button:active, .btn:active {
  font-size:14px;
 }
 
-.logout-form{
- margin:0;
+.role-badge{
+ display:inline-block;
+ padding:2px 10px;
+ border-radius:12px;
+ font-size:12px;
+ font-weight:600;
+ line-height:1.5;
+ white-space:nowrap;
 }
 
-.logout-form button{
- margin:0;
+.role-badge.role-storekeeper{
+ background:#17a2b8;
+ color:#fff;
+}
+
+.role-badge.role-chief_storekeeper{
+ background:#28a745;
+ color:#fff;
+}
+
+.role-badge.role-root{
+ background:#dc3545;
+ color:#fff;
+}
+
+.role-badge.role-observer{
+ background:#6c757d;
+ color:#fff;
+}
+
+.role-badge.role-none{
+ background:#f0f0f0;
+ color:#999;
+ border:1px dashed #ccc;
 }
 
 .logout-form{
@@ -313,6 +341,40 @@ button:active, .btn:active {
 .btn-danger:hover{
  background:#b91c1c;
  color:#fff;
+}
+
+.badge{
+ display:inline-block;
+ padding:4px 10px;
+ border-radius:4px;
+ font-size:12px;
+ font-weight:600;
+ line-height:1.4;
+ white-space:nowrap;
+}
+
+.badge-warning{
+ background:#f59e0b;
+ color:#fff;
+}
+
+.badge-success{
+ background:#10b981;
+ color:#fff;
+}
+
+.badge-info{
+ background:#0ea5e9;
+ color:#fff;
+}
+
+.badge-danger{
+ background:#dc2626;
+ color:#fff;
+}
+
+.text-muted{
+ color:var(--muted);
 }
 
 .catalog-page-header{

@@ -30,6 +30,7 @@ from django.http import HttpRequest
 
 from .auth_api import AuthAPI, get_auth_api
 from .exceptions import SyncAPIError
+from .token_resolver import SyncIdentityNotBoundError
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ def store_syncserver_identity(request: HttpRequest) -> Optional[SyncIdentity]:
     
     try:
         # Initialize AuthAPI
-        auth_api = get_auth_api()
+        auth_api = get_auth_api(request)
         
         # Get authentication context from SyncServer
         context = auth_api.get_context(request)
@@ -282,12 +283,6 @@ def _resolve_sync_user_token(
     request_user = getattr(request, "user", None)
     if request_user is None or not getattr(request_user, "is_authenticated", False):
         return ""
-
-    if getattr(request_user, "is_superuser", False):
-        token = getattr(settings, "SYNC_ROOT_USER_TOKEN", "").strip()
-        if token:
-            logger.debug("Resolved SyncServer token from root user fallback")
-        return token
 
     try:
         token = str(request_user.sync_binding.sync_user_token or "").strip()

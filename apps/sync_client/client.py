@@ -5,7 +5,6 @@ from typing import Any
 
 import httpx
 from django.conf import settings
-from django.contrib.auth import get_user_model
 
 from .exceptions import (
     SyncAuthError,
@@ -16,6 +15,11 @@ from .exceptions import (
     SyncServerAPIError,
     SyncServerInternalError,
     SyncValidationError,
+)
+from .token_resolver import (
+    SyncIdentityNotBoundError,
+    get_device_token,
+    resolve_sync_identity,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,8 +32,9 @@ class SyncServerClient:
     Rules:
     - base URL MUST already include /api/v1
     - Django runtime auth is token-based
-    - root user uses root token from env
-    - non-root user uses token from local SyncUserBinding
+    - non-root users use token from local SyncUserBinding or session
+    - root token is used ONLY when force_root=True (explicit admin/system flow)
+    - missing binding raises SyncIdentityNotBoundError, never falls back to root
     - all HTTP calls to SyncServer should go through this client
     """
 
@@ -43,21 +48,9 @@ class SyncServerClient:
     ) -> None:
         self.base_url = settings.SYNC_SERVER_URL.rstrip("/")
         self.timeout = float(getattr(settings, "SYNC_SERVER_TIMEOUT", 10))
-        self.device_token = getattr(settings, "SYNC_DEVICE_TOKEN", "").strip()
-        self.root_user_token = getattr(settings, "SYNC_ROOT_USER_TOKEN", "").strip()
+        self.device_token = get_device_token()
         self.request = request
         self.force_root = force_root
-
-        self.default_user_id = (
-            user_id if user_id is not None else getattr(settings, "SYNC_DEFAULT_ACTING_USER_ID", "")
-        )
-        self.default_site_id = (
-            site_id if site_id is not None else getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
-        )
-        if not self.device_token:
-            raise RuntimeError("SYNC_DEVICE_TOKEN is not configured.")
-        if not self.root_user_token:
-            raise RuntimeError("SYNC_ROOT_USER_TOKEN is not configured.")
 
         if not self.base_url.endswith("/api/v1"):
             raise RuntimeError(
@@ -71,95 +64,18 @@ class SyncServerClient:
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
     ) -> dict[str, str]:
-        user_token = self._resolve_user_token(acting_user_id=acting_user_id)
+        identity = resolve_sync_identity(
+            request=self.request,
+            force_root=self.force_root,
+        )
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "X-Device-Token": self.device_token,
-            "X-User-Token": user_token,
+            "X-User-Token": identity.user_token,
         }
-        site_id = self._resolve_site_id(acting_site_id=acting_site_id)
-        if site_id:
-            headers["X-Site-Id"] = site_id
+        if self.device_token:
+            headers["X-Device-Token"] = self.device_token
         return headers
-
-    def _resolve_site_id(self, *, acting_site_id: str | int | None = None) -> str:
-        candidates = [
-            acting_site_id,
-            self.default_site_id,
-        ]
-
-        request_session = getattr(self.request, "session", None)
-        if request_session is not None:
-            candidates.extend(
-                [
-                    request_session.get("active_site"),
-                    request_session.get("sync_default_site_id"),
-                    request_session.get("site_id"),
-                ]
-            )
-
-        request_user = getattr(self.request, "user", None)
-        if request_user is not None and getattr(request_user, "is_authenticated", False):
-            try:
-                candidates.append(request_user.sync_binding.default_site_id)
-            except Exception:
-                pass
-
-        for candidate in candidates:
-            if candidate in (None, ""):
-                continue
-            return str(candidate).strip()
-
-        return ""
-
-    def _resolve_user_token(self, *, acting_user_id: str | int | None = None) -> str:
-        if self.force_root:
-            return self.root_user_token
-
-        request_user = getattr(self.request, "user", None)
-        if request_user is not None and getattr(request_user, "is_authenticated", False):
-            if getattr(request_user, "is_superuser", False):
-                return self.root_user_token
-
-        token = self._get_binding_token_for_user(request_user)
-        if token:
-            logger.info("Resolved user token from sync_binding for user %s", request_user.username)
-            return token
-
-        session_token = self._get_session_token()
-        if session_token:
-            logger.info("Resolved user token from session for user %s", request_user.username)
-            return session_token
-
-        logger.warning(
-            "Sync user token not in binding/session for Django user '%s', falling back to root token",
-            request_user.username,
-        )
-        return self.root_user_token
-
-    @staticmethod
-    def _get_binding_token_for_user(user) -> str:
-        try:
-            binding = user.sync_binding
-        except Exception:
-            return ""
-        return (binding.sync_user_token or "").strip()
-
-    @staticmethod
-    def _get_binding_token_for_user_id(user_id: str | int) -> str:
-        UserModel = get_user_model()
-        try:
-            user = UserModel.objects.select_related("sync_binding").get(pk=user_id)
-        except UserModel.DoesNotExist:
-            return ""
-        return SyncServerClient._get_binding_token_for_user(user)
-
-    def _get_session_token(self) -> str:
-        request_session = getattr(self.request, "session", None)
-        if request_session is None:
-            return ""
-        return (request_session.get("sync_user_token") or "").strip()
 
     def _normalize_path(self, path: str) -> str:
         if not path:
@@ -425,6 +341,22 @@ class SyncServerClient:
             acting_site_id=acting_site_id,
             json=json,
             params=params,
+        )
+
+    def put(
+        self,
+        path: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+        json: dict[str, Any] | None = None,
+    ) -> Any:
+        return self._request(
+            "PUT",
+            path,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+            json=json,
         )
 
     def patch(

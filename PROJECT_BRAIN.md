@@ -1,15 +1,19 @@
 # PROJECT_BRAIN
 
-## Strategic direction
-1. Django остаётся web/admin client.
-2. SyncServer владеет domain truth.
-3. Legacy Django domain models — transitional compatibility only.
+## Strategic Direction
 
-## Implemented direction
-- Root/admin panel для users/roles/sites через SyncServer API.
-- Chief/storekeeper UI разделены по сценариям, но используют общий API-first integration layer.
-- UI переведён на production-friendly static + unified layout.
+1. Django remains the active web/admin client and BFF.
+2. SyncServer owns domain truth.
+3. Angular nomenclature runs through Django and same-origin BFF endpoints.
 
-## Next steps
-- Расширять фильтры и bulk-операции без переноса бизнес-логики в Django ORM.
-- Выравнивать WPF/mobile/offline клиенты на те же SyncServer domain users/roles/sites.
+## Implemented Direction
+
+- Root/admin panel for users, roles, and sites goes through SyncServer API.
+- Chief/storekeeper UI uses the shared SyncServer client layer.
+- Catalog app uses services and SyncServer APIs, not local catalog ORM.
+
+## Next Steps
+
+- Add Django BFF endpoints for Angular nomenclature.
+- Convert `Warehouse_frontend` into an Angular workspace.
+- Expand tests around SyncServer client wrappers and BFF responses.

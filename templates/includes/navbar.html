@@ -5,6 +5,11 @@
 <div class="navbar-right">
     {% if request.user.is_authenticated %}
         <span class="user-name">{{ request.user.username }}</span>
+        {% if has_sync_identity and sync_role_label %}
+        <span class="role-badge role-{{ sync_role }}">{{ sync_role_label }}</span>
+        {% elif not has_sync_identity %}
+        <span class="role-badge role-none">роль не привязана</span>
+        {% endif %}
 
         <form method="post" action="{% url 'users:logout' %}" class="logout-form">
             {% csrf_token %}

@@ -39,11 +39,11 @@ class TemporaryItemsViewsTestCase(TestCase):
 
     def test_urls_resolve(self):
         """Проверка разрешения URL."""
-        self.assertEqual(reverse("temporary_items:list"), "/temporary-items/")
-        self.assertEqual(reverse("temporary_items:item_search"), "/temporary-items/item-search/")
-        self.assertEqual(reverse("temporary_items:detail", args=["temp-123"]), "/temporary-items/temp-123/")
-        self.assertEqual(reverse("temporary_items:approve", args=["temp-123"]), "/temporary-items/temp-123/approve/")
-        self.assertEqual(reverse("temporary_items:merge", args=["temp-123"]), "/temporary-items/temp-123/merge/")
+        self.assertEqual(reverse("temporary_items:list"), "/temporary-items/ssr/")
+        self.assertEqual(reverse("temporary_items:item_search"), "/temporary-items/ssr/item-search/")
+        self.assertEqual(reverse("temporary_items:detail", args=["temp-123"]), "/temporary-items/ssr/temp-123/")
+        self.assertEqual(reverse("temporary_items:approve", args=["temp-123"]), "/temporary-items/ssr/temp-123/approve/")
+        self.assertEqual(reverse("temporary_items:merge", args=["temp-123"]), "/temporary-items/ssr/temp-123/merge/")
 
     def test_template_names(self):
         """Проверка имён шаблонов через импорт представлений."""
@@ -57,6 +57,41 @@ class TemporaryItemsViewsTestCase(TestCase):
         self.assertEqual(TemporaryItemDetailView.template_name, "temporary_items/detail.html")
         self.assertEqual(TemporaryItemApproveView.template_name, "temporary_items/approve.html")
         self.assertEqual(TemporaryItemMergeView.template_name, "temporary_items/merge.html")
+
+
+
+class TemporaryItemsSPARouteTests(TestCase):
+    """Тесты маршрутов SPA для временных ТМЦ."""
+
+    def setUp(self):
+        self.client = Client()
+
+    def test_spa_mount_redirects_anonymous(self):
+        """SPA view requires login — anonymous gets 302."""
+        response = self.client.get('/temporary-items/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_spa_catchall_redirects_anonymous(self):
+        """SPA catch-all also requires login."""
+        response = self.client.get('/temporary-items/some/deep/path')
+        self.assertEqual(response.status_code, 302)
+
+    def test_ssr_fallback_redirects_anonymous(self):
+        """SSR fallback at /temporary-items/ssr/ still requires login."""
+        response = self.client.get('/temporary-items/ssr/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_spa_url_name_resolves(self):
+        """SPA url name resolves correctly."""
+        self.assertEqual(reverse("temporary_items_spa"), "/temporary-items/")
+
+    def test_spa_renders_for_authenticated(self):
+        """Authenticated user gets 200 from SPA view."""
+        user = User.objects.create_user(username="spauser", password="pass")
+        self.client.force_login(user)
+        response = self.client.get('/temporary-items/')
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "catalog/temp_items_spa.html")
 
 
 class TemporaryItemsIntegrationTestCase(TestCase):

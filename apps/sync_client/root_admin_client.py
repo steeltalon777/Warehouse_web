@@ -16,6 +16,7 @@ from .exceptions import (
     SyncServerInternalError,
     SyncValidationError,
 )
+from .token_resolver import get_device_token
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +24,15 @@ logger = logging.getLogger(__name__)
 class SyncServerRootAdminClient:
     """
     Root-token SyncServer client for Django-admin management operations.
+
+    This client is for Django staff/superuser admin or system jobs only.
+    It must not be exposed to browser-facing BFF endpoints for ordinary users.
     """
 
     def __init__(self) -> None:
         self.base_url = settings.SYNC_SERVER_URL.rstrip("/")
         self.timeout = float(getattr(settings, "SYNC_SERVER_TIMEOUT", 10))
-        self.device_token = getattr(settings, "SYNC_DEVICE_TOKEN", "").strip()
+        self.device_token = get_device_token()
         self.root_user_token = getattr(settings, "SYNC_ROOT_USER_TOKEN", "").strip()
 
         if not self.base_url.endswith("/api/v1"):
@@ -36,18 +40,18 @@ class SyncServerRootAdminClient:
                 "SYNC_SERVER_URL must include '/api/v1'. "
                 f"Current value: {self.base_url}"
             )
-        if not self.device_token:
-            raise RuntimeError("SYNC_DEVICE_TOKEN is not configured.")
         if not self.root_user_token:
             raise RuntimeError("SYNC_ROOT_USER_TOKEN is not configured.")
 
     def _build_headers(self) -> dict[str, str]:
-        return {
+        headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "X-Device-Token": self.device_token,
             "X-User-Token": self.root_user_token,
         }
+        if self.device_token:
+            headers["X-Device-Token"] = self.device_token
+        return headers
 
     def _normalize_path(self, path: str) -> str:
         if not path:

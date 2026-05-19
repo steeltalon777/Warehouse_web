@@ -32,6 +32,16 @@ class OperationsAPITests(SimpleTestCase):
         )
 
 
+    def test_delete_operation_calls_client_delete(self) -> None:
+        self.api.delete_operation("op-1")
+
+        self.mock_client.delete.assert_called_once_with(
+            "/operations/op-1",
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+
 class AssetsAPITests(SimpleTestCase):
     def setUp(self) -> None:
         self.mock_client = Mock(spec=SyncServerClient)
@@ -195,7 +205,7 @@ class TemporaryItemsAPITests(SimpleTestCase):
         self.assertEqual(result[0]["type"], "RECEIVE")
 
     def test_approve_as_item_calls_client_post(self) -> None:
-        """approve_as_item calls POST /temporary-items/{id}/approve."""
+        """approve_as_item calls POST /temporary-items/{id}/approve-as-item."""
         self.mock_client.post.return_value = {
             "id": "item-456",
             "name": "Approved Item",
@@ -208,7 +218,7 @@ class TemporaryItemsAPITests(SimpleTestCase):
         )
 
         self.mock_client.post.assert_called_once_with(
-            "/temporary-items/temp-123/approve",
+            "/temporary-items/temp-123/approve-as-item",
             json={},
             acting_user_id="user-123",
             acting_site_id="site-456",

@@ -104,7 +104,7 @@ class SessionAuthTests(TestCase):
         request.session.save()
 
     @patch("apps.sync_client.session_auth.get_auth_api")
-    def test_store_syncserver_identity_uses_root_token_fallback(self, mock_get_auth_api) -> None:
+    def test_superuser_uses_binding_token_not_root_fallback(self, mock_get_auth_api) -> None:
         request = self.factory.get("/users/sync/identity/")
         request.user = self.root_user
         self._attach_session(request)
@@ -115,6 +115,7 @@ class SessionAuthTests(TestCase):
                 "username": "root-user",
                 "role": "root",
                 "is_root": True,
+                "user_token": "context-user-token",
             },
             "role": "root",
             "is_root": True,
@@ -131,19 +132,18 @@ class SessionAuthTests(TestCase):
             ],
         }
 
-        with self.settings(SYNC_ROOT_USER_TOKEN="root-token-123"):
-            identity = store_syncserver_identity(request)
+        identity = store_syncserver_identity(request)
 
         self.assertIsNotNone(identity)
         assert identity is not None
-        self.assertEqual(identity.user_token, "root-token-123")
+        self.assertEqual(identity.user_token, "context-user-token")
         self.assertEqual(identity.user_id, "sync-root-id")
         self.assertEqual(identity.role, "root")
         self.assertTrue(identity.is_root)
         self.assertEqual(identity.site_id, 7)
         self.assertEqual(len(identity.available_sites), 1)
         self.assertEqual(identity.available_sites[0]["id"], 7)
-        self.assertEqual(request.session["sync_user_token"], "root-token-123")
+        self.assertEqual(request.session["sync_user_token"], "context-user-token")
         self.assertEqual(request.session["sync_default_site_id"], 7)
 
 

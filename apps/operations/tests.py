@@ -738,9 +738,9 @@ class PresentLostAssetDetailTests(SimpleTestCase):
     def test_available_actions_includes_found_to_destination(self) -> None:
         lost_asset = {"operation_line_id": "line-1", "qty": "5.000", "status": "open"}
         result = self.service.present_lost_asset_detail(lost_asset)
-        # available_actions is a list of strings (action values)
-        self.assertIn("found_to_destination", result["available_actions"])
-        self.assertIn("write_off", result["available_actions"])
+        action_values = [a["value"] for a in result["available_actions"]]
+        self.assertIn("found_to_destination", action_values)
+        self.assertIn("write_off", action_values)
 
     def test_available_actions_includes_return_to_source_when_source_exists(self) -> None:
         lost_asset = {
@@ -748,7 +748,8 @@ class PresentLostAssetDetailTests(SimpleTestCase):
             "source_site_id": 2,
         }
         result = self.service.present_lost_asset_detail(lost_asset)
-        self.assertIn("return_to_source", result["available_actions"])
+        action_values = [a["value"] for a in result["available_actions"]]
+        self.assertIn("return_to_source", action_values)
 
     def test_no_available_actions_when_resolved(self) -> None:
         lost_asset = {

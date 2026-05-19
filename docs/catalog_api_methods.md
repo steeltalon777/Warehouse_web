@@ -6,22 +6,22 @@ This document lists the main methods available in `apps/sync_client/catalog_api.
 
 ## Public Methods
 
-### Legacy list methods
+### Base list methods
 
 #### `list_items(filters=None, *, acting_user_id=None, acting_site_id=None)`
 - Endpoint: `GET /catalog/items`
 - Returns: `list[dict]`
-- Purpose: legacy flat item list access
+- Purpose: flat item list access
 
 #### `list_categories(filters=None, *, acting_user_id=None, acting_site_id=None)`
 - Endpoint: `GET /catalog/categories`
 - Returns: `list[dict]`
-- Purpose: legacy flat category list access
+- Purpose: flat category list access
 
 #### `get_categories_tree(*, acting_user_id=None, acting_site_id=None)`
 - Endpoint: `GET /catalog/categories/tree`
 - Returns: `dict`
-- Purpose: legacy tree payload access
+- Purpose: category tree payload access
 
 #### `list_units(filters=None, *, acting_user_id=None, acting_site_id=None)`
 - Endpoint: `GET /catalog/units`

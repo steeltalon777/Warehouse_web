@@ -385,6 +385,37 @@ class OperationsAPI:
             acting_site_id=acting_site_id,
         )
 
+    def delete_operation(
+        self,
+        operation_id: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> None:
+        """
+        Delete a cancelled operation (soft delete).
+
+        Endpoint: DELETE /operations/{operation_id}
+
+        Args:
+            operation_id: Operation identifier to delete
+            acting_user_id: Optional acting user ID override
+            acting_site_id: Optional acting site ID override
+
+        Raises:
+            SyncAPIError: If the API request fails
+
+        Example:
+            >>> operations_api = OperationsAPI()
+            >>> operations_api.delete_operation("op-789")
+        """
+        logger.debug("Deleting operation", extra={"operation_id": operation_id})
+        self.client.delete(
+            f"/operations/{operation_id}",
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
     def accept_operation_lines(
         self,
         operation_id: str,

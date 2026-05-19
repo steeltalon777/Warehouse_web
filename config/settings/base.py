@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "apps.balances",
     "apps.admin_panel",
     "apps.temporary_items",
+    "apps.bff_api",
 ]
 
 MIDDLEWARE = [
@@ -82,6 +83,8 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "apps.common.context_processors.shell_context",
+                "apps.common.context_processors.sync_identity_context",
             ],
         },
     },
@@ -130,32 +133,37 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # IMPORTANT:
 # - Django SSR client must talk only to versioned SyncServer API.
 # - Base URL MUST already include /api/v1
-# - Web client uses service-auth only.
+# - Transport uses only X-User-Token and X-Device-Token headers.
 SYNC_SERVER_URL = os.getenv("SYNC_SERVER_URL", "http://syncserver:8000/api/v1").rstrip("/")
-SYNC_SERVER_SERVICE_TOKEN = os.getenv("SYNC_SERVER_SERVICE_TOKEN", "").strip()
 SYNC_ROOT_USER_TOKEN = os.getenv("SYNC_ROOT_USER_TOKEN", "").strip()
 SYNC_SERVER_TIMEOUT = float(os.getenv("SYNC_SERVER_TIMEOUT", "10"))
 
-# Optional default acting context for technical/service flows.
-# Business requests should normally pass explicit acting context from app layer.
-SYNC_DEFAULT_ACTING_USER_ID = os.getenv("SYNC_DEFAULT_ACTING_USER_ID", "").strip()
-SYNC_DEFAULT_ACTING_SITE_ID = os.getenv("SYNC_DEFAULT_ACTING_SITE_ID", "").strip()
-
-# -------------------------------------------------------------------
-# Legacy device-auth settings
-# -------------------------------------------------------------------
-# DEPRECATED:
-# Django web client MUST NOT use device auth for business/admin operations.
-# Left here only to avoid hard crash in unrelated old code during migration.
-SYNC_SITE_ID = os.getenv("SYNC_SITE_ID", "").strip()
-SYNC_DEVICE_ID = os.getenv("SYNC_DEVICE_ID", "").strip()
+# Optional device-token for audit context (not for ordinary auth).
 SYNC_DEVICE_TOKEN = os.getenv("SYNC_DEVICE_TOKEN", "").strip()
-SYNC_CLIENT_VERSION = os.getenv("SYNC_CLIENT_VERSION", "warehouse-web/1.0").strip()
 
-# Legacy alias support (read-only fallback). Do not use in new code.
-SYNCSERVER_API_URL = SYNC_SERVER_URL
+# -------------------------------------------------------------------
+# HISTORICAL — removed from active use
+# -------------------------------------------------------------------
+# The following settings were used by the old multi-header auth model
+# (service tokens, acting context headers, legacy device auth).
+# They are retained here only as env-var references for backward
+# compat during transition. Active code must not read them.
+#
+# Removed: SYNC_SERVER_SERVICE_TOKEN, SYNC_DEFAULT_ACTING_USER_ID,
+#          SYNC_DEFAULT_ACTING_SITE_ID, SYNC_SITE_ID, SYNC_DEVICE_ID,
+#          SYNC_CLIENT_VERSION, SYNCSERVER_API_URL, SYNC_WEB_DEVICE_ID.
 
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/client/"
 LOGOUT_REDIRECT_URL = "/login/"
-SYNC_WEB_DEVICE_ID = os.getenv("SYNC_WEB_DEVICE_ID", "00000000-0000-0000-0000-000000000001").strip()
+
+# -------------------------------------------------------------------
+# Frontend SPA integration
+# -------------------------------------------------------------------
+# FRONTEND_MODE: "dev" (Angular dev server at :4200 with proxy) or "build" (Django serves built files)
+FRONTEND_MODE = os.getenv("FRONTEND_MODE", "build").strip()
+FRONTEND_DEV_SERVER_URL = os.getenv("FRONTEND_DEV_SERVER_URL", "http://localhost:4200").strip()
+FRONTEND_BUILD_DIR = os.getenv(
+    "FRONTEND_BUILD_DIR",
+    str(BASE_DIR.parent / "Warehouse_frontend" / "dist" / "warehouse-frontend" / "browser"),
+).strip()

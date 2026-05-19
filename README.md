@@ -121,7 +121,7 @@ Warehouse_web does not expose its own warehouse domain API. It consumes SyncServ
 
 - superuser/root flows use `SYNC_ROOT_USER_TOKEN`
 - non-root runtime flows use per-user tokens from `SyncUserBinding`
-- catalog master data is API-driven; local catalog ORM models are legacy-only and not the source of truth
+- catalog master data is API-driven through SyncServer and Django services
 - read-only catalog pages use SyncServer browse/read-model endpoints; nomenclature management is a separate UI flow
 - sites are mirrored locally only as an admin cache during transition
 

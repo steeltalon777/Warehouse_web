@@ -10,6 +10,7 @@ from apps.common.permissions import can_manage_catalog, is_storekeeper
 from apps.operations.services import OperationPageService
 from apps.sync_client.assets_api import AssetsAPI
 from apps.sync_client.client import SyncServerClient
+from apps.sync_client.temporary_items_api import TemporaryItemsAPI
 
 
 def _build_domain_service(request) -> DomainService:
@@ -17,7 +18,7 @@ def _build_domain_service(request) -> DomainService:
         request.session.get("active_site")
         or request.session.get("sync_default_site_id")
         or request.session.get("site_id")
-        or getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
+        or ""
     )
     client = SyncServerClient(
         user_id=request.user.id,
@@ -44,7 +45,7 @@ def dashboard(request):
             request.session.get("active_site")
             or request.session.get("sync_default_site_id")
             or request.session.get("site_id")
-            or getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
+            or ""
         )
         client = SyncServerClient(
             user_id=request.user.id,
@@ -61,9 +62,19 @@ def dashboard(request):
     except Exception:
         pending_summary = None
 
+    # Load temporary item count for dashboard widget
+    temp_item_count = None
+    try:
+        temp_api = TemporaryItemsAPI(client)
+        page_result = temp_api.list_temporary_items_page(filters={"status": "active", "page_size": 1})
+        temp_item_count = page_result.get("total_count", 0)
+    except Exception:
+        temp_item_count = None
+
     return render(request, "client/dashboard.html", {
         "role": role,
         "pending_summary": pending_summary,
+        "temp_item_count": temp_item_count,
     })
 
 

@@ -173,9 +173,9 @@ Displayed next to relevant form fields or as general errors.
 
 ## Migration Path
 
-### From Legacy Views:
-1. **Legacy:** `/admin_panel/users/` (Django ORM + API mix)
-2. **New:** `/admin_panel/api/users/` (API only)
+### From Existing Views:
+1. Existing path: `/admin_panel/users/` (Django UI plus API integration)
+2. API-only path: `/admin_panel/api/users/`
 
 ### Benefits:
 - Clean separation of concerns
@@ -184,8 +184,8 @@ Displayed next to relevant form fields or as general errors.
 - Better scalability
 
 ### Compatibility:
-- Legacy views remain functional
-- New views use different URL patterns
+- Existing views remain functional
+- API-only views use different URL patterns
 - Gradual migration possible
 
 ## Testing Considerations
