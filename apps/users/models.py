@@ -91,13 +91,13 @@ class SyncUserBinding(models.Model):
         related_name="sync_binding",
     )
     syncserver_user_id = models.UUIDField(unique=True, null=True, blank=True)
-    sync_user_token = models.CharField(max_length=255, blank=True)
+    sync_user_token = models.CharField(max_length=255, blank=True, null=True)
     sync_role = models.CharField(
         max_length=50,
         choices=Role.choices,
         default=Role.STOREKEEPER,
     )
-    default_site_id = models.CharField(max_length=64, blank=True)
+    default_site_id = models.CharField(max_length=64, blank=True, null=True)
     site_ids = models.JSONField(default=list, blank=True)
     sync_status = models.CharField(
         max_length=32,
@@ -105,10 +105,10 @@ class SyncUserBinding(models.Model):
         default=SyncStatus.PENDING,
     )
     last_sync_at = models.DateTimeField(null=True, blank=True)
-    last_sync_error = models.TextField(blank=True)
     last_sync_payload = models.JSONField(default=dict, blank=True)
     token_rotated_at = models.DateTimeField(null=True, blank=True)
     manual_token_updated_at = models.DateTimeField(null=True, blank=True)
+    last_sync_error = models.TextField(blank=True, null=True)
     manual_token_updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -133,7 +133,7 @@ class SyncDeviceBinding(models.Model):
     syncserver_device_id = models.PositiveIntegerField(unique=True, null=True, blank=True)
     device_code = models.CharField(max_length=100, unique=True)
     device_name = models.CharField(max_length=255)
-    sync_device_token = models.CharField(max_length=255, blank=True)
+    sync_device_token = models.CharField(max_length=255, blank=True, null=True)
     is_active = models.BooleanField(default=True)
     sync_status = models.CharField(
         max_length=32,
@@ -141,7 +141,7 @@ class SyncDeviceBinding(models.Model):
         default=SyncStatus.PENDING,
     )
     last_sync_at = models.DateTimeField(null=True, blank=True)
-    last_sync_error = models.TextField(blank=True)
+    last_sync_error = models.TextField(blank=True, null=True)
     last_sync_payload = models.JSONField(default=dict, blank=True)
     token_rotated_at = models.DateTimeField(null=True, blank=True)
     manual_token_updated_at = models.DateTimeField(null=True, blank=True)

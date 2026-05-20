@@ -22,9 +22,13 @@ html, body {
 }
 
 body {
- font-family:Inter, Arial, sans-serif;
- color:var(--text);
- background:var(--bg);
+  font-family:Inter, Arial, sans-serif;
+  color:var(--text);
+  background:var(--bg);
+  display:flex;
+  flex-direction:column;
+  height:100vh;
+  overflow:hidden;
 }
 
 a {
@@ -37,15 +41,19 @@ a:hover {
 }
 
 .layout {
- display:grid;
- grid-template-columns:240px 1fr;
- min-height:100vh;
+  display:grid;
+  grid-template-columns:240px 1fr;
+  flex:1;
+  min-height:0;
+  overflow:hidden;
 }
 
 .sidebar {
- background:var(--sidebar);
- color:#e2e8f0;
- padding:20px 16px;
+  background:var(--sidebar);
+  color:#e2e8f0;
+  padding:20px 16px;
+  overflow-y:auto;
+  min-height:0;
 }
 
 .sidebar a {
@@ -88,7 +96,9 @@ a:hover {
 }
 
 .content {
- padding:24px;
+  padding:24px;
+  overflow-y:auto;
+  min-height:0;
 }
 
 .topbar {
@@ -1369,6 +1379,53 @@ button.is-loading{
 
 .sidebar-subnav a {
     padding-left: 24px;
+    font-size: 14px;
+}
+
+.sidebar-details {
+    margin: 0;
+    padding: 0;
+}
+
+.sidebar-details summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 8px 12px 8px 24px;
+    font-size: 14px;
+    color: var(--sidebar-text);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.sidebar-details summary::-webkit-details-marker {
+    display: none;
+}
+
+.sidebar-details summary::after {
+    content: "▸";
+    font-size: 12px;
+    color: var(--sidebar-muted);
+    transition: transform 0.2s;
+}
+
+.sidebar-details[open] summary::after {
+    content: "▾";
+}
+
+.sidebar-details summary:hover {
+    background: var(--sidebar-hover);
+}
+
+.sidebar-nested-nav {
+    display: grid;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.sidebar-nested-nav a {
+    padding-left: 40px;
     font-size: 14px;
 }
 
