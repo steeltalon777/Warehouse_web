@@ -11,6 +11,7 @@ from apps.bff_api import (
     operations_views,
     recipients_views,
     reports_views,
+    review_items_views,
     root_views,
     temp_items_views,
 )
@@ -51,6 +52,9 @@ catalog_read_patterns = [
     path("catalog/read/categories/<str:category_id>/items", catalog_views.BrowseCategoryItemsView.as_view(), name="catalog_read_category_items"),
     path("catalog/read/categories/<str:category_id>/children", catalog_views.BrowseCategoryChildrenView.as_view(), name="catalog_read_category_children"),
     path("catalog/read/categories/<str:category_id>/parent-chain", catalog_views.BrowseCategoryParentChainView.as_view(), name="catalog_read_category_parent_chain"),
+    # Cached search endpoints (cache-first, fallback, warm)
+    path("catalog/search/items", catalog_views.CatalogCachedItemSearchView.as_view(), name="catalog_search_items"),
+    path("catalog/search/categories", catalog_views.CatalogCachedCategorySearchView.as_view(), name="catalog_search_categories"),
 ]
 
 catalog_admin_patterns = [
@@ -85,6 +89,14 @@ temporary_items_patterns = [
     path("temporary-items/<str:temp_item_id>/operations", temp_items_views.TempItemOperationsView.as_view(), name="temp_item_operations"),
     path("temporary-items/<str:temp_item_id>/approve-as-item", temp_items_views.TempItemApproveView.as_view(), name="temp_item_approve"),
     path("temporary-items/<str:temp_item_id>/merge", temp_items_views.TempItemMergeView.as_view(), name="temp_item_merge"),
+]
+
+review_items_patterns = [
+    path("review-items", review_items_views.ReviewItemsListView.as_view(), name="review_items"),
+    path("review-items/<int:item_id>", review_items_views.ReviewItemDetailView.as_view(), name="review_item_detail"),
+    path("review-items/<int:item_id>/operations", review_items_views.ReviewItemOperationsView.as_view(), name="review_item_operations"),
+    path("review-items/<int:item_id>/confirm", review_items_views.ReviewItemConfirmView.as_view(), name="review_item_confirm"),
+    path("review-items/<int:item_id>/merge", review_items_views.ReviewItemMergeView.as_view(), name="review_item_merge"),
 ]
 
 documents_patterns = [
@@ -131,6 +143,7 @@ urlpatterns = (
     + operations_patterns
     + balances_patterns
     + temporary_items_patterns
+    + review_items_patterns
     + documents_patterns
     + recipients_patterns
     + assets_patterns

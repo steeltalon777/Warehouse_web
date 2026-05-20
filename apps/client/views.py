@@ -10,6 +10,7 @@ from apps.common.permissions import can_manage_catalog, is_storekeeper
 from apps.operations.services import OperationPageService
 from apps.sync_client.assets_api import AssetsAPI
 from apps.sync_client.client import SyncServerClient
+from apps.sync_client.review_items_api import ReviewItemsAPI
 from apps.sync_client.temporary_items_api import TemporaryItemsAPI
 
 
@@ -62,19 +63,30 @@ def dashboard(request):
     except Exception:
         pending_summary = None
 
-    # Load temporary item count for dashboard widget
-    temp_item_count = None
+    # Load review-required item count for dashboard widget
+    # Uses new review-items API (Item.requires_review=true), falls back to legacy
+    # TemporaryItem count for backward compatibility
+    review_item_count = None
     try:
-        temp_api = TemporaryItemsAPI(client)
-        page_result = temp_api.list_temporary_items_page(filters={"status": "active", "page_size": 1})
-        temp_item_count = page_result.get("total_count", 0)
+        review_api = ReviewItemsAPI(client)
+        page_result = review_api.list_review_items_page(filters={"page_size": 1})
+        review_item_count = page_result.get("total_count", 0)
     except Exception:
-        temp_item_count = None
+        review_item_count = None
+
+    # Legacy fallback: try old temporary items API
+    if review_item_count is None:
+        try:
+            temp_api = TemporaryItemsAPI(client)
+            page_result = temp_api.list_temporary_items_page(filters={"status": "active", "page_size": 1})
+            review_item_count = page_result.get("total_count", 0)
+        except Exception:
+            review_item_count = None
 
     return render(request, "client/dashboard.html", {
         "role": role,
         "pending_summary": pending_summary,
-        "temp_item_count": temp_item_count,
+        "temp_item_count": review_item_count,
     })
 
 

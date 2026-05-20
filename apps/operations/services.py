@@ -332,8 +332,8 @@ class OperationPageService:
         request_user = getattr(self.request, "user", None)
         can_submit = status in {"draft", "created"} and role != "observer"
         can_cancel = (
-            status in {"draft", "created", "pending", "submitted"}
-            and (request_user is None or not is_observer(request_user))
+            (status in {"draft", "created", "pending"} and (request_user is None or not is_observer(request_user)))
+            or (status == "submitted" and role == "root")
         )
         can_accept = status in {"submitted", "pending"} and role not in {"observer"}
         logger.info(

@@ -22,6 +22,7 @@ from apps.catalog.forms import ItemForm, find_default_unit_id
 from apps.catalog.services import CatalogService
 from apps.catalog.views import _normalize_categories, _normalize_units
 from apps.common.mixins import SyncContextMixin
+from apps.common.permissions import is_root
 from apps.operations.constants import (
     CREATE_DISABLED_OPERATION_TYPES,
     OPERATION_STATUS_META,
@@ -384,6 +385,7 @@ class OperationsListView(SyncContextMixin, TemplateView):
         total_pages = max((total_count + page_size - 1) // page_size, 1)
         current_page = int(page_data.get("page") or page)
 
+        is_root_user = is_root(request.user) if request.user.is_authenticated else False
         context = {
             "operations": operations,
             "search": search,
@@ -402,6 +404,7 @@ class OperationsListView(SyncContextMixin, TemplateView):
             "status_options": [
                 {"code": status_code, "label": meta["label"]}
                 for status_code, meta in OPERATION_STATUS_META.items()
+                if is_root_user or status_code != "cancelled"
             ],
         }
         return render(request, self.template_name, context)
