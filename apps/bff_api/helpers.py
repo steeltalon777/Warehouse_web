@@ -82,6 +82,11 @@ def _ok(data: Any) -> JsonResponse:
     return JsonResponse({"ok": True, "data": data})
 
 
+def json_error(message: str, status: int = 500) -> JsonResponse:
+    """Shortcut: error response with no code field, just message."""
+    return JsonResponse({"ok": False, "error": message}, status=status)
+
+
 def _error(message: str, code: str = "error", status: int = 400) -> JsonResponse:
     return JsonResponse(
         {"ok": False, "error": {"code": code, "message": message}},
@@ -109,6 +114,9 @@ def _handle_sync_error(exc: SyncServerAPIError) -> JsonResponse:
     }
     code = code_map.get(exc.status_code or 0, "sync_error")
     return _error(str(exc), code, status=exc.status_code or 502)
+
+
+sync_api_error = _handle_sync_error
 
 
 def _require_root(user) -> bool:
