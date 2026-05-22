@@ -8,6 +8,7 @@ __pycache__/
 *.pot
 *.pyc
 db.sqlite3
+/warehouse
 
 # Virtualenv
 .venv/
@@ -43,4 +44,3 @@ repo_map_*.txt
 repo_map_*.json
 repo_map.txt
 repo_map.json
-
