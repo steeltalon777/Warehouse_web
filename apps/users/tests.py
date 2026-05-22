@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 from django.urls import reverse
 from unittest.mock import patch
@@ -10,6 +10,7 @@ from unittest.mock import patch
 from apps.users.admin_forms import SyncManagedDeviceAdminForm
 from apps.sync_client.session_auth import store_syncserver_identity
 from apps.users.admin import SyncManagedUserAdmin
+from apps.users.simple_sync_signals import on_user_logged_in
 from apps.users.models import SyncDeviceBinding
 
 
@@ -103,8 +104,9 @@ class SessionAuthTests(TestCase):
         middleware.process_request(request)
         request.session.save()
 
+    @override_settings(SYNC_ROOT_USER_TOKEN="root-env-token")
     @patch("apps.sync_client.session_auth.get_auth_api")
-    def test_superuser_uses_binding_token_not_root_fallback(self, mock_get_auth_api) -> None:
+    def test_superuser_stores_root_env_token_when_context_has_no_token(self, mock_get_auth_api) -> None:
         request = self.factory.get("/users/sync/identity/")
         request.user = self.root_user
         self._attach_session(request)
@@ -115,7 +117,6 @@ class SessionAuthTests(TestCase):
                 "username": "root-user",
                 "role": "root",
                 "is_root": True,
-                "user_token": "context-user-token",
             },
             "role": "root",
             "is_root": True,
@@ -136,15 +137,25 @@ class SessionAuthTests(TestCase):
 
         self.assertIsNotNone(identity)
         assert identity is not None
-        self.assertEqual(identity.user_token, "context-user-token")
+        self.assertEqual(identity.user_token, "root-env-token")
         self.assertEqual(identity.user_id, "sync-root-id")
         self.assertEqual(identity.role, "root")
         self.assertTrue(identity.is_root)
         self.assertEqual(identity.site_id, 7)
         self.assertEqual(len(identity.available_sites), 1)
         self.assertEqual(identity.available_sites[0]["id"], 7)
-        self.assertEqual(request.session["sync_user_token"], "context-user-token")
+        self.assertEqual(request.session["sync_user_token"], "root-env-token")
         self.assertEqual(request.session["sync_default_site_id"], 7)
+
+    @patch("apps.users.simple_sync_signals.store_syncserver_identity")
+    def test_login_signal_sets_request_user_before_sync_identity_fetch(self, mock_store_identity) -> None:
+        request = self.factory.post("/login/")
+        self._attach_session(request)
+
+        on_user_logged_in(sender=get_user_model(), request=request, user=self.root_user)
+
+        self.assertEqual(request.user, self.root_user)
+        mock_store_identity.assert_called_once_with(request)
 
 
 class SyncManagedDeviceAdminFormTests(TestCase):

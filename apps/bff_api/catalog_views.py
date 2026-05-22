@@ -16,6 +16,7 @@ from apps.bff_api.helpers import (
 )
 from apps.catalog_cache.services import CatalogCacheSyncService, CatalogLookupService
 from apps.catalog.services import CatalogService
+from apps.sync_client.balances_api import BalancesAPI
 from apps.sync_client.catalog_api import CatalogAPI
 from apps.sync_client.client import SyncServerClient
 from apps.sync_client.exceptions import SyncServerAPIError
@@ -414,6 +415,24 @@ class AdminItemDetailView(LoginRequiredMixin, View):
             return _handle_sync_error(exc)
 
 
+# ── Admin Batch ─────────────────────────────────────────────────────
+
+
+class AdminCatalogBatchView(LoginRequiredMixin, View):
+    def post(self, request):
+        if not _require_chief_or_root(request.user):
+            return _error("Access denied", "forbidden", 403)
+        try:
+            api = _catalog(request)
+            payload = json.loads(request.body) if request.body else {}
+            data = api.apply_catalog_batch(payload)
+            return _ok(data)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
+        except json.JSONDecodeError:
+            return _error("Invalid JSON body", "validation_error", 400)
+
+
 # ── Cached Search (cache-first, fallback, warm) ────────────────────
 
 
@@ -430,6 +449,9 @@ class CatalogCachedItemSearchView(LoginRequiredMixin, View):
         except (TypeError, ValueError):
             limit = 20
 
+        source_site_id = request.GET.get("source_site_id") or ""
+        include_balance = request.GET.get("include_balance", "").lower() in ("true", "1")
+
         try:
             cached_items = self._search_local_cache(query, limit=limit)
         except DatabaseError:
@@ -437,18 +459,21 @@ class CatalogCachedItemSearchView(LoginRequiredMixin, View):
             cached_items = []
 
         if len(cached_items) >= limit:
-            return _ok({"results": cached_items})
+            results = self._enrich_with_balances(request, cached_items, source_site_id) if include_balance and source_site_id else cached_items
+            return _ok({"results": results})
 
         try:
-            remote_items = self._search_remote_items(query, limit=limit)
+            remote_items = self._search_remote_items(request, query, limit=limit)
         except SyncServerAPIError:
             logger.warning("Remote catalog search unavailable, using local cache results only")
             remote_items = []
 
         if remote_items:
-            self._warm_catalog_cache(remote_items)
+            self._warm_catalog_cache(request, remote_items)
 
         merged = self._merge_items(cached_items, remote_items, limit=limit)
+        if include_balance and source_site_id:
+            merged = self._enrich_with_balances(request, merged, source_site_id)
         return _ok({"results": merged})
 
     def _search_local_cache(self, query: str, *, limit: int) -> list[dict[str, Any]]:
@@ -461,17 +486,21 @@ class CatalogCachedItemSearchView(LoginRequiredMixin, View):
                 "sku": item.get("sku", ""),
                 "category_id": str(item.get("category_id", "")) if item.get("category_id") else "",
                 "category_name": item.get("category_name", ""),
+                "hashtags": item.get("hashtags", []),
                 "unit_id": "",
                 "unit_name": item.get("unit_symbol", ""),
                 "unit_symbol": item.get("unit_symbol", ""),
                 "is_active": item.get("is_active", True),
                 "requires_review": False,
                 "source": "cache",
+                "source_site_id": "",
+                "source_site_qty": "0",
+                "balance_qty": "0",
             }
             for item in items
         ]
 
-    def _search_remote_items(self, query: str, *, limit: int) -> list[dict[str, Any]]:
+    def _search_remote_items(self, request, query: str, *, limit: int) -> list[dict[str, Any]]:
         client = _build_client(request)
         catalog = CatalogService(client)
         result = catalog.browse_items(search=query, page=1, page_size=max(limit, 25))
@@ -488,30 +517,68 @@ class CatalogCachedItemSearchView(LoginRequiredMixin, View):
                 continue
             if not item.get("is_active", True):
                 continue
+            hashtags = item.get("hashtags")
+            if not isinstance(hashtags, list):
+                hashtags = []
             serialized.append({
                 "id": str(item_id),
                 "name": item.get("name", ""),
                 "sku": item.get("sku", ""),
                 "category_id": str(item.get("category_id", "")) if item.get("category_id") else "",
                 "category_name": item.get("category_name", ""),
+                "hashtags": hashtags,
                 "unit_id": str(item.get("unit_id", "")) if item.get("unit_id") else "",
                 "unit_name": item.get("unit_name", ""),
                 "unit_symbol": item.get("unit_symbol", ""),
                 "is_active": item.get("is_active", True),
                 "requires_review": item.get("requires_review", False),
                 "source": "remote",
+                "source_site_id": "",
+                "source_site_qty": "0",
+                "balance_qty": "0",
             })
             if len(serialized) >= limit:
                 break
         return serialized
 
-    def _warm_catalog_cache(self, items: list[dict[str, Any]]) -> None:
+    def _warm_catalog_cache(self, request, items: list[dict[str, Any]]) -> None:
         try:
             client = _build_client(request)
             sync_client = SyncServerClient(request=request, force_root=True)
             CatalogCacheSyncService(client=sync_client).upsert_items(items)
         except Exception:
             logger.exception("Failed to warm local catalog cache from remote search results")
+
+    def _enrich_with_balances(self, request, items: list[dict[str, Any]], source_site_id: str) -> list[dict[str, Any]]:
+        if not source_site_id or not items:
+            return items
+        try:
+            client = _build_client(request)
+            balances_api = BalancesAPI(client=client)
+            enriched: list[dict[str, Any]] = []
+            for item in items:
+                item_id = item.get("id", "")
+                balance_qty = "0"
+                if item_id:
+                    try:
+                        balance_data = balances_api.list_balances(
+                            filters={"site_id": source_site_id, "item_id": item_id}
+                        )
+                        balance_items = balance_data.get("items", []) if isinstance(balance_data, dict) else []
+                        if balance_items:
+                            balance_qty = str(balance_items[0].get("qty", "0"))
+                    except Exception:
+                        logger.warning(f"Failed to fetch balance for item {item_id}", exc_info=True)
+                enriched.append({
+                    **item,
+                    "source_site_id": source_site_id,
+                    "source_site_qty": balance_qty,
+                    "balance_qty": balance_qty,
+                })
+            return enriched
+        except Exception:
+            logger.warning("Balance enrichment failed", exc_info=True)
+            return items
 
     @staticmethod
     def _merge_items(

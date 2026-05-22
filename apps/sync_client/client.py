@@ -32,9 +32,10 @@ class SyncServerClient:
     Rules:
     - base URL MUST already include /api/v1
     - Django runtime auth is token-based
+    - Django superusers use SYNC_ROOT_USER_TOKEN from env
     - non-root users use token from local SyncUserBinding or session
-    - root token is used ONLY when force_root=True (explicit admin/system flow)
-    - missing binding raises SyncIdentityNotBoundError, never falls back to root
+    - force_root=True also uses SYNC_ROOT_USER_TOKEN for explicit admin/system flow
+    - missing non-root binding raises SyncIdentityNotBoundError, never falls back to root
     - all HTTP calls to SyncServer should go through this client
     """
 

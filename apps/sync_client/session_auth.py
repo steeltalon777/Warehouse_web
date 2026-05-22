@@ -291,8 +291,15 @@ def _resolve_sync_user_token(
 
     if token:
         logger.debug("Resolved SyncServer token from sync binding fallback")
+        return token
 
-    return token
+    if getattr(request_user, "is_superuser", False):
+        root_token = getattr(settings, "SYNC_ROOT_USER_TOKEN", "").strip()
+        if root_token:
+            logger.debug("Resolved SyncServer token from root env for Django superuser")
+            return root_token
+
+    return ""
 
 
 def _normalize_sync_site(site: dict[str, Any]) -> dict[str, Any]:

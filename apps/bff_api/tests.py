@@ -16,6 +16,8 @@ class BffApiRoutesSmokeTests(TestCase):
         # Method+path count is larger, but path registry baseline should stay stable.
         self.assertGreaterEqual(len(urlpatterns), 70)
 
+        self.assertIn("catalog_admin_batch", names)
+
         required_names = {
             "root",
             "db_check",
@@ -136,6 +138,137 @@ class BffApiViewMethodTests(TestCase):
         body = response.json()
         self.assertTrue(body["ok"])
         self.assertEqual(body["data"], {"deleted": True})
+
+    def test_catalog_cached_item_search_optional_params(self) -> None:
+        mock_client = Mock()
+        mock_client.get.return_value = {"items": [], "total_count": 0, "page": 1, "page_size": 0}
+
+        with (
+            patch("apps.bff_api.catalog_views.CatalogCachedItemSearchView._search_local_cache", return_value=[]),
+            patch("apps.bff_api.catalog_views._build_client", return_value=mock_client),
+        ):
+            response = self.client.get(
+                "/bff/api/v1/catalog/search/items",
+                {"q": "test", "source_site_id": "5", "include_balance": "true"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+
+
+class BffApiCatalogBatchTests(TestCase):
+    def setUp(self) -> None:
+        user_model = get_user_model()
+        self.chief = user_model.objects.create_user(
+            username="chief_user",
+            password="pass12345",
+            is_superuser=True,
+            is_staff=True,
+            is_active=True,
+        )
+        self.root = user_model.objects.create_user(
+            username="root_user",
+            password="pass12345",
+            is_superuser=True,
+            is_staff=True,
+            is_active=True,
+        )
+        self.plain_user = user_model.objects.create_user(
+            username="plain_user",
+            password="pass12345",
+            is_superuser=False,
+            is_staff=False,
+            is_active=True,
+        )
+
+    def test_batch_unauthenticated_returns_redirect(self) -> None:
+        response = self.client.post("/bff/api/v1/catalog/admin/batch", data="{}", content_type="application/json")
+        self.assertIn(response.status_code, (302, 403))
+
+    def test_batch_non_chief_returns_403(self) -> None:
+        self.client.force_login(self.plain_user)
+        response = self.client.post("/bff/api/v1/catalog/admin/batch", data="{}", content_type="application/json")
+        self.assertEqual(response.status_code, 403)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "forbidden")
+
+    def test_batch_chief_calls_api_and_returns_200(self) -> None:
+        mock_api = Mock()
+        mock_api.apply_catalog_batch.return_value = {"status": "ok", "results": []}
+
+        self.client.force_login(self.chief)
+        payload = {"changes": [{"type": "update_item", "item_id": "i1"}]}
+
+        with patch("apps.bff_api.catalog_views._catalog", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/catalog/admin/batch",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["status"], "ok")
+        mock_api.apply_catalog_batch.assert_called_once_with(payload)
+
+    def test_batch_root_calls_api_and_returns_200(self) -> None:
+        mock_api = Mock()
+        mock_api.apply_catalog_batch.return_value = {"status": "ok"}
+
+        self.client.force_login(self.root)
+        payload = {"changes": []}
+
+        with patch("apps.bff_api.catalog_views._catalog", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/catalog/admin/batch",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        mock_api.apply_catalog_batch.assert_called_once()
+
+    def test_batch_invalid_json_returns_400(self) -> None:
+        self.client.force_login(self.chief)
+        response = self.client.post(
+            "/bff/api/v1/catalog/admin/batch",
+            data="not json",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "validation_error")
+
+    def test_batch_sync_conflict_409_is_preserved(self) -> None:
+        from apps.sync_client.exceptions import SyncServerAPIError
+
+        mock_api = Mock()
+        mock_api.apply_catalog_batch.side_effect = SyncServerAPIError(
+            "Batch conflict: item already updated",
+            status_code=409,
+            payload={"detail": "Batch conflict: item already updated"},
+        )
+
+        self.client.force_login(self.chief)
+        payload = {"changes": [{"type": "update_item", "item_id": "i1"}]}
+
+        with patch("apps.bff_api.catalog_views._catalog", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/catalog/admin/batch",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 409)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "conflict")
 
 
 class BffApiPublicEndpointsTests(TestCase):

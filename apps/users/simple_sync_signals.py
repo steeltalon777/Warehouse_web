@@ -49,6 +49,10 @@ def on_user_logged_in(
     )
     
     try:
+        # Django's login signal passes the authenticated user separately;
+        # request.user may still be anonymous in some login paths.
+        request.user = user
+
         # Fetch and store SyncServer identity
         identity = store_syncserver_identity(request)
         

@@ -55,9 +55,12 @@ class AuthAPI:
         """Synchronize user data with SyncServer.
 
         Endpoint: POST /auth/sync-user
+
+        Uses force_root=True because sync-user is a system/admin endpoint
+        that requires root permissions in SyncServer.
         """
         logger.debug("Synchronizing user data")
-        client = SyncServerClient(request=request or self.request)
+        client = SyncServerClient(request=request or self.request, force_root=True)
         return client.post("/auth/sync-user", json=payload or {})
 
     def validate_token(self, request=None) -> bool:

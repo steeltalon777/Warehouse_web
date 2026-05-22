@@ -129,45 +129,65 @@ def sync_auth_login(request: HttpRequest, username: str, password: str) -> Optio
         # Initialize AuthAPI
         auth_api = get_auth_api()
         
-        # First, authenticate with SyncServer to get user token
-        # This assumes SyncServer has a login endpoint that accepts credentials
-        # and returns a user token. For now, we'll use the sync_user endpoint
-        # which should handle authentication.
+        # Sync user registry via SyncServer POST /auth/sync-user (root-only).
+        # Response contains user token, id, role, is_root, default_site_id.
         sync_result = auth_api.sync_user(request, {
             "username": username,
             "password": password,
         })
         
-        # The sync_user endpoint should set user_token in session via SyncClient
-        # Now get the authentication context
-        context = auth_api.get_context(request)
+        user_data = sync_result.get("user", {})
+        user_token = user_data.get("user_token") or user_data.get("token")
+        user_id = user_data.get("id", "")
+        role = user_data.get("role", "storekeeper")
+        is_root = user_data.get("is_root", False)
+        default_site_id = user_data.get("default_site_id")
         
-        # Extract identity information from context
-        user = context.get("user", {})
-        site = context.get("site", {})
-        sites = context.get("sites", [])
-        
-        # Get user token from session (set by SyncClient during sync_user)
-        user_token = request.session.get('user_token')
         if not user_token:
-            logger.warning("No user_token found in session after sync")
-            # Try to get token from context
-            user_token = user.get("token")
-            if not user_token:
-                logger.error("No user token available in session or context")
-                return None
+            logger.error("No user token in sync_user response")
+            return None
         
-        # Create identity object
+        # Store partial identity in session first so subsequent
+        # get_context/get_sites calls can use session-based auth.
         identity = SyncIdentity(
             user_token=user_token,
-            user_id=user.get("id", ""),
-            role=user.get("role", "storekeeper"),
-            is_root=user.get("is_root", False),
-            available_sites=sites,
-            default_site_id=site.get("id")
+            user_id=user_id,
+            role=role,
+            is_root=is_root,
+            available_sites=[],
+            default_site_id=default_site_id,
         )
+        _store_identity_in_session(request, identity)
         
-        # Store identity in session
+        # Now fetch context (sites, current site) with session identity active
+        try:
+            context = auth_api.get_context(request)
+            site = context.get("site", {})
+            sites = context.get("sites", [])
+            
+            identity = SyncIdentity(
+                user_token=user_token,
+                user_id=user_data.get("id", user_id),
+                role=context.get("user", {}).get("role", role),
+                is_root=context.get("user", {}).get("is_root", is_root),
+                available_sites=sites,
+                default_site_id=site.get("id") or default_site_id,
+            )
+        except Exception as ctx_err:
+            logger.warning(
+                "Failed to fetch sync context, using partial identity",
+                extra={"error": str(ctx_err)},
+            )
+            identity = SyncIdentity(
+                user_token=user_token,
+                user_id=user_id,
+                role=role,
+                is_root=is_root,
+                available_sites=[],
+                default_site_id=default_site_id,
+            )
+        
+        # Store final identity in session
         _store_identity_in_session(request, identity)
         
         logger.info(

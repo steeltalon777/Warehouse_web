@@ -66,6 +66,7 @@ catalog_admin_patterns = [
     path("catalog/admin/categories/<str:category_id>", catalog_views.AdminCategoryDetailView.as_view(), name="catalog_admin_category_detail"),
     path("catalog/admin/items", catalog_views.AdminItemsListView.as_view(), name="catalog_admin_items"),
     path("catalog/admin/items/<str:item_id>", catalog_views.AdminItemDetailView.as_view(), name="catalog_admin_item_detail"),
+    path("catalog/admin/batch", catalog_views.AdminCatalogBatchView.as_view(), name="catalog_admin_batch"),
 ]
 
 operations_patterns = [

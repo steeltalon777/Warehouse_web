@@ -4,9 +4,9 @@ All active Django/BFF flows must use this module to resolve SyncServer
 user tokens.  Direct token lookups in other modules are forbidden.
 
 Policy:
+- Django superusers: SYNC_ROOT_USER_TOKEN from env
 - Normal users: binding token -> session token -> SyncIdentityNotBoundError
-- Superusers: same as normal users unless force_root=True
-- force_root=True: SYNC_ROOT_USER_TOKEN (explicit admin/system flow only)
+- force_root=True: SYNC_ROOT_USER_TOKEN (explicit admin/system flow)
 - SYNC_DEVICE_TOKEN: optional audit context, never required for user-token calls
 """
 
@@ -36,7 +36,7 @@ class SyncIdentityNotBoundError(SyncAuthError):
 @dataclass(frozen=True)
 class ResolvedSyncIdentity:
     user_token: str
-    source: Literal["binding", "session", "root_explicit"]
+    source: Literal["binding", "session", "root_explicit", "root_superuser"]
     is_root: bool
 
 
@@ -58,7 +58,7 @@ def resolve_sync_identity(
 
     Raises:
         SyncIdentityNotBoundError: No token found for a non-root flow.
-        RuntimeError: force_root=True but SYNC_ROOT_USER_TOKEN not configured.
+        RuntimeError: Root flow but SYNC_ROOT_USER_TOKEN not configured.
     """
     if force_root:
         return _resolve_root_explicit()
@@ -70,6 +70,9 @@ def resolve_sync_identity(
 
     if not is_authenticated:
         raise SyncIdentityNotBoundError()
+
+    if getattr(request_user, "is_superuser", False):
+        return _resolve_root_explicit(source="root_superuser")
 
     # Try binding token first
     binding_token = _get_binding_token(request_user)
@@ -98,22 +101,25 @@ def resolve_sync_identity(
                 is_root=False,
             )
 
-    # No token found — raise controlled error, NEVER fallback to root
+    # No token found for a non-root user: raise controlled error.
     raise SyncIdentityNotBoundError(
         user_id=getattr(request_user, "id", None),
         username=getattr(request_user, "username", None),
     )
 
 
-def _resolve_root_explicit() -> ResolvedSyncIdentity:
+def _resolve_root_explicit(
+    *,
+    source: Literal["root_explicit", "root_superuser"] = "root_explicit",
+) -> ResolvedSyncIdentity:
     root_token = getattr(settings, "SYNC_ROOT_USER_TOKEN", "").strip()
     if not root_token:
         raise RuntimeError(
-            "SYNC_ROOT_USER_TOKEN is not configured for explicit root flow."
+            "SYNC_ROOT_USER_TOKEN is not configured for root flow."
         )
     return ResolvedSyncIdentity(
         user_token=root_token,
-        source="root_explicit",
+        source=source,
         is_root=True,
     )
 

@@ -2,7 +2,7 @@
 
 Covers:
 - Token resolver behavior
-- SyncServerClient no root fallback
+- SyncServerClient root and non-root auth boundary
 - NomenclatureSPAView login requirement
 """
 
@@ -85,16 +85,21 @@ class TokenResolverTests(SimpleTestCase):
         self.assertEqual(result.source, "session")
         self.assertFalse(result.is_root)
 
-    def test_superuser_without_force_root_no_implicit_root(self):
+    @override_settings(SYNC_ROOT_USER_TOKEN="root-secret")
+    def test_superuser_uses_root_token_from_env(self):
         user = self._make_user(is_superuser=True)
         user.sync_binding = Mock()
         user.sync_binding.sync_user_token = ""
         request = self._make_request(user=user)
 
-        with self.assertRaises(SyncIdentityNotBoundError):
-            resolve_sync_identity(request=request)
+        result = resolve_sync_identity(request=request)
 
-    def test_superuser_with_binding_uses_binding_not_root(self):
+        self.assertEqual(result.user_token, "root-secret")
+        self.assertEqual(result.source, "root_superuser")
+        self.assertTrue(result.is_root)
+
+    @override_settings(SYNC_ROOT_USER_TOKEN="root-secret")
+    def test_superuser_uses_root_token_not_binding(self):
         user = self._make_user(is_superuser=True)
         binding = Mock()
         binding.sync_user_token = "super-binding-token"
@@ -104,9 +109,9 @@ class TokenResolverTests(SimpleTestCase):
 
         result = resolve_sync_identity(request=request)
 
-        self.assertEqual(result.user_token, "super-binding-token")
-        self.assertEqual(result.source, "binding")
-        self.assertFalse(result.is_root)
+        self.assertEqual(result.user_token, "root-secret")
+        self.assertEqual(result.source, "root_superuser")
+        self.assertTrue(result.is_root)
 
     @override_settings(SYNC_ROOT_USER_TOKEN="root-secret")
     def test_force_root_uses_root_token(self):
@@ -237,7 +242,7 @@ class SyncServerClientAuthTests(SimpleTestCase):
         SYNC_DEVICE_TOKEN="",
         SYNC_ROOT_USER_TOKEN="root-token",
     )
-    def test_superuser_normal_flow_not_implicit_root(self):
+    def test_superuser_normal_flow_uses_root_token(self):
         user = Mock()
         user.is_authenticated = True
         user.is_superuser = True
@@ -251,9 +256,9 @@ class SyncServerClientAuthTests(SimpleTestCase):
         request.user = user
 
         client = SyncServerClient(request=request)
+        headers = client.build_headers()
 
-        with self.assertRaises(SyncIdentityNotBoundError):
-            client.build_headers()
+        self.assertEqual(headers["X-User-Token"], "root-token")
 
     @override_settings(
         SYNC_SERVER_URL="http://syncserver:8000/api/v1",

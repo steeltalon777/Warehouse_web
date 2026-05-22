@@ -228,8 +228,9 @@ class CatalogLookupService:
             "id": item_id,
             "name": item.name,
             "sku": item.sku,
-            "unit_symbol": item.unit_symbol,
+            "category_id": str(item.category_id) if item.category_id else "",
             "category_name": item.category_name,
+            "unit_symbol": item.unit_symbol,
             "hashtags": item.hashtags,
             "is_active": item.is_active,
         }

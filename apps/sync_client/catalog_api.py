@@ -713,6 +713,24 @@ class CatalogAPI:
             acting_site_id=acting_site_id,
         )
 
+    def apply_catalog_batch(
+        self,
+        payload: dict[str, Any],
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        logger.debug(
+            "Applying catalog batch operation",
+            extra={"operation_count": len(payload.get("changes", [])) if isinstance(payload, dict) else 0}
+        )
+        return self.client.post(
+            "/catalog/admin/batch",
+            json=payload,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
     def update_category(
         self,
         category_id: str,
