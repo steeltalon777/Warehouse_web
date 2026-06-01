@@ -55,6 +55,13 @@ The main active feature direction is the Django-hosted Angular content applicati
 - Cache policy: Django `CACHES` configured for BFF acceleration. Do not cache tokens or write decisions.
   See `config/settings/base.py` for allowed/forbidden cache data.
 
+## Dev-стенд и тестирование
+
+Агенты тестируют изменения на работающем dev-стенде. По умолчанию стенд запущен. Если нет — агент может запустить/перезапустить/пересобрать его через `make` из `/home/makc/AI_sandbox/warehouse_solution`.
+
+- Полный список `make`-команд и протокол восстановления стенда: `AGENTS.md` в корне workspace.
+- Основные команды: `make up` (запуск), `make restart` (перезапуск), `make build-web` (ребилд Warehouse_web), `make status` (проверка).
+
 ## Verification
 
 - Run `python manage.py test` after changes.
