@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -17,6 +18,7 @@ from .exceptions import (
     SyncValidationError,
 )
 from .token_resolver import get_device_token
+from .transport import execute_with_retry, get_sync_client
 
 logger = logging.getLogger(__name__)
 
@@ -103,24 +105,40 @@ class SyncServerRootAdminClient:
         url = f"{self.base_url}{normalized_path}"
         headers = self._build_headers()
 
+        _t0 = time.perf_counter()
+
+        _retries = int(getattr(settings, "SYNC_SERVER_RETRIES", 2))
+        _backoff = float(getattr(settings, "SYNC_SERVER_RETRY_BACKOFF", 0.2))
+
+        def _do_request() -> httpx.Response:
+            client = get_sync_client()
+            return client.request(
+                method=method,
+                url=url,
+                headers=headers,
+                json=json,
+                params=params,
+            )
+
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.request(
-                    method=method,
-                    url=url,
-                    headers=headers,
-                    json=json,
-                    params=params,
-                )
+            response = execute_with_retry(_do_request, method, retries=_retries, backoff=_backoff)
         except httpx.TimeoutException as exc:
-            logger.exception("SyncServer root-admin timeout", extra={"path": normalized_path})
+            _duration = (time.perf_counter() - _t0) * 1000
+            logger.exception(
+                "SyncServer root-admin timeout",
+                extra={"path": normalized_path, "duration_ms": round(_duration, 1)},
+            )
             raise SyncBackendUnavailable(
                 "SyncServer did not respond in time.",
                 method=method,
                 path=normalized_path,
             ) from exc
         except httpx.RequestError as exc:
-            logger.exception("SyncServer root-admin request failed", extra={"path": normalized_path})
+            _duration = (time.perf_counter() - _t0) * 1000
+            logger.exception(
+                "SyncServer root-admin request failed",
+                extra={"path": normalized_path, "duration_ms": round(_duration, 1)},
+            )
             raise SyncBackendUnavailable(
                 "SyncServer is unavailable.",
                 method=method,

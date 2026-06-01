@@ -43,7 +43,20 @@
 
 The main active feature direction is the Django-hosted Angular content application: Django shell remains permanent, Angular screens mount inside the content area, and browser data access goes through Django BFF endpoints.
 
+## Transport & SyncServer Integration
+
+- All raw HTTP calls to SyncServer use the persistent transport in `apps/sync_client/transport.py`.
+- `get_sync_client()` returns a process-global `httpx.Client` with connection pooling. Do not create `httpx.Client()` directly.
+- `execute_with_retry()` provides automatic retry for idempotent GET/HEAD/OPTIONS requests.
+- Per-request auth headers (X-User-Token, X-Device-Token) are still resolved per-request in `SyncServerClient.build_headers()`.
+- X-Request-Id is automatically forwarded from Django to SyncServer when the `RequestTracingMiddleware` is active.
+- Error mapping is centralized in `client.py` (`_raise_for_response`) and `root_admin_client.py`.
+- Timeouts are configured per-setting: `SYNC_SERVER_CONNECT_/READ_/WRITE_/POOL_TIMEOUT`.
+- Cache policy: Django `CACHES` configured for BFF acceleration. Do not cache tokens or write decisions.
+  See `config/settings/base.py` for allowed/forbidden cache data.
+
 ## Verification
 
 - Run `python manage.py test` after changes.
 - When changing `apps/sync_client/`, verify affected Django views or BFF endpoints as well.
+- After transport changes, run `apps.sync_client.tests` and `apps.sync_client.test_auth_boundary`.

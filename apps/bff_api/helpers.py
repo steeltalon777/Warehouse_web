@@ -6,8 +6,10 @@ from django.conf import settings
 from django.http import JsonResponse
 
 from apps.common.permissions import can_manage_catalog, is_root, is_storekeeper
+
 from apps.sync_client.client import SyncServerClient
 from apps.sync_client.exceptions import SyncServerAPIError
+from apps.sync_client.transport import execute_with_retry, get_sync_client
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +30,22 @@ def _build_client(request) -> SyncServerClient:
 
 def _public_get(path: str, params: dict[str, Any] | None = None) -> Any:
     base_url = settings.SYNC_SERVER_URL.rstrip("/")
-    timeout = float(getattr(settings, "SYNC_SERVER_TIMEOUT", 10))
     normalized_path = path if path.startswith("/") else f"/{path}"
     url = f"{base_url}{normalized_path}"
 
+    _retries = int(getattr(settings, "SYNC_SERVER_RETRIES", 2))
+    _backoff = float(getattr(settings, "SYNC_SERVER_RETRY_BACKOFF", 0.2))
+
+    def _do_request() -> httpx.Response:
+        client = get_sync_client()
+        return client.get(
+            url,
+            params=params,
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+        )
+
     try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.get(
-                url,
-                params=params,
-                headers={"Accept": "application/json", "Content-Type": "application/json"},
-            )
+        response = execute_with_retry(_do_request, "GET", retries=_retries, backoff=_backoff)
     except httpx.TimeoutException as exc:
         raise SyncServerAPIError(
             "SyncServer did not respond in time.",

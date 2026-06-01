@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -21,6 +22,7 @@ from .token_resolver import (
     get_device_token,
     resolve_sync_identity,
 )
+from .transport import execute_with_retry, get_sync_client
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +78,10 @@ class SyncServerClient:
         }
         if self.device_token:
             headers["X-Device-Token"] = self.device_token
+        if self.request is not None:
+            request_id = self.request.META.get("X_REQUEST_ID")
+            if request_id:
+                headers["X-Request-Id"] = request_id
         return headers
 
     def _normalize_path(self, path: str) -> str:
@@ -167,30 +173,46 @@ class SyncServerClient:
             acting_site_id=acting_site_id,
         )
 
-        logger.info(
-            "SyncServer request",
-            extra={
-                "sync_method": method,
-                "sync_url": url,
-                "sync_headers": {k: v for k, v in headers.items() if k != "X-User-Token"},
-                "sync_params": params,
-                "sync_json": json,
-            },
-        )
+        _request_id = headers.get("X-Request-Id", "")
+        _call_log = {
+            "sync_method": method,
+            "sync_url": url,
+            "sync_path": normalized_path,
+        }
+        if _request_id:
+            _call_log["sync_request_id"] = _request_id
+        logger.info("SyncServer request", extra=_call_log)
+
+        _t0 = time.perf_counter()
+
+        if self.request is not None:
+            current_count = self.request.META.get("SYNC_CALL_COUNT", 0)
+            self.request.META["SYNC_CALL_COUNT"] = current_count + 1
+
+        _retries = int(getattr(settings, "SYNC_SERVER_RETRIES", 2))
+        _backoff = float(getattr(settings, "SYNC_SERVER_RETRY_BACKOFF", 0.2))
+
+        def _do_request() -> httpx.Response:
+            client = get_sync_client()
+            return client.request(
+                method=method,
+                url=url,
+                headers=headers,
+                json=json,
+                params=params,
+            )
 
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.request(
-                    method=method,
-                    url=url,
-                    headers=headers,
-                    json=json,
-                    params=params,
-                )
+            response = execute_with_retry(_do_request, method, retries=_retries, backoff=_backoff)
         except httpx.TimeoutException as exc:
+            _duration = (time.perf_counter() - _t0) * 1000
             logger.exception(
                 "SyncServer timeout",
-                extra={"sync_method": method, "sync_path": normalized_path},
+                extra={
+                    "sync_method": method,
+                    "sync_path": normalized_path,
+                    "sync_duration_ms": round(_duration, 1),
+                },
             )
             raise SyncBackendUnavailable(
                 "SyncServer не ответил вовремя.",
@@ -198,9 +220,14 @@ class SyncServerClient:
                 path=normalized_path,
             ) from exc
         except httpx.RequestError as exc:
+            _duration = (time.perf_counter() - _t0) * 1000
             logger.exception(
                 "SyncServer unreachable",
-                extra={"sync_method": method, "sync_path": normalized_path},
+                extra={
+                    "sync_method": method,
+                    "sync_path": normalized_path,
+                    "sync_duration_ms": round(_duration, 1),
+                },
             )
             raise SyncBackendUnavailable(
                 "SyncServer недоступен.",
@@ -208,13 +235,16 @@ class SyncServerClient:
                 path=normalized_path,
             ) from exc
 
+        _duration = (time.perf_counter() - _t0) * 1000
+
         logger.info(
             "SyncServer response",
             extra={
                 "sync_method": method,
                 "sync_path": normalized_path,
                 "sync_status_code": response.status_code,
-                "sync_response_headers": dict(response.headers),
+                "sync_duration_ms": round(_duration, 1),
+                "sync_request_id": _request_id or None,
             },
         )
 
@@ -254,18 +284,32 @@ class SyncServerClient:
         )
         headers["Accept"] = accept
 
+        _request_id = headers.get("X-Request-Id", "")
+        _t0 = time.perf_counter()
+
+        _retries = int(getattr(settings, "SYNC_SERVER_RETRIES", 2))
+        _backoff = float(getattr(settings, "SYNC_SERVER_RETRY_BACKOFF", 0.2))
+
+        def _do_request_bytes() -> httpx.Response:
+            client = get_sync_client()
+            return client.request(
+                method=method,
+                url=url,
+                headers=headers,
+                params=params,
+            )
+
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.request(
-                    method=method,
-                    url=url,
-                    headers=headers,
-                    params=params,
-                )
+            response = execute_with_retry(_do_request_bytes, method, retries=_retries, backoff=_backoff)
         except httpx.TimeoutException as exc:
+            _duration = (time.perf_counter() - _t0) * 1000
             logger.exception(
                 "SyncServer timeout",
-                extra={"sync_method": method, "sync_path": normalized_path},
+                extra={
+                    "sync_method": method,
+                    "sync_path": normalized_path,
+                    "sync_duration_ms": round(_duration, 1),
+                },
             )
             raise SyncBackendUnavailable(
                 "SyncServer не ответил вовремя.",
@@ -273,9 +317,14 @@ class SyncServerClient:
                 path=normalized_path,
             ) from exc
         except httpx.RequestError as exc:
+            _duration = (time.perf_counter() - _t0) * 1000
             logger.exception(
                 "SyncServer unreachable",
-                extra={"sync_method": method, "sync_path": normalized_path},
+                extra={
+                    "sync_method": method,
+                    "sync_path": normalized_path,
+                    "sync_duration_ms": round(_duration, 1),
+                },
             )
             raise SyncBackendUnavailable(
                 "SyncServer недоступен.",

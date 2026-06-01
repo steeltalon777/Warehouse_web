@@ -63,6 +63,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "apps.common.middleware.RequestTracingMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -128,6 +129,35 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # -------------------------------------------------------------------
+# Cache policy for BFF transport acceleration
+# -------------------------------------------------------------------
+# Allowed:
+#   - catalog read/search responses
+#   - units/categories/sites lookups
+#   - navigation/sidebar permission summaries
+#   - dashboard counters with short TTL
+#   - screen bootstrap bundles
+# Forbidden:
+#   - raw user/device tokens
+#   - SyncServer root token
+#   - uncommitted operation write decisions
+#   - final authority for balances, access rights, or operation submission
+# Cache key MUST include user role / site scope where permissions affect results.
+# -------------------------------------------------------------------
+_CACHE_BACKEND = os.getenv("DJANGO_CACHE_BACKEND", "django.core.cache.backends.locmem.LocMemCache")
+_CACHE_LOCATION = os.getenv("DJANGO_CACHE_LOCATION", "bff_transport_cache")
+CACHES = {
+    "default": {
+        "BACKEND": _CACHE_BACKEND,
+        "LOCATION": _CACHE_LOCATION,
+    },
+}
+# Standard TTLs (seconds) for cache decorators in BFF views.
+CACHE_TTL_SHORT = int(os.getenv("CACHE_TTL_SHORT", "30"))       # dashboard counters
+CACHE_TTL_MEDIUM = int(os.getenv("CACHE_TTL_MEDIUM", "120"))    # catalog lookups
+CACHE_TTL_LONG = int(os.getenv("CACHE_TTL_LONG", "600"))        # reference data (units, sites)
+
+# -------------------------------------------------------------------
 # SyncServer integration (canonical)
 # -------------------------------------------------------------------
 # IMPORTANT:
@@ -137,6 +167,19 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SYNC_SERVER_URL = os.getenv("SYNC_SERVER_URL", "http://syncserver:8000/api/v1").rstrip("/")
 SYNC_ROOT_USER_TOKEN = os.getenv("SYNC_ROOT_USER_TOKEN", "").strip()
 SYNC_SERVER_TIMEOUT = float(os.getenv("SYNC_SERVER_TIMEOUT", "10"))
+
+# Fine-grained timeouts for SyncServer HTTP transport.
+# Each value is parsed as float seconds; falls back to SYNC_SERVER_TIMEOUT if not set.
+_SYNC_FALLBACK = os.getenv("SYNC_SERVER_TIMEOUT", "10")
+SYNC_SERVER_CONNECT_TIMEOUT = float(os.getenv("SYNC_SERVER_CONNECT_TIMEOUT", _SYNC_FALLBACK))
+SYNC_SERVER_READ_TIMEOUT = float(os.getenv("SYNC_SERVER_READ_TIMEOUT", _SYNC_FALLBACK))
+SYNC_SERVER_WRITE_TIMEOUT = float(os.getenv("SYNC_SERVER_WRITE_TIMEOUT", _SYNC_FALLBACK))
+SYNC_SERVER_POOL_TIMEOUT = float(os.getenv("SYNC_SERVER_POOL_TIMEOUT", _SYNC_FALLBACK))
+
+# Retry policy for idempotent SyncServer requests (GET, health).
+# Applied only to safe reads; mutations are never retried without idempotency key.
+SYNC_SERVER_RETRIES = int(os.getenv("SYNC_SERVER_RETRIES", "2"))
+SYNC_SERVER_RETRY_BACKOFF = float(os.getenv("SYNC_SERVER_RETRY_BACKOFF", "0.2"))
 
 # Optional device-token for audit context (not for ordinary auth).
 SYNC_DEVICE_TOKEN = os.getenv("SYNC_DEVICE_TOKEN", "").strip()
