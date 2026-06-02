@@ -210,6 +210,39 @@ class AssetsAPI:
         )
 
     # ------------------------------------------------------------------
+    # Issued assets
+    # ------------------------------------------------------------------
+
+    def list_issued_assets(
+        self,
+        filters: Optional[dict[str, Any]] = None,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get a page of issued assets.
+
+        Endpoint: GET /api/v1/issued-assets
+
+        Args:
+            filters: Optional filters (issue_object_id, item_id, search, page, page_size, …)
+            acting_user_id: Optional acting user ID override.
+            acting_site_id: Optional acting site ID override.
+
+        Returns:
+            Normalised dict with keys: items, total_count, page, page_size.
+        """
+        params = self._build_params(filters)
+        response = self.client.get(
+            "/issued-assets",
+            params=params,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+        return self._normalize_list_response(response, params)
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 

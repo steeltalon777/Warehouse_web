@@ -970,20 +970,20 @@ class LostAssetDetailView(SyncContextMixin, TemplateView):
 
         presented = service.present_lost_asset_detail(lost_asset)
 
-        # Load recipients list for the resolve form
-        recipients = []
+        # Load issue objects list for the resolve form
+        issue_objects = []
         try:
-            from apps.sync_client.recipients_api import RecipientsAPI
-            recipients_api = RecipientsAPI(self.client)
-            resp = recipients_api.list_recipients(filters={"per_page": 200})
-            recipients = resp.get("items", []) if isinstance(resp, dict) else []
+            from apps.sync_client.issue_objects_api import IssueObjectsAPI
+            io_api = IssueObjectsAPI(self.client)
+            resp = io_api.list_issue_objects(filters={"per_page": 200})
+            issue_objects = resp.get("items", []) if isinstance(resp, dict) else []
         except Exception:
-            recipients = []
+            issue_objects = []
 
         context = {
             "item": presented,
             "operation_line_id": operation_line_id,
-            "recipients": recipients,
+            "issue_objects": issue_objects,
             "back_url": reverse("operations_ssr:lost_assets"),
         }
         return render(request, self.template_name, context)

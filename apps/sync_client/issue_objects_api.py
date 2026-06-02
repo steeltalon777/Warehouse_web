@@ -8,15 +8,15 @@ from .client import SyncServerClient
 logger = logging.getLogger(__name__)
 
 
-class RecipientsAPI:
+class IssueObjectsAPI:
     """
-    High-level client for SyncServer recipient reference endpoints.
+    High-level client for SyncServer issue-object reference endpoints.
     """
 
     def __init__(self, client: Optional[SyncServerClient] = None) -> None:
         self.client = client or SyncServerClient()
 
-    def list_recipients(
+    def list_issue_objects(
         self,
         filters: Optional[dict[str, Any]] = None,
         *,
@@ -24,11 +24,11 @@ class RecipientsAPI:
         acting_site_id: str | int | None = None,
     ) -> dict[str, Any]:
         """
-        Endpoint: GET /recipients
+        Endpoint: GET /issue-objects
         """
         params = self._build_filter_params(filters)
         response = self.client.get(
-            "/recipients",
+            "/issue-objects",
             params=params,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
@@ -50,7 +50,7 @@ class RecipientsAPI:
             }
 
         logger.warning(
-            "Unexpected response format from /recipients",
+            "Unexpected response format from /issue-objects",
             extra={"response_type": type(response).__name__},
         )
         return {
@@ -60,7 +60,7 @@ class RecipientsAPI:
             "page_size": params.get("page_size", 100),
         }
 
-    def create_recipient(
+    def create_issue_object(
         self,
         payload: dict[str, Any],
         *,
@@ -68,16 +68,16 @@ class RecipientsAPI:
         acting_site_id: str | int | None = None,
     ) -> dict[str, Any]:
         """
-        Endpoint: POST /recipients
+        Endpoint: POST /issue-objects
         """
         return self.client.post(
-            "/recipients",
+            "/issue-objects",
             json=payload,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
 
-    def merge_recipients(
+    def merge_issue_objects(
         self,
         payload: dict[str, Any],
         *,
@@ -85,64 +85,109 @@ class RecipientsAPI:
         acting_site_id: str | int | None = None,
     ) -> dict[str, Any]:
         """
-        Endpoint: POST /recipients/merge
+        Endpoint: POST /issue-objects/merge
         """
         return self.client.post(
-            "/recipients/merge",
+            "/issue-objects/merge",
             json=payload,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
 
-    def get_recipient(
+    def get_issue_object(
         self,
-        recipient_id: str,
+        issue_object_id: str,
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
     ) -> dict[str, Any]:
         """
-        Endpoint: GET /recipients/{recipient_id}
+        Endpoint: GET /issue-objects/{issue_object_id}
         """
         return self.client.get(
-            f"/recipients/{recipient_id}",
+            f"/issue-objects/{issue_object_id}",
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
 
-    def update_recipient(
+    def update_issue_object(
         self,
-        recipient_id: str,
+        issue_object_id: str,
         payload: dict[str, Any],
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
     ) -> dict[str, Any]:
         """
-        Endpoint: PATCH /recipients/{recipient_id}
+        Endpoint: PATCH /issue-objects/{issue_object_id}
         """
         return self.client.patch(
-            f"/recipients/{recipient_id}",
+            f"/issue-objects/{issue_object_id}",
             json=payload,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
 
-    def delete_recipient(
+    def delete_issue_object(
         self,
-        recipient_id: str,
+        issue_object_id: str,
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
     ) -> Any:
         """
-        Endpoint: DELETE /recipients/{recipient_id}
+        Endpoint: DELETE /issue-objects/{issue_object_id}
         """
         return self.client.delete(
-            f"/recipients/{recipient_id}",
+            f"/issue-objects/{issue_object_id}",
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
+
+    def list_object_assets(
+        self,
+        issue_object_id: str,
+        filters: Optional[dict[str, Any]] = None,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Endpoint: GET /issue-objects/{issue_object_id}/assets
+        """
+        params = self._build_filter_params(filters)
+        response = self.client.get(
+            f"/issue-objects/{issue_object_id}/assets",
+            params=params,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+        if isinstance(response, dict):
+            response.setdefault("items", [])
+            response.setdefault("total_count", len(response.get("items", [])))
+            response.setdefault("page", params.get("page", 1))
+            response.setdefault("page_size", params.get("page_size", len(response.get("items", [])) or 100))
+            return response
+
+        if isinstance(response, list):
+            return {
+                "items": response,
+                "total_count": len(response),
+                "page": params.get("page", 1),
+                "page_size": params.get("page_size", len(response) or 100),
+            }
+
+        logger.warning(
+            "Unexpected response format from /issue-objects/{id}/assets",
+            extra={"response_type": type(response).__name__},
+        )
+        return {
+            "items": [],
+            "total_count": 0,
+            "page": params.get("page", 1),
+            "page_size": params.get("page_size", 100),
+        }
 
     def _build_filter_params(self, filters: Optional[dict[str, Any]]) -> dict[str, Any]:
         if not filters:
@@ -150,5 +195,5 @@ class RecipientsAPI:
         return {key: value for key, value in filters.items() if value is not None}
 
 
-def get_recipients_api(client: Optional[SyncServerClient] = None) -> RecipientsAPI:
-    return RecipientsAPI(client=client)
+def get_issue_objects_api(client: Optional[SyncServerClient] = None) -> IssueObjectsAPI:
+    return IssueObjectsAPI(client=client)

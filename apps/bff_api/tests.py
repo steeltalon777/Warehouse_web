@@ -32,7 +32,7 @@ class BffApiRoutesSmokeTests(TestCase):
             "balances",
             "temp_items",
             "documents",
-            "recipients",
+            "issue_objects_list",
             "pending_acceptance",
             "reports_item_movement",
             "health",
@@ -115,6 +115,23 @@ class BffApiViewMethodTests(TestCase):
         self.assertTrue(body["ok"])
         self.assertEqual(body["data"]["status"], "submitted")
 
+    def test_operations_list_forwards_item_ids_filter(self) -> None:
+        mock_api = Mock()
+        mock_api.list_operations_page.return_value = {"items": [], "total_count": 0, "page": 1, "page_size": 20}
+
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.get(
+                "/bff/api/v1/operations",
+                {"search": "дрель", "item_ids": "1,2,3", "page": "1", "page_size": "20"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        mock_api.list_operations_page.assert_called_once_with(
+            filters={"search": "дрель", "item_ids": "1,2,3", "page": "1", "page_size": "20"}
+        )
+
     def test_operations_delete_supported(self) -> None:
         mock_api = Mock()
         mock_api.delete_operation.return_value = None
@@ -127,17 +144,101 @@ class BffApiViewMethodTests(TestCase):
         self.assertTrue(body["ok"])
         self.assertEqual(body["data"], {"deleted": True})
 
-    def test_recipients_delete_supported(self) -> None:
+    def test_issue_objects_delete_supported(self) -> None:
         mock_api = Mock()
-        mock_api.delete_recipient.return_value = None
+        mock_api.delete_issue_object.return_value = None
 
-        with patch("apps.bff_api.recipients_views._rec", return_value=mock_api):
-            response = self.client.delete("/bff/api/v1/recipients/r1")
+        with patch("apps.bff_api.issue_objects_views._io", return_value=mock_api):
+            response = self.client.delete("/bff/api/v1/issue-objects/1")
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertTrue(body["ok"])
         self.assertEqual(body["data"], {"deleted": True})
+
+    def test_issue_objects_list_get_returns_ok_with_items(self) -> None:
+        mock_api = Mock()
+        mock_api.list_issue_objects.return_value = {"items": [{"id": "1", "name": "Obj1"}], "total_count": 1, "page": 1, "page_size": 100}
+
+        with patch("apps.bff_api.issue_objects_views._io", return_value=mock_api):
+            response = self.client.get("/bff/api/v1/issue-objects")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(len(body["data"]["items"]), 1)
+
+    def test_issue_objects_create_post_supported(self) -> None:
+        mock_api = Mock()
+        mock_api.create_issue_object.return_value = {"id": "1", "name": "New Obj"}
+
+        with patch("apps.bff_api.issue_objects_views._io", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/issue-objects",
+                data=json.dumps({"name": "New Obj"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["name"], "New Obj")
+
+    def test_issue_objects_merge_post_supported(self) -> None:
+        mock_api = Mock()
+        mock_api.merge_issue_objects.return_value = {"merged": True}
+
+        with patch("apps.bff_api.issue_objects_views._io", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/issue-objects/merge",
+                data=json.dumps({"source_id": 1, "target_id": 2}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["data"]["merged"])
+
+    def test_issue_objects_detail_get_returns_ok(self) -> None:
+        mock_api = Mock()
+        mock_api.get_issue_object.return_value = {"id": "1", "name": "Detail Obj"}
+
+        with patch("apps.bff_api.issue_objects_views._io", return_value=mock_api):
+            response = self.client.get("/bff/api/v1/issue-objects/1")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["name"], "Detail Obj")
+
+    def test_issue_objects_detail_patch_supported(self) -> None:
+        mock_api = Mock()
+        mock_api.update_issue_object.return_value = {"id": "1", "name": "Updated"}
+
+        with patch("apps.bff_api.issue_objects_views._io", return_value=mock_api):
+            response = self.client.patch(
+                "/bff/api/v1/issue-objects/1",
+                data=json.dumps({"name": "Updated"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["name"], "Updated")
+
+    def test_issue_objects_assets_list_get_returns_ok(self) -> None:
+        mock_api = Mock()
+        mock_api.list_object_assets.return_value = {"items": [{"id": "a1"}], "total_count": 1, "page": 1, "page_size": 20}
+
+        with patch("apps.bff_api.issue_objects_views._io", return_value=mock_api):
+            response = self.client.get("/bff/api/v1/issue-objects/1/assets")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(len(body["data"]["items"]), 1)
 
     def test_catalog_cached_item_search_optional_params(self) -> None:
         mock_client = Mock()
@@ -155,6 +256,38 @@ class BffApiViewMethodTests(TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertTrue(body["ok"])
+
+    def test_catalog_cached_item_search_warms_local_cache_from_remote_results(self) -> None:
+        remote_item = {
+            "id": "7",
+            "name": "Тестовая дрель",
+            "sku": "DRILL-7",
+            "category_id": "3",
+            "category_name": "Инструмент",
+            "hashtags": ["дрель"],
+            "unit_id": "2",
+            "unit_name": "шт",
+            "unit_symbol": "шт",
+            "is_active": True,
+            "requires_review": False,
+            "source": "remote",
+            "source_site_id": "",
+            "source_site_qty": "0",
+            "balance_qty": "0",
+        }
+
+        with (
+            patch("apps.bff_api.catalog_views.CatalogCachedItemSearchView._search_local_cache", return_value=[]),
+            patch("apps.bff_api.catalog_views.CatalogCachedItemSearchView._search_remote_items", return_value=[remote_item]),
+            patch("apps.bff_api.catalog_views.CatalogCachedItemSearchView._warm_catalog_cache") as warm_cache,
+        ):
+            response = self.client.get("/bff/api/v1/catalog/search/items", {"q": "дрель"})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["results"][0]["id"], "7")
+        warm_cache.assert_called_once()
 
 
 class BffApiCatalogBatchTests(TestCase):

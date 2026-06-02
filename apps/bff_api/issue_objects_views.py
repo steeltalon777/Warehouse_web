@@ -12,23 +12,23 @@ from apps.bff_api.helpers import (
     _require_chief_or_root,
 )
 from apps.sync_client.exceptions import SyncServerAPIError
-from apps.sync_client.recipients_api import RecipientsAPI
+from apps.sync_client.issue_objects_api import IssueObjectsAPI
 
 
-def _rec(request):
-    return RecipientsAPI(_build_client(request))
+def _io(request):
+    return IssueObjectsAPI(_build_client(request))
 
 
-class RecipientsListView(LoginRequiredMixin, View):
+class IssueObjectsListView(LoginRequiredMixin, View):
     def get(self, request):
         try:
-            api = _rec(request)
+            api = _io(request)
             params: dict[str, str] = {}
-            for key in ("search", "recipient_type", "include_inactive", "include_deleted", "page", "page_size"):
+            for key in ("search", "include_inactive", "include_deleted", "page", "page_size"):
                 val = request.GET.get(key)
                 if val is not None:
                     params[key] = val
-            data = api.list_recipients(filters=params)
+            data = api.list_issue_objects(filters=params)
             return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
@@ -37,9 +37,9 @@ class RecipientsListView(LoginRequiredMixin, View):
         if not _require_storekeeper(request.user):
             return _error("Access denied", "forbidden", 403)
         try:
-            api = _rec(request)
+            api = _io(request)
             payload = json.loads(request.body) if request.body else {}
-            data = api.create_recipient(payload)
+            data = api.create_issue_object(payload)
             return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
@@ -47,14 +47,14 @@ class RecipientsListView(LoginRequiredMixin, View):
             return _error("Invalid JSON body", "validation_error", 400)
 
 
-class RecipientsMergeView(LoginRequiredMixin, View):
+class IssueObjectsMergeView(LoginRequiredMixin, View):
     def post(self, request):
         if not _require_chief_or_root(request.user):
-            return _error("Only chief_storekeeper or root can merge recipients", "forbidden", 403)
+            return _error("Only chief_storekeeper or root can merge issue objects", "forbidden", 403)
         try:
-            api = _rec(request)
+            api = _io(request)
             payload = json.loads(request.body) if request.body else {}
-            data = api.merge_recipients(payload)
+            data = api.merge_issue_objects(payload)
             return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
@@ -62,34 +62,49 @@ class RecipientsMergeView(LoginRequiredMixin, View):
             return _error("Invalid JSON body", "validation_error", 400)
 
 
-class RecipientDetailView(LoginRequiredMixin, View):
-    def get(self, request, recipient_id):
+class IssueObjectDetailView(LoginRequiredMixin, View):
+    def get(self, request, issue_object_id):
         try:
-            api = _rec(request)
-            data = api.get_recipient(recipient_id)
+            api = _io(request)
+            data = api.get_issue_object(issue_object_id)
             return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
 
-    def patch(self, request, recipient_id):
+    def patch(self, request, issue_object_id):
         if not _require_storekeeper(request.user):
             return _error("Access denied", "forbidden", 403)
         try:
-            api = _rec(request)
+            api = _io(request)
             payload = json.loads(request.body) if request.body else {}
-            data = api.update_recipient(recipient_id, payload)
+            data = api.update_issue_object(issue_object_id, payload)
             return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
         except json.JSONDecodeError:
             return _error("Invalid JSON body", "validation_error", 400)
 
-    def delete(self, request, recipient_id):
+    def delete(self, request, issue_object_id):
         if not _require_storekeeper(request.user):
             return _error("Access denied", "forbidden", 403)
         try:
-            api = _rec(request)
-            api.delete_recipient(recipient_id)
+            api = _io(request)
+            api.delete_issue_object(issue_object_id)
             return _ok({"deleted": True})
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
+
+
+class ObjectAssetsListView(LoginRequiredMixin, View):
+    def get(self, request, issue_object_id):
+        try:
+            api = _io(request)
+            params: dict[str, str] = {}
+            for key in ("page", "page_size"):
+                val = request.GET.get(key)
+                if val is not None:
+                    params[key] = val
+            data = api.list_object_assets(issue_object_id, filters=params)
+            return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)

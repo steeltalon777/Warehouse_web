@@ -78,13 +78,13 @@ class LostAssetResolveView(LoginRequiredMixin, View):
 class IssuedAssetsView(LoginRequiredMixin, View):
     def get(self, request):
         try:
-            client = _build_client(request)
+            api = _assets(request)
             params: dict[str, str] = {}
-            for key in ("recipient_id", "item_id", "search", "page", "page_size"):
+            for key in ("issue_object_id", "item_id", "search", "page", "page_size"):
                 val = request.GET.get(key)
                 if val is not None:
                     params[key] = val
-            data = client.get("/issued-assets", params=params)
+            data = api.list_issued_assets(filters=params)
             return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)

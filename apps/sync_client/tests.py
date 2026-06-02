@@ -10,6 +10,7 @@ from django.test import SimpleTestCase
 
 from .assets_api import AssetsAPI
 from .client import SyncServerClient
+from .issue_objects_api import IssueObjectsAPI
 from .operations_api import OperationsAPI
 from .temporary_items_api import TemporaryItemsAPI
 
@@ -47,6 +48,26 @@ class AssetsAPITests(SimpleTestCase):
         self.mock_client = Mock(spec=SyncServerClient)
         self.api = AssetsAPI(client=self.mock_client)
 
+    def test_list_issued_assets_calls_correct_path(self) -> None:
+        self.mock_client.get.return_value = {"items": []}
+
+        self.api.list_issued_assets(filters={"issue_object_id": "1", "page": "1"})
+
+        self.mock_client.get.assert_called_once_with(
+            "/issued-assets",
+            params={"issue_object_id": "1", "page": "1"},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_list_issued_assets_normalises_response(self) -> None:
+        self.mock_client.get.return_value = [{"id": "a1"}]
+
+        result = self.api.list_issued_assets()
+
+        self.assertEqual(result["total_count"], 1)
+        self.assertEqual(len(result["items"]), 1)
+
     def test_lost_assets_paths_are_base_relative(self) -> None:
         self.mock_client.get.return_value = {"items": []}
 
@@ -57,6 +78,118 @@ class AssetsAPITests(SimpleTestCase):
         self.assertEqual(self.mock_client.get.call_args_list[0].args[0], "/lost-assets")
         self.assertEqual(self.mock_client.get.call_args_list[1].args[0], "/lost-assets/5")
         self.assertEqual(self.mock_client.post.call_args.args[0], "/lost-assets/5/resolve")
+
+
+class IssueObjectsAPITests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.mock_client = Mock(spec=SyncServerClient)
+        self.api = IssueObjectsAPI(client=self.mock_client)
+
+    def test_list_issue_objects_passes_params(self) -> None:
+        self.mock_client.get.return_value = {"items": []}
+
+        self.api.list_issue_objects(filters={"search": "Test", "page": "1"})
+
+        self.mock_client.get.assert_called_once_with(
+            "/issue-objects",
+            params={"search": "Test", "page": "1"},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_list_issue_objects_normalises_list_response(self) -> None:
+        self.mock_client.get.return_value = [{"id": "1"}, {"id": "2"}]
+
+        result = self.api.list_issue_objects()
+
+        self.assertEqual(result["total_count"], 2)
+        self.assertEqual(len(result["items"]), 2)
+
+    def test_create_issue_object_posts_payload(self) -> None:
+        self.mock_client.post.return_value = {"id": "1"}
+
+        self.api.create_issue_object({"name": "Test"})
+
+        self.mock_client.post.assert_called_once_with(
+            "/issue-objects",
+            json={"name": "Test"},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_get_issue_object_calls_correct_path(self) -> None:
+        self.mock_client.get.return_value = {"id": "1"}
+
+        self.api.get_issue_object("1")
+
+        self.mock_client.get.assert_called_once_with(
+            "/issue-objects/1",
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_update_issue_object_patches_payload(self) -> None:
+        self.mock_client.patch.return_value = {"id": "1", "name": "Updated"}
+
+        self.api.update_issue_object("1", {"name": "Updated"})
+
+        self.mock_client.patch.assert_called_once_with(
+            "/issue-objects/1",
+            json={"name": "Updated"},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_delete_issue_object_calls_delete(self) -> None:
+        self.mock_client.delete.return_value = None
+
+        self.api.delete_issue_object("1")
+
+        self.mock_client.delete.assert_called_once_with(
+            "/issue-objects/1",
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_merge_issue_objects_posts_merge(self) -> None:
+        self.mock_client.post.return_value = {"merged": True}
+
+        self.api.merge_issue_objects({"source_id": 1, "target_id": 2})
+
+        self.mock_client.post.assert_called_once_with(
+            "/issue-objects/merge",
+            json={"source_id": 1, "target_id": 2},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_list_object_assets_passes_params(self) -> None:
+        self.mock_client.get.return_value = {"items": []}
+
+        self.api.list_object_assets("1", filters={"page": "1"})
+
+        self.mock_client.get.assert_called_once_with(
+            "/issue-objects/1/assets",
+            params={"page": "1"},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_list_object_assets_normalises_list_response(self) -> None:
+        self.mock_client.get.return_value = [{"id": "a1"}]
+
+        result = self.api.list_object_assets("1")
+
+        self.assertEqual(result["total_count"], 1)
+        self.assertEqual(len(result["items"]), 1)
+
+    def test_list_issue_objects_handles_unexpected_format(self) -> None:
+        self.mock_client.get.return_value = {"data": []}
+
+        result = self.api.list_issue_objects()
+
+        self.assertEqual(result["items"], [])
+        self.assertEqual(result["total_count"], 0)
 
 
 class TemporaryItemsAPITests(SimpleTestCase):

@@ -14,7 +14,7 @@ from apps.catalog.tree import build_category_item_tree
 from apps.catalog_cache.services import CatalogCacheSyncStats
 from apps.common.templatetags.permission_tags import can_manage_catalog_filter
 from apps.sync_client.catalog_api import CatalogAPI
-from apps.sync_client.recipients_api import RecipientsAPI
+from apps.sync_client.issue_objects_api import IssueObjectsAPI
 
 
 class NomenclatureHomeViewTests(TestCase):
@@ -454,53 +454,53 @@ class SyncReferenceAPIEndpointTests(SimpleTestCase):
             acting_site_id=None,
         )
 
-    def test_recipients_crud_methods_use_api_map_paths(self) -> None:
+    def test_issue_objects_crud_methods_use_api_map_paths(self) -> None:
         client = Mock()
         client.get.return_value = {"items": []}
-        api = RecipientsAPI(client)
+        api = IssueObjectsAPI(client)
 
-        api.list_recipients(filters={"search": "Ivan"})
+        api.list_issue_objects(filters={"search": "Test"})
         client.get.assert_called_with(
-            "/recipients",
-            params={"search": "Ivan"},
+            "/issue-objects",
+            params={"search": "Test"},
             acting_user_id=None,
             acting_site_id=None,
         )
 
-        api.create_recipient({"display_name": "Ivan"})
+        api.create_issue_object({"display_name": "Test"})
         client.post.assert_called_with(
-            "/recipients",
-            json={"display_name": "Ivan"},
+            "/issue-objects",
+            json={"display_name": "Test"},
             acting_user_id=None,
             acting_site_id=None,
         )
 
-        api.merge_recipients({"source_id": 1, "target_id": 2})
+        api.merge_issue_objects({"source_id": 1, "target_id": 2})
         client.post.assert_called_with(
-            "/recipients/merge",
+            "/issue-objects/merge",
             json={"source_id": 1, "target_id": 2},
             acting_user_id=None,
             acting_site_id=None,
         )
 
-        api.get_recipient("3")
+        api.get_issue_object("3")
         client.get.assert_called_with(
-            "/recipients/3",
+            "/issue-objects/3",
             acting_user_id=None,
             acting_site_id=None,
         )
 
-        api.update_recipient("3", {"is_active": False})
+        api.update_issue_object("3", {"is_active": False})
         client.patch.assert_called_with(
-            "/recipients/3",
+            "/issue-objects/3",
             json={"is_active": False},
             acting_user_id=None,
             acting_site_id=None,
         )
 
-        api.delete_recipient("3")
+        api.delete_issue_object("3")
         client.delete.assert_called_with(
-            "/recipients/3",
+            "/issue-objects/3",
             acting_user_id=None,
             acting_site_id=None,
         )

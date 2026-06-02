@@ -57,6 +57,14 @@ class OperationsListView(LoginRequiredMixin, View):
                 val = request.GET.get(key)
                 if val is not None:
                     params[key] = val
+            # Resolve "me" to current user's SyncServer UUID
+            if params.get("created_by_user_id") == "me":
+                user = request.user
+                sync_id = getattr(getattr(user, "sync_binding", None), "syncserver_user_id", None)
+                if sync_id:
+                    params["created_by_user_id"] = str(sync_id)
+                else:
+                    del params["created_by_user_id"]
             data = api.list_operations_page(filters=params)
             return _ok(_enrich_list(request, data))
         except SyncServerAPIError as exc:

@@ -8,8 +8,8 @@ from apps.bff_api import (
     catalog_views,
     documents_views,
     health_views,
+    issue_objects_views,
     operations_views,
-    recipients_views,
     reports_views,
     review_items_views,
     root_views,
@@ -109,10 +109,11 @@ documents_patterns = [
     path("documents/operations/<str:operation_id>/documents", documents_views.OperationDocumentsView.as_view(), name="operation_documents"),
 ]
 
-recipients_patterns = [
-    path("recipients", recipients_views.RecipientsListView.as_view(), name="recipients"),
-    path("recipients/merge", recipients_views.RecipientsMergeView.as_view(), name="recipients_merge"),
-    path("recipients/<str:recipient_id>", recipients_views.RecipientDetailView.as_view(), name="recipient_detail"),
+issue_objects_patterns = [
+    path("issue-objects", issue_objects_views.IssueObjectsListView.as_view(), name="issue_objects_list"),
+    path("issue-objects/merge", issue_objects_views.IssueObjectsMergeView.as_view(), name="issue_objects_merge"),
+    path("issue-objects/<int:issue_object_id>", issue_objects_views.IssueObjectDetailView.as_view(), name="issue_object_detail"),
+    path("issue-objects/<int:issue_object_id>/assets", issue_objects_views.ObjectAssetsListView.as_view(), name="issue_object_assets"),
 ]
 
 assets_patterns = [
@@ -146,7 +147,7 @@ urlpatterns = (
     + temporary_items_patterns
     + review_items_patterns
     + documents_patterns
-    + recipients_patterns
+    + issue_objects_patterns
     + assets_patterns
     + reports_patterns
     + health_patterns

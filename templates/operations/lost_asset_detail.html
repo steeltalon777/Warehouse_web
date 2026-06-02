@@ -159,15 +159,15 @@
         </div>
 
         <div class="form-group">
-          <label for="responsible_recipient_id">Ответственный получатель</label>
+          <label for="responsible_issue_object_id">Ответственный получатель</label>
           <select
-            id="responsible_recipient_id"
-            name="responsible_recipient_id"
+            id="responsible_issue_object_id"
+            name="responsible_issue_object_id"
             class="form-control"
           >
             <option value="">Не указан</option>
-            {% for recipient in recipients %}
-            <option value="{{ recipient.id }}">{{ recipient.name }}</option>
+            {% for obj in issue_objects %}
+            <option value="{{ obj.id }}">{{ obj.name }}</option>
             {% endfor %}
           </select>
         </div>
