@@ -10,12 +10,36 @@ from apps.bff_api.helpers import (
     _error,
     _require_storekeeper,
 )
+from apps.bff_api.operations_enricher import (
+    _get_sites_index,
+    _get_user_labels,
+    enrich_operation,
+)
 from apps.sync_client.exceptions import SyncServerAPIError
 from apps.sync_client.operations_api import OperationsAPI
 
 
 def _ops(request):
     return OperationsAPI(_build_client(request))
+
+
+def _enrich_list(request, data):
+    items = data.get("items", [])
+    if not items:
+        return data
+    sites_index = _get_sites_index(request)
+    user_ids = {op.get("created_by_user_id") for op in items}
+    user_labels = _get_user_labels(request, user_ids)
+    data["items"] = [enrich_operation(op, sites_index, user_labels) for op in items]
+    return data
+
+
+def _enrich_detail(request, operation):
+    if not operation:
+        return operation
+    sites_index = _get_sites_index(request)
+    user_labels = _get_user_labels(request, {operation.get("created_by_user_id")})
+    return enrich_operation(operation, sites_index, user_labels)
 
 
 class OperationsListView(LoginRequiredMixin, View):
@@ -28,13 +52,13 @@ class OperationsListView(LoginRequiredMixin, View):
                 "effective_after", "effective_before",
                 "created_after", "created_before",
                 "updated_after", "updated_before",
-                "search", "page", "page_size",
+                "search", "item_ids", "page", "page_size",
             ):
                 val = request.GET.get(key)
                 if val is not None:
                     params[key] = val
             data = api.list_operations_page(filters=params)
-            return _ok(data)
+            return _ok(_enrich_list(request, data))
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
 
@@ -67,7 +91,7 @@ class OperationDetailView(LoginRequiredMixin, View):
         try:
             api = _ops(request)
             data = api.get_operation(operation_id)
-            return _ok(data)
+            return _ok(_enrich_detail(request, data))
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
 
