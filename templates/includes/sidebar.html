@@ -1,6 +1,6 @@
 {% load permission_tags %}
 {% if user.is_authenticated %}
-{% with namespace=request.resolver_match.namespace url_name=request.resolver_match.url_name %}
+{% with namespace=request.resolver_match.namespace url_name=request.resolver_match.url_name path=request.path %}
 
 <a href="{% url 'client:dashboard' %}" class="{% if url_name == 'dashboard' %}sidebar-link-active{% endif %}">
     Главная
@@ -16,10 +16,10 @@
         <a href="{% url 'operations_spa' %}" class="{% if url_name == 'operations_spa' %}sidebar-link-active{% endif %}">
             Операции
         </a>
-        <a href="{% url 'operations_ssr:pending_acceptance' %}" class="{% if url_name == 'pending_acceptance' %}sidebar-link-active{% endif %}">
+        <a href="/operations/pending-acceptance" class="{% if '/operations/pending-acceptance' in path %}sidebar-link-active{% endif %}">
             Операции к приёмке
         </a>
-        <a href="{% url 'operations_ssr:lost_assets' %}" class="{% if url_name == 'lost_assets' %}sidebar-link-active{% endif %}">
+        <a href="/operations/lost-assets" class="{% if '/operations/lost-assets' in path %}sidebar-link-active{% endif %}">
             Непринятое
         </a>
     </div>
