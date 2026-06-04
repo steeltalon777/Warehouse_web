@@ -9,9 +9,9 @@ Signals:
     - user_logged_out: Clear SyncServer identity from session
 """
 
-import logging
 from typing import Any
 
+import structlog
 from django.contrib.auth.signals import user_logged_in, user_logged_out
 from django.dispatch import receiver
 from django.http import HttpRequest
@@ -21,7 +21,7 @@ from apps.sync_client.session_auth import (
     clear_syncserver_identity,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 @receiver(user_logged_in)
@@ -44,8 +44,9 @@ def on_user_logged_in(
         **kwargs: Additional signal arguments
     """
     logger.info(
-        "Django user logged in, fetching SyncServer identity",
-        extra={"username": user.username, "user_id": user.id}
+        "login_fetch_identity",
+        username=user.username,
+        user_id=user.id,
     )
     
     try:
@@ -58,24 +59,24 @@ def on_user_logged_in(
         
         if identity:
             logger.info(
-                "SyncServer identity stored after Django login",
-                extra={
-                    "django_user": user.username,
-                    "sync_user_id": identity.user_id,
-                    "role": identity.role,
-                    "site_id": identity.site_id
-                }
+                "login_identity_stored",
+                django_user=user.username,
+                sync_user_id=identity.user_id,
+                role=identity.role,
+                site_id=identity.site_id,
             )
         else:
             logger.warning(
-                "Failed to fetch SyncServer identity after Django login",
-                extra={"django_user": user.username}
+                "login_identity_fetch_failed",
+                django_user=user.username,
             )
             
     except Exception as e:
-        logger.exception(
-            "Error during SyncServer identity fetch after Django login",
-            extra={"username": user.username, "error": str(e)}
+        logger.error(
+            "login_identity_fetch_error",
+            username=user.username,
+            error=str(e),
+            exc_info=True,
         )
         # Don't raise exception - allow Django login to succeed even if
         # SyncServer authentication fails (graceful degradation)
@@ -102,8 +103,8 @@ def on_user_logged_out(
     """
     username = user.username if user else "unknown"
     logger.info(
-        "Django user logged out, clearing SyncServer identity",
-        extra={"username": username}
+        "logout_clear_identity",
+        username=username,
     )
     
     try:
@@ -111,14 +112,15 @@ def on_user_logged_out(
         clear_syncserver_identity(request)
         
         logger.info(
-            "SyncServer identity cleared after Django logout",
-            extra={"username": username}
+            "logout_identity_cleared",
+            username=username,
         )
         
     except Exception as e:
-        logger.exception(
-            "Error clearing SyncServer identity after Django logout",
-            extra={"username": username}
+        logger.error(
+            "logout_identity_clear_error",
+            username=username,
+            exc_info=True,
         )
 
 

@@ -5,13 +5,13 @@ Uses the canonical SyncServerClient for all requests.
 
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Any
 
 from .client import SyncServerClient
 from .exceptions import SyncAuthError, SyncServerAPIError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class AuthAPI:
@@ -19,7 +19,7 @@ class AuthAPI:
 
     def __init__(self, request=None) -> None:
         self.request = request
-        logger.debug("AuthAPI client initialized")
+        logger.debug("auth_api_initialized")
 
     def _get_client(self, *, force_root: bool = False) -> SyncServerClient:
         return SyncServerClient(request=self.request, force_root=force_root)
@@ -29,7 +29,7 @@ class AuthAPI:
 
         Endpoint: GET /auth/me
         """
-        logger.debug("Fetching current user info")
+        logger.debug("fetching_current_user_info")
         client = SyncServerClient(request=request or self.request)
         return client.get("/auth/me")
 
@@ -38,7 +38,7 @@ class AuthAPI:
 
         Endpoint: GET /auth/context
         """
-        logger.debug("Fetching authentication context")
+        logger.debug("fetching_auth_context")
         client = SyncServerClient(request=request or self.request)
         return client.get("/auth/context")
 
@@ -47,7 +47,7 @@ class AuthAPI:
 
         Endpoint: GET /auth/sites
         """
-        logger.debug("Fetching available sites")
+        logger.debug("fetching_available_sites")
         client = SyncServerClient(request=request or self.request)
         return client.get("/auth/sites")
 
@@ -59,7 +59,7 @@ class AuthAPI:
         Uses force_root=True because sync-user is a system/admin endpoint
         that requires root permissions in SyncServer.
         """
-        logger.debug("Synchronizing user data")
+        logger.debug("synchronizing_user_data")
         client = SyncServerClient(request=request or self.request, force_root=True)
         return client.post("/auth/sync-user", json=payload or {})
 

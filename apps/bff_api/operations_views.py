@@ -49,6 +49,7 @@ class OperationsListView(LoginRequiredMixin, View):
             params: dict[str, str] = {}
             for key in (
                 "site_id", "type", "status", "created_by_user_id",
+                "acceptance_state",
                 "effective_after", "effective_before",
                 "created_after", "created_before",
                 "updated_after", "updated_before",

@@ -20,13 +20,13 @@ Usage:
 
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Any, Optional
 
 import httpx
 from django.conf import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class SyncAPIError(Exception):
@@ -76,8 +76,7 @@ class SyncClient:
         self.device_token = getattr(settings, "SYNC_DEVICE_TOKEN", "").strip()
         
         logger.debug(
-            "SyncClient initialized",
-            extra={"base_url": self.base_url, "timeout": self.timeout}
+            "sync_client_initialized", base_url=self.base_url, timeout=self.timeout,
         )
     
     def _get_headers(self, request) -> dict[str, str]:
@@ -183,21 +182,18 @@ class SyncClient:
             return response.json()
         except ValueError as e:
             logger.warning(
-                "Failed to parse JSON response",
-                extra={"method": method, "path": path, "status": response.status_code}
+                "failed_to_parse_json_response", method=method, path=path, status=response.status_code,
             )
             return {"raw_response": response.text}
     
     def _log_error(self, method: str, path: str, status_code: int, response_text: str) -> None:
         """Log failed request details."""
         logger.error(
-            "SyncServer request failed",
-            extra={
-                "method": method,
-                "path": path,
-                "status_code": status_code,
-                "response": response_text[:500],  # Limit log size
-            }
+            "sync_request_failed",
+            method=method,
+            path=path,
+            status_code=status_code,
+            response=response_text[:500],
         )
     
     def _request(
@@ -239,14 +235,12 @@ class SyncClient:
                 )
         except httpx.TimeoutException as e:
             logger.error(
-                "SyncServer request timeout",
-                extra={"method": method, "path": path, "timeout": self.timeout}
+                "sync_request_timeout", method=method, path=path, timeout=self.timeout,
             )
             raise SyncAPIError(f"Request timeout after {self.timeout}s") from e
         except httpx.RequestError as e:
             logger.error(
-                "SyncServer connection error",
-                extra={"method": method, "path": path, "error": str(e)}
+                "sync_connection_error", method=method, path=path, error=str(e),
             )
             raise SyncAPIError(f"Connection error: {str(e)}") from e
         

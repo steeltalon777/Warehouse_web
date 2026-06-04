@@ -2,6 +2,8 @@ import json
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
+from django.urls import reverse
+from django.utils.http import content_disposition_header
 from django.views import View
 
 from apps.bff_api.helpers import (
@@ -10,6 +12,12 @@ from apps.bff_api.helpers import (
     _ok,
     _error,
     _require_storekeeper,
+)
+from apps.documents.services import (
+    DocumentPdfRenderError,
+    build_document_pdf_filename,
+    render_document_html,
+    render_document_pdf,
 )
 from apps.sync_client.documents_api import DocumentsAPI
 from apps.sync_client.exceptions import SyncServerAPIError
@@ -77,16 +85,21 @@ class DocumentRenderView(LoginRequiredMixin, View):
         try:
             api = _docs(request)
             fmt = request.GET.get("format", "html")
+            document = api.get_document(document_id)
             if fmt == "pdf":
-                content, headers = api.render_document_pdf(document_id)
-                response = HttpResponse(content, content_type="application/pdf")
-                for key, val in headers.items():
-                    response[key] = val
+                result = render_document_pdf(document)
+                filename = build_document_pdf_filename(document)
+                response = HttpResponse(result.pdf_bytes, content_type="application/pdf")
+                response["Content-Disposition"] = content_disposition_header(False, filename) or f'inline; filename="{filename}"'
+                response["X-Document-Pdf-Cache"] = "hit" if result.cache_hit else "miss"
                 return response
-            data = api.client.get(f"/documents/{document_id}/render", params={"format": "html"})
-            return _ok(data)
+            if fmt == "html":
+                return HttpResponse(render_document_html(document), content_type="text/html; charset=utf-8")
+            return _error("Unsupported render format", "validation_error", 400)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
+        except DocumentPdfRenderError as exc:
+            return _error(str(exc) or "Failed to render document", "document_render_error", 503)
 
 
 class DocumentStatusView(LoginRequiredMixin, View):
@@ -132,3 +145,36 @@ class OperationDocumentsView(LoginRequiredMixin, View):
             return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
+
+
+class OperationWaybillOpenView(LoginRequiredMixin, View):
+    """Generate-or-reuse a waybill and return same-origin browser PDF URLs."""
+
+    def post(self, request, operation_id):
+        if not _require_storekeeper(request.user):
+            return _error("Access denied", "forbidden", 403)
+        try:
+            api = _docs(request)
+            data = api.generate_operation_document(
+                operation_id=operation_id,
+                document_type="waybill",
+                auto_finalize=True,
+                language="ru",
+            )
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
+
+        document = data.get("document") if isinstance(data, dict) else None
+        document_id = document.get("id") if isinstance(document, dict) else None
+        if not document_id:
+            return _error("SyncServer did not return document id", "sync_error", 502)
+
+        pdf_url = reverse("documents:pdf", kwargs={"document_id": document_id})
+        return _ok(
+            {
+                "document": document,
+                "created": bool(data.get("created", True)) if isinstance(data, dict) else True,
+                "pdf_url": pdf_url,
+                "download_url": f"{pdf_url}?download=1",
+            }
+        )

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Any
 
 import httpx
 from django.conf import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 _client: httpx.Client | None = None
 
@@ -26,7 +26,7 @@ def get_sync_client() -> httpx.Client:
         _client = httpx.Client(
             timeout=_build_timeout(),
         )
-        logger.info("Created persistent httpx.Client for SyncServer transport")
+        logger.info("created_http_client")
     return _client
 
 
@@ -34,7 +34,7 @@ def close_sync_client() -> None:
     global _client
     if _client is not None and not _client.is_closed:
         _client.close()
-        logger.info("Closed persistent httpx.Client for SyncServer transport")
+        logger.info("closed_http_client")
     _client = None
 
 

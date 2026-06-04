@@ -1,7 +1,7 @@
-import logging
 from typing import Any
 
 import httpx
+import structlog
 from django.conf import settings
 from django.http import JsonResponse
 
@@ -11,7 +11,7 @@ from apps.sync_client.client import SyncServerClient
 from apps.sync_client.exceptions import SyncServerAPIError
 from apps.sync_client.transport import execute_with_retry, get_sync_client
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 def _build_client(request) -> SyncServerClient:

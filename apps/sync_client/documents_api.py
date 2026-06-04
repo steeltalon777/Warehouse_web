@@ -4,8 +4,9 @@ Documents API client module for SyncServer document endpoints.
 This module provides high-level methods for interacting with SyncServer
 documents API using the base SyncServerClient.
 
-Documents are stored on SyncServer as metadata + JSONB payload. SyncServer
-renders the final HTML/PDF using document templates.
+Documents are stored on SyncServer as metadata + JSONB payload. The active
+browser PDF contour renders/caches PDF in Django from that payload; SyncServer
+`/render` access is kept only for compatibility/debug helpers.
 
 Usage:
     from apps.sync_client.client import SyncServerClient
@@ -26,13 +27,13 @@ Usage:
 
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Any, Optional
 
 from .client import SyncServerClient
 from .exceptions import SyncServerAPIError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class DocumentsAPI:
@@ -40,8 +41,8 @@ class DocumentsAPI:
     High-level client for SyncServer documents API.
 
     Provides methods to retrieve, list, and generate documents.
-    Documents are metadata + JSONB payload; PDF rendering happens on
-    SyncServer and is proxied by the Django app.
+    Documents are metadata + JSONB payload. Browser PDF rendering happens in
+    Django; SyncServer PDF rendering is a legacy/debug path.
 
     Attributes:
         client (SyncServerClient): Underlying HTTP client instance
@@ -56,7 +57,7 @@ class DocumentsAPI:
                    a new instance will be created with default settings.
         """
         self.client = client or SyncServerClient()
-        logger.debug("DocumentsAPI client initialized")
+        logger.debug("documents_api_initialized")
 
     def get_document(
         self,
@@ -82,7 +83,7 @@ class DocumentsAPI:
         Raises:
             SyncServerAPIError: If the API request fails (404, 403, etc.).
         """
-        logger.debug("Fetching document", extra={"document_id": document_id})
+        logger.debug("fetching_document", document_id=document_id)
         return self.client.get(
             f"/documents/{document_id}",
             acting_user_id=acting_user_id,
@@ -115,8 +116,7 @@ class DocumentsAPI:
             SyncServerAPIError: If the API request fails.
         """
         logger.debug(
-            "Fetching documents for operation",
-            extra={"operation_id": operation_id, "document_type": document_type},
+            "fetching_documents_for_operation", operation_id=operation_id, document_type=document_type,
         )
 
         params: dict[str, Any] = {}
@@ -137,8 +137,7 @@ class DocumentsAPI:
             return response["items"]
 
         logger.warning(
-            "Unexpected response format from /documents/operations/{operation_id}/documents",
-            extra={"response_type": type(response).__name__},
+            "unexpected_response_format", endpoint="/documents/operations/{operation_id}/documents", response_type=type(response).__name__,
         )
         return []
 
@@ -162,7 +161,7 @@ class DocumentsAPI:
         Endpoint: POST /documents/operations/{operation_id}/documents
 
         This creates a document record with metadata + JSONB payload on
-        SyncServer. The final PDF is rendered by SyncServer.
+        SyncServer. The active web PDF is rendered/cached by Django.
 
         Args:
             operation_id: Operation UUID identifier.
@@ -183,12 +182,7 @@ class DocumentsAPI:
             SyncServerAPIError: If the API request fails.
         """
         logger.debug(
-            "Generating document for operation",
-            extra={
-                "operation_id": operation_id,
-                "document_type": document_type,
-                "template_name": template_name,
-            },
+            "generating_document_for_operation", operation_id=operation_id, document_type=document_type, template_name=template_name,
         )
 
         params: dict[str, Any] = {
@@ -220,11 +214,11 @@ class DocumentsAPI:
         acting_site_id: str | int | None = None,
     ) -> tuple[bytes, dict[str, str]]:
         """
-        Render a document as PDF on SyncServer.
+        Render a document as PDF on SyncServer (legacy/debug path).
 
         Endpoint: GET /documents/{document_id}/render?format=pdf
         """
-        logger.debug("Rendering document PDF", extra={"document_id": document_id})
+        logger.debug("rendering_document_pdf", document_id=document_id)
         return self.client.get_bytes(
             f"/documents/{document_id}/render",
             params={"format": "pdf"},

@@ -1,335 +1,341 @@
-"""
-Document rendering service for client-side DOCX→PDF pipeline.
+"""Django PDF renderer/cache for SyncServer document payloads.
 
-This module provides the rendering logic that:
-1. Receives a document dict (with payload) from SyncServer.
-2. Builds a safe Jinja2 context from document + payload fields.
-3. Locates a DOCX template by name (with fallback).
-4. Renders the DOCX via docxtpl into a temporary file.
-5. Converts the DOCX to PDF via LibreOffice headless.
-6. Returns PDF bytes (or optionally debug DOCX bytes).
-
-Template lookup order:
-  1. document["template_name"] (if set)
-  2. document["document_type"] + "_v1" (fallback)
-
-Expected template path: {DOCUMENT_TEMPLATE_DIR}/{template_name}.docx
+SyncServer remains the authoritative source of document metadata and immutable
+payload. This module stores only technical web artifacts derived from that
+payload: HTML render context and cached PDF bytes.
 """
 
 from __future__ import annotations
 
-import logging
-import os
-import subprocess
-import tempfile
-from pathlib import Path
-from typing import Any, Optional
+import hashlib
+import json
+import re
+from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from typing import Any
 
+import structlog
 from django.conf import settings
+from django.core.files.base import ContentFile
+from django.template.loader import render_to_string
+from django.utils import timezone
 
-logger = logging.getLogger(__name__)
+from .models import RenderedDocumentArtifact
 
+logger = structlog.get_logger()
 
-class DocumentTemplateNotFound(FileNotFoundError):
-    """
-    Raised when a DOCX template file is not found at the expected path.
-
-    Attributes:
-        template_name: The template name that was looked up.
-        expected_path: The full filesystem path where the file was expected.
-    """
-
-    def __init__(self, template_name: str, expected_path: str) -> None:
-        self.template_name = template_name
-        self.expected_path = expected_path
-        super().__init__(self._format_message())
-
-    def _format_message(self) -> str:
-        return (
-            f"DOCX-шаблон '{self.template_name}' не найден. "
-            f"Ожидаемый путь: {self.expected_path}. "
-            f"Поместите файл шаблона в указанную директорию."
-        )
+SIGNATURE_PLACEHOLDER = "_________________/__________________"
+DEFAULT_RENDERER_VERSION = "waybill-pdf-v1"
 
 
-def _resolve_template_path(template_name: str) -> Path:
-    """
-    Resolve the full filesystem path for a given template name.
-
-    Args:
-        template_name: Template name without extension (e.g. "waybill_v1").
-
-    Returns:
-        Path object pointing to the .docx file.
-
-    Raises:
-        DocumentTemplateNotFound: If the file does not exist.
-    """
-    template_dir = Path(settings.DOCUMENT_TEMPLATE_DIR)
-    template_path = template_dir / f"{template_name}.docx"
-
-    if not template_path.exists():
-        raise DocumentTemplateNotFound(
-            template_name=template_name,
-            expected_path=str(template_path),
-        )
-
-    return template_path
+class DocumentPdfRenderError(RuntimeError):
+    """Raised when Django cannot render/cache a document PDF."""
 
 
-def _build_render_context(document: dict[str, Any]) -> dict[str, Any]:
-    """
-    Build a safe Jinja2 render context from a SyncServer document dict.
+@dataclass(frozen=True)
+class RenderedDocumentResult:
+    artifact: RenderedDocumentArtifact
+    pdf_bytes: bytes
+    cache_hit: bool
 
-    The document payload (JSONB) typically contains:
-        document, operation, sender, receiver, recipient,
-        issued_to, basis, lines, total_lines, signatures
 
-    Args:
-        document: Document dict from SyncServer API response.
+def render_document_pdf(document: dict[str, Any], *, force: bool = False) -> RenderedDocumentResult:
+    """Render PDF through Django and cache it by document payload/template identity."""
+    identity = _cache_identity(document)
+    artifact, _created = RenderedDocumentArtifact.objects.get_or_create(
+        document_id=identity["document_id"],
+        revision=identity["revision"],
+        payload_hash=identity["payload_hash"],
+        template_name=identity["template_name"],
+        template_version=identity["template_version"],
+        renderer_version=identity["renderer_version"],
+        defaults={
+            "document_type": identity["document_type"],
+            "status": RenderedDocumentArtifact.Status.RENDERING,
+        },
+    )
 
-    Returns:
-        dict: Flat context suitable for docxtpl rendering.
-    """
-    payload = document.get("payload") or {}
+    if not force and artifact.is_ready and artifact.pdf_file.storage.exists(artifact.pdf_file.name):
+        with artifact.pdf_file.open("rb") as pdf_file:
+            return RenderedDocumentResult(artifact=artifact, pdf_bytes=pdf_file.read(), cache_hit=True)
 
-    context: dict[str, Any] = {
-        # Document-level fields
+    try:
+        html = render_document_html(document)
+        pdf_bytes = _render_html_to_pdf_bytes(html)
+    except Exception as exc:  # pragma: no cover - concrete message is tested through wrapper paths
+        artifact.status = RenderedDocumentArtifact.Status.FAILED
+        artifact.last_error = str(exc)
+        artifact.save(update_fields=["status", "last_error", "updated_at"])
+        if isinstance(exc, DocumentPdfRenderError):
+            raise
+        raise DocumentPdfRenderError(str(exc)) from exc
+
+    pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+    filename = build_document_pdf_filename(document)
+
+    artifact.document_type = identity["document_type"]
+    artifact.status = RenderedDocumentArtifact.Status.READY
+    artifact.pdf_file.save(filename, ContentFile(pdf_bytes), save=False)
+    artifact.pdf_sha256 = pdf_sha256
+    artifact.size_bytes = len(pdf_bytes)
+    artifact.rendered_at = timezone.now()
+    artifact.last_error = ""
+    artifact.save()
+
+    return RenderedDocumentResult(artifact=artifact, pdf_bytes=pdf_bytes, cache_hit=False)
+
+
+def render_document_html(document: dict[str, Any]) -> str:
+    """Render document HTML through Django templates."""
+    document_type = str(document.get("document_type") or "waybill")
+    if document_type != "waybill":
+        raise DocumentPdfRenderError("Django PDF renderer currently supports only waybill documents.")
+    return render_to_string("documents/waybill_pdf.html", build_waybill_context(document))
+
+
+def build_waybill_context(document: dict[str, Any]) -> dict[str, Any]:
+    """Build template context matching the approved waybill MVP layout."""
+    payload = _payload(document)
+    operation = payload.get("operation") if isinstance(payload.get("operation"), dict) else {}
+
+    operation_display_number = (
+        _text(payload.get("operation_display_number"))
+        or _text(operation.get("display_number"))
+        or _compute_display_number(_document_site_id(document, payload), payload.get("operation_created_at") or operation.get("created_at"))
+        or _text(document.get("document_number"))
+        or _text(document.get("id"))
+    )
+    title = f"Накладная № {operation_display_number}"
+
+    lines = [_normalize_line(line, index) for index, line in enumerate(payload.get("lines") or [], start=1)]
+    pages = paginate_waybill_lines(lines)
+
+    operation_type = _text(operation.get("type") or payload.get("operation_type")).upper()
+
+    extra_signatures = _build_extra_signatures(operation_type)
+
+    return {
         "document_id": document.get("id"),
-        "document_number": document.get("document_number") or "",
-        "document_type": document.get("document_type") or "",
-        "document_status": document.get("status") or "",
-        "template_name": document.get("template_name") or "",
-        "created_at": document.get("created_at") or "",
-        "finalized_at": document.get("finalized_at") or "",
-        # Nested payload sections (may be empty dicts/lists)
-        "document": payload.get("document", {}),
-        "operation": payload.get("operation", {}),
-        "sender": payload.get("sender", {}),
-        "receiver": payload.get("receiver", {}),
-        "recipient": payload.get("recipient", {}),
-        "issued_to": payload.get("issued_to", {}),
-        "basis": payload.get("basis", {}),
-        "lines": payload.get("lines", []),
-        "total_lines": payload.get("total_lines", {}),
-        "signatures": payload.get("signatures", {}),
-        # Raw payload for advanced templates
-        "payload": payload,
+        "title": title,
+        "operation_display_number": operation_display_number,
+        "operation_type": operation_type,
+        "shipper_requisites": getattr(settings, "DOCUMENT_SHIPPER_REQUISITES", ""),
+        "consignee_label": _consignee_label(payload),
+        "basis_label": _basis_label(payload),
+        "pages": pages,
+        "total_pages": len(pages),
+        "signature_placeholder": SIGNATURE_PLACEHOLDER,
+        "extra_signatures": extra_signatures,
     }
 
-    return context
 
+def _build_extra_signatures(operation_type: str) -> list[dict[str, Any]]:
+    """Return extra signature blocks for the waybill footer based on operation type.
 
-def render_docx_to_bytes(
-    document: dict[str, Any],
-    template_name: Optional[str] = None,
-) -> bytes:
+    Extra signatures appear only on the last page (or single page).
+    Кладовщик appears on every page regardless.
     """
-    Render a DOCX template with document data and return the DOCX as bytes.
+    op = operation_type.upper()
 
-    This is useful for debugging or if you need the intermediate DOCX.
+    # MOVE: operation approved + driver
+    if op == "MOVE":
+        return [
+            {
+                "label": "Операцию разрешил",
+                "position_label": "должность",
+                "signature_label": "фио/подпись",
+            },
+            {
+                "label": "Водитель",
+                "driver_signature": True,
+            },
+        ]
 
-    Args:
-        document: Document dict from SyncServer API.
-        template_name: Optional override for template name.
-                      If None, uses document["template_name"] or fallback.
+    # WRITE_OFF: operation approved
+    if op == "WRITE_OFF":
+        return [
+            {
+                "label": "Операцию разрешил",
+                "position_label": "должность",
+                "signature_label": "фио/подпись",
+            },
+        ]
 
-    Returns:
-        bytes: Rendered DOCX file content.
+    # ISSUE / ISSUE_RETURN / EXPENSE: received by
+    if op in ("ISSUE", "ISSUE_RETURN", "EXPENSE"):
+        return [
+            {
+                "label": "Получил",
+                "position_label": "должность",
+                "signature_label": "фио/подпись",
+            },
+        ]
 
-    Raises:
-        DocumentTemplateNotFound: If no template file is found.
-        ImportError: If docxtpl is not installed.
-    """
-    from docxtpl import DocxTemplate
+    # RECEIVE, CORRECTION, ADJUSTMENT: no extra signatures
+    return []
 
-    resolved_name = _resolve_template_name(document, template_name)
-    template_path = _resolve_template_path(resolved_name)
-    context = _build_render_context(document)
 
-    logger.debug(
-        "Rendering DOCX template",
-        extra={
-            "template_name": resolved_name,
-            "template_path": str(template_path),
-            "document_id": document.get("id"),
-        },
+def paginate_waybill_lines(
+    lines: list[dict[str, Any]],
+    *,
+    first_page_capacity: int = 24,
+    continuation_capacity: int = 30,
+) -> list[dict[str, Any]]:
+    """Chunk lines so every rendered table/page gets its own storekeeper signature."""
+    pages: list[dict[str, Any]] = []
+    current: list[dict[str, Any]] = []
+    current_weight = 0
+    current_capacity = first_page_capacity
+
+    def flush() -> None:
+        nonlocal current, current_weight, current_capacity
+        pages.append({"page_number": len(pages) + 1, "lines": current, "is_first": len(pages) == 0})
+        current = []
+        current_weight = 0
+        current_capacity = continuation_capacity
+
+    for line in lines:
+        weight = _line_weight(line)
+        if current and current_weight + weight > current_capacity:
+            flush()
+        current.append(line)
+        current_weight += weight
+
+    if current or not pages:
+        flush()
+
+    total_pages = len(pages)
+    for page in pages:
+        page["total_pages"] = total_pages
+        page["is_last"] = (page["page_number"] == total_pages)
+    return pages
+
+
+def build_document_pdf_filename(document: dict[str, Any]) -> str:
+    payload = _payload(document)
+    number = (
+        _text(payload.get("operation_display_number"))
+        or _text((payload.get("operation") or {}).get("display_number") if isinstance(payload.get("operation"), dict) else None)
+        or _text(document.get("document_number"))
+        or _text(document.get("id"))
+        or "document"
     )
+    return f"nakladnaya_{_safe_filename_part(number)}.pdf"
 
-    doc = DocxTemplate(str(template_path))
-    doc.render(context)
 
-    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
-        tmp_path = tmp.name
-        doc.save(tmp_path)
+def _cache_identity(document: dict[str, Any]) -> dict[str, Any]:
+    payload = _payload(document)
+    document_type = str(document.get("document_type") or "waybill")
+    template_name = str(document.get("template_name") or f"{document_type}_v1")
+    template_version = str(document.get("template_version") or "")
+    renderer_version = str(getattr(settings, "DOCUMENT_RENDERER_VERSION", DEFAULT_RENDERER_VERSION))
+    payload_hash = str(document.get("payload_hash") or _hash_payload(payload))
+    return {
+        "document_id": str(document.get("id") or ""),
+        "revision": int(document.get("revision") or 0),
+        "document_type": document_type,
+        "payload_hash": payload_hash,
+        "template_name": template_name,
+        "template_version": template_version,
+        "renderer_version": renderer_version,
+    }
 
+
+def _render_html_to_pdf_bytes(html: str) -> bytes:
     try:
-        with open(tmp_path, "rb") as f:
-            return f.read()
-    finally:
-        _safe_cleanup(tmp_path)
+        from weasyprint import HTML
+    except Exception as exc:  # pragma: no cover - depends on runtime image packages
+        raise DocumentPdfRenderError("WeasyPrint is not installed or native PDF dependencies are missing.") from exc
+
+    return HTML(string=html, base_url=str(settings.BASE_DIR)).write_pdf()
 
 
-def render_document_to_pdf(
-    document: dict[str, Any],
-    template_name: Optional[str] = None,
-) -> bytes:
-    """
-    Full pipeline: render DOCX from template, convert to PDF via LibreOffice.
+def _payload(document: dict[str, Any]) -> dict[str, Any]:
+    payload = document.get("payload") or {}
+    return payload if isinstance(payload, dict) else {}
 
-    Args:
-        document: Document dict from SyncServer API (must include payload).
-        template_name: Optional template name override.
 
-    Returns:
-        bytes: PDF file content.
+def _hash_payload(payload: dict[str, Any]) -> str:
+    payload_bytes = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(payload_bytes).hexdigest()
 
-    Raises:
-        DocumentTemplateNotFound: If no template file is found.
-        RuntimeError: If LibreOffice conversion fails.
-        ImportError: If docxtpl is not installed.
-    """
-    from docxtpl import DocxTemplate
 
-    resolved_name = _resolve_template_name(document, template_name)
-    template_path = _resolve_template_path(resolved_name)
-    context = _build_render_context(document)
+def _normalize_line(line: dict[str, Any], index: int) -> dict[str, Any]:
+    return {
+        "line_number": line.get("line_number") or index,
+        "item_name": _text(line.get("item_name") or line.get("item_name_snapshot")) or "—",
+        "unit": _text(line.get("unit_symbol") or line.get("unit_name") or line.get("unit_symbol_snapshot")) or "—",
+        "quantity": _format_quantity(line.get("quantity") or line.get("qty")),
+    }
 
-    logger.debug(
-        "Rendering document to PDF",
-        extra={
-            "template_name": resolved_name,
-            "template_path": str(template_path),
-            "document_id": document.get("id"),
-        },
-    )
 
-    # Step 1: Render DOCX to temp file
-    doc = DocxTemplate(str(template_path))
-    doc.render(context)
-
-    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp_docx:
-        docx_path = tmp_docx.name
-        doc.save(docx_path)
-
+def _format_quantity(value: Any) -> str:
+    if value is None or value == "":
+        return "0"
     try:
-        # Step 2: Convert DOCX → PDF via LibreOffice headless
-        pdf_path = _convert_docx_to_pdf(docx_path)
-    except Exception:
-        _safe_cleanup(docx_path)
-        raise
+        decimal_value = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return str(value)
+    text = format(decimal_value.normalize(), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
 
+
+def _line_weight(line: dict[str, Any]) -> int:
+    name_length = len(str(line.get("item_name") or ""))
+    return max(1, 1 + name_length // 70)
+
+
+def _consignee_label(payload: dict[str, Any]) -> str:
+    if _text(payload.get("consignee_label")):
+        return _text(payload.get("consignee_label"))
+    receiver = payload.get("receiver") if isinstance(payload.get("receiver"), dict) else None
+    if receiver:
+        return _text(receiver.get("site_name") or receiver.get("site_code")) or "—"
+    recipient = payload.get("recipient") if isinstance(payload.get("recipient"), dict) else None
+    if recipient:
+        return _text(recipient.get("recipient_name")) or "—"
+    sender = payload.get("sender") if isinstance(payload.get("sender"), dict) else None
+    if sender:
+        return _text(sender.get("site_name") or sender.get("site_code")) or "—"
+    return "—"
+
+
+def _basis_label(payload: dict[str, Any]) -> str:
+    if _text(payload.get("basis_label")):
+        return _text(payload.get("basis_label"))
+    basis = payload.get("basis") if isinstance(payload.get("basis"), dict) else None
+    if basis and _text(basis.get("label")):
+        return _text(basis.get("label"))
+    operation_type = _text(payload.get("operation_type_label") or payload.get("operation_type")) or "Операция"
+    return operation_type
+
+
+def _document_site_id(document: dict[str, Any], payload: dict[str, Any]) -> int | None:
+    for value in [document.get("site_id"), (payload.get("sender") or {}).get("site_id") if isinstance(payload.get("sender"), dict) else None]:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _compute_display_number(site_id: int | None, created_at: Any) -> str | None:
+    if site_id is None or not created_at:
+        return None
     try:
-        with open(pdf_path, "rb") as f:
-            return f.read()
-    finally:
-        _safe_cleanup(docx_path)
-        _safe_cleanup(pdf_path)
+        dt = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return f"{site_id}/{dt.strftime('%H%M')}/{dt.strftime('%d%m%y')}"
 
 
-def _resolve_template_name(
-    document: dict[str, Any],
-    template_name: Optional[str] = None,
-) -> str:
-    """
-    Resolve the effective template name.
-
-    Priority:
-      1. Explicit template_name argument.
-      2. document["template_name"] from SyncServer.
-      3. document["document_type"] + "_v1" (fallback).
-
-    Args:
-        document: Document dict from SyncServer.
-        template_name: Optional explicit override.
-
-    Returns:
-        str: Resolved template name (without .docx extension).
-    """
-    if template_name:
-        return template_name
-    if document.get("template_name"):
-        return str(document["template_name"])
-    doc_type = document.get("document_type", "waybill")
-    return f"{doc_type}_v1"
+def _safe_filename_part(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-zА-Яа-я0-9._-]+", "_", value.strip())
+    return normalized.strip("._-") or "document"
 
 
-def _convert_docx_to_pdf(docx_path: str) -> str:
-    """
-    Convert a DOCX file to PDF using LibreOffice headless.
-
-    Args:
-        docx_path: Absolute path to the input .docx file.
-
-    Returns:
-        str: Absolute path to the generated .pdf file.
-
-    Raises:
-        RuntimeError: If LibreOffice is not found or conversion fails.
-        subprocess.TimeoutExpired: If conversion exceeds timeout.
-    """
-    libreoffice_path = settings.LIBREOFFICE_PATH
-    timeout = settings.DOCUMENT_RENDER_TIMEOUT
-
-    output_dir = tempfile.mkdtemp()
-
-    try:
-        result = subprocess.run(
-            [
-                libreoffice_path,
-                "--headless",
-                "--convert-to",
-                "pdf",
-                "--outdir",
-                output_dir,
-                docx_path,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-
-        if result.returncode != 0:
-            logger.error(
-                "LibreOffice conversion failed",
-                extra={
-                    "returncode": result.returncode,
-                    "stderr": result.stderr,
-                    "stdout": result.stdout,
-                },
-            )
-            raise RuntimeError(
-                f"LibreOffice conversion failed (exit code {result.returncode}): "
-                f"{result.stderr or result.stdout or 'unknown error'}"
-            )
-
-        # LibreOffice outputs PDF with same basename in output_dir
-        docx_stem = Path(docx_path).stem
-        pdf_path = os.path.join(output_dir, f"{docx_stem}.pdf")
-
-        if not os.path.exists(pdf_path):
-            raise RuntimeError(
-                f"LibreOffice did not produce expected PDF at {pdf_path}. "
-                f"stdout: {result.stdout}, stderr: {result.stderr}"
-            )
-
-        return pdf_path
-
-    except FileNotFoundError as exc:
-        raise RuntimeError(
-            f"LibreOffice not found at '{libreoffice_path}'. "
-            f"Install LibreOffice or set LIBREOFFICE_PATH env var."
-        ) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(
-            f"LibreOffice conversion timed out after {timeout}s."
-        ) from exc
-
-
-def _safe_cleanup(path: str) -> None:
-    """Safely remove a temporary file, logging any errors."""
-    try:
-        if os.path.exists(path):
-            os.unlink(path)
-    except OSError as exc:
-        logger.warning("Failed to clean up temp file %s: %s", path, exc)
+def _text(value: Any) -> str:
+    return str(value).strip() if value is not None else ""

@@ -12,7 +12,7 @@ Policy:
 
 from __future__ import annotations
 
-import logging
+import structlog
 from dataclasses import dataclass
 from typing import Literal
 
@@ -20,7 +20,7 @@ from django.conf import settings
 
 from .exceptions import SyncAuthError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class SyncIdentityNotBoundError(SyncAuthError):
@@ -78,8 +78,7 @@ def resolve_sync_identity(
     binding_token = _get_binding_token(request_user)
     if binding_token:
         logger.info(
-            "Resolved SyncServer token from binding for user %s",
-            request_user.username,
+            "resolved_token_from_binding", username=request_user.username,
         )
         return ResolvedSyncIdentity(
             user_token=binding_token,
@@ -92,8 +91,7 @@ def resolve_sync_identity(
         session_token = _get_session_token(request)
         if session_token:
             logger.info(
-                "Resolved SyncServer token from session for user %s",
-                request_user.username,
+                "resolved_token_from_session", username=request_user.username,
             )
             return ResolvedSyncIdentity(
                 user_token=session_token,

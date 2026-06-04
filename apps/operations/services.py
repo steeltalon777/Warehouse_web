@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+import structlog
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
@@ -18,7 +18,7 @@ from apps.operations.constants import OPERATION_STATUS_META, OPERATION_TYPE_LABE
 from apps.sync_client.client import SyncServerClient
 from apps.sync_client.exceptions import SyncServerAPIError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 QTY_SCALE = Decimal("0.001")
 ACCEPTANCE_STATE_META = {
@@ -88,7 +88,7 @@ class OperationPageService:
             sites = response.get("sites", []) if isinstance(response, dict) else []
             return self._normalize_sites(sites)
         except Exception:
-            logger.exception("Failed to load global site names, falling back to accessible sites.")
+            logger.error("load_global_site_names_failed", exc_info=True)
             return self.get_available_sites()
 
     @staticmethod
@@ -141,7 +141,7 @@ class OperationPageService:
         try:
             cached_items = self.catalog_lookup.search_items(query, limit=normalized_limit)
         except DatabaseError:
-            logger.warning("Local catalog cache unavailable, falling back to remote search")
+            logger.warning("local_catalog_cache_unavailable")
             cached_items = []
 
         if len(cached_items) >= normalized_limit:
@@ -150,7 +150,7 @@ class OperationPageService:
         try:
             remote_items = self._search_remote_items(query, limit=normalized_limit)
         except SyncServerAPIError:
-            logger.warning("Remote catalog search unavailable, using local catalog cache results only")
+            logger.warning("remote_catalog_search_unavailable")
             remote_items = []
         if remote_items:
             self._warm_catalog_cache(remote_items)
@@ -230,7 +230,7 @@ class OperationPageService:
         try:
             CatalogCacheSyncService(client=self.client).upsert_items(items)
         except Exception:
-            logger.exception("Failed to warm local catalog cache from remote item search results.")
+            logger.error("catalog_cache_warm_failed", exc_info=True)
 
     @classmethod
     def _merge_search_items(
@@ -336,10 +336,7 @@ class OperationPageService:
             or (status == "submitted" and role == "root")
         )
         can_accept = status in {"submitted", "pending"} and role not in {"observer"}
-        logger.info(
-            "Operation buttons: id=%s status=%s role=%s submit=%s cancel=%s accept=%s",
-            operation.get("id"), status, role, can_submit, can_cancel, can_accept,
-        )
+        logger.info("operation_buttons_computed", operation_id=operation.get("id"), status=status, role=role, can_submit=can_submit, can_cancel=can_cancel, can_accept=can_accept)
         acceptance_state = str(operation.get("acceptance_state") or "not_required")
         acceptance_meta = ACCEPTANCE_STATE_META.get(
             acceptance_state,
@@ -398,7 +395,7 @@ class OperationPageService:
                 "username",
             ))
         except Exception:
-            logger.exception("Failed to resolve operation authors from local Django users.")
+            logger.error("resolve_operation_authors_failed", exc_info=True)
             return {}
 
         labels: dict[str, str] = {}

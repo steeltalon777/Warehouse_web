@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import logging
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+import structlog
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError
@@ -39,7 +39,7 @@ from apps.sync_client.exceptions import SyncServerAPIError
 from apps.documents.views import present_document
 from apps.sync_client.operations_api import OperationsAPI
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 QTY_SCALE = Decimal("0.001")
 MAX_QTY_ABS = Decimal("1000000000000000")
 PENDING_ACCEPTANCE_PAGE_SIZE = 200
@@ -453,7 +453,7 @@ class OperationItemSearchView(SyncContextMixin, View):
         try:
             items = service.search_items(query, limit=12)
         except DatabaseError:
-            logger.exception("Local catalog cache is not ready for item search.")
+            logger.error("local_catalog_cache_search_error", exc_info=True)
             return JsonResponse({"items": []})
         except SyncServerAPIError as exc:
             return JsonResponse({"items": [], "error": str(exc) or "?? ??????? ????????? ???."}, status=502)

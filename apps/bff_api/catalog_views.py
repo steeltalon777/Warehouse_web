@@ -1,6 +1,7 @@
 import json
-import logging
 from typing import Any
+
+import structlog
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import DatabaseError
@@ -21,7 +22,7 @@ from apps.sync_client.catalog_api import CatalogAPI
 from apps.sync_client.client import SyncServerClient
 from apps.sync_client.exceptions import SyncServerAPIError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 def _catalog(request):
@@ -547,7 +548,7 @@ class CatalogCachedItemSearchView(LoginRequiredMixin, View):
             sync_client = SyncServerClient(request=request, force_root=True)
             CatalogCacheSyncService(client=sync_client).upsert_items(items)
         except Exception:
-            logger.exception("Failed to warm local catalog cache from remote search results")
+            logger.error("catalog_cache_warm_failed", exc_info=True)
 
     def _enrich_with_balances(self, request, items: list[dict[str, Any]], source_site_id: str) -> list[dict[str, Any]]:
         if not source_site_id or not items:
@@ -568,7 +569,7 @@ class CatalogCachedItemSearchView(LoginRequiredMixin, View):
                         if balance_items:
                             balance_qty = str(balance_items[0].get("qty", "0"))
                     except Exception:
-                        logger.warning(f"Failed to fetch balance for item {item_id}", exc_info=True)
+                        logger.warning("balance_fetch_failed", item_id=item_id, exc_info=True)
                 enriched.append({
                     **item,
                     "source_site_id": source_site_id,

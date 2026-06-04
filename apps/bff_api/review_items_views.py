@@ -6,7 +6,7 @@ Uses the new SyncServer /api/v1/review-items endpoints.
 
 from __future__ import annotations
 
-import logging
+import structlog
 
 from apps.sync_client.review_items_api import ReviewItemsAPI
 from braces.views import LoginRequiredMixin
@@ -15,7 +15,7 @@ from django.views import View
 
 from .helpers import json_error, sync_api_error
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class ReviewItemsListView(LoginRequiredMixin, View):
@@ -37,7 +37,7 @@ class ReviewItemsListView(LoginRequiredMixin, View):
             data = api.list_review_items_page(filters)
             return JsonResponse(data)
         except Exception as exc:
-            logger.exception("ReviewItemsListView error")
+            logger.error("review_items_list_error", exc_info=True)
             return json_error(str(exc))
 
 
@@ -52,7 +52,7 @@ class ReviewItemDetailView(LoginRequiredMixin, View):
             data = api.get_review_item(item_id)
             return JsonResponse(data)
         except Exception as exc:
-            logger.exception("ReviewItemDetailView GET error")
+            logger.error("review_item_detail_get_error", exc_info=True)
             return json_error(str(exc))
 
     def delete(self, request: HttpRequest, item_id: int) -> JsonResponse:
@@ -61,7 +61,7 @@ class ReviewItemDetailView(LoginRequiredMixin, View):
             data = api.delete_review_item(item_id)
             return JsonResponse(data)
         except Exception as exc:
-            logger.exception("ReviewItemDetailView DELETE error")
+            logger.error("review_item_detail_delete_error", exc_info=True)
             return json_error(str(exc))
 
 
@@ -79,7 +79,7 @@ class ReviewItemOperationsView(LoginRequiredMixin, View):
             )
             return JsonResponse(data)
         except Exception as exc:
-            logger.exception("ReviewItemOperationsView error")
+            logger.error("review_item_operations_error", exc_info=True)
             return json_error(str(exc))
 
 
@@ -95,7 +95,7 @@ class ReviewItemConfirmView(LoginRequiredMixin, View):
             data = api.confirm_review_item(item_id, payload)
             return JsonResponse(data)
         except Exception as exc:
-            logger.exception("ReviewItemConfirmView error")
+            logger.error("review_item_confirm_error", exc_info=True)
             return json_error(str(exc))
 
 
@@ -111,5 +111,5 @@ class ReviewItemMergeView(LoginRequiredMixin, View):
             data = api.merge_review_item(item_id, payload)
             return JsonResponse(data)
         except Exception as exc:
-            logger.exception("ReviewItemMergeView error")
+            logger.error("review_item_merge_error", exc_info=True)
             return json_error(str(exc))

@@ -8,12 +8,12 @@ Provides high-level methods for:
 
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Any, Optional
 
 from .client import SyncServerClient
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 SAFEGUARD_MAX_PAGES = 50
 SAFEGUARD_MAX_ROWS = 10_000
@@ -29,7 +29,7 @@ class AssetsAPI:
 
     def __init__(self, client: Optional[SyncServerClient] = None) -> None:
         self.client = client or SyncServerClient()
-        logger.debug("AssetsAPI client initialized")
+        logger.debug("assets_api_initialized")
 
     # ------------------------------------------------------------------
     # Pending acceptance
@@ -110,8 +110,7 @@ class AssetsAPI:
         if page > max_pages or len(all_items) >= max_rows:
             truncated = True
             logger.warning(
-                "Pending acceptance all-pages fetch hit safeguard limit",
-                extra={"pages_fetched": page, "rows_collected": len(all_items)},
+                "pending_acceptance_safeguard_limit", pages_fetched=page, rows_collected=len(all_items),
             )
 
         return {
@@ -170,7 +169,7 @@ class AssetsAPI:
         Returns:
             Lost asset detail dict.
         """
-        logger.debug("Fetching lost asset", extra={"operation_line_id": operation_line_id})
+        logger.debug("fetching_lost_asset", operation_line_id=operation_line_id)
         return self.client.get(
             f"/lost-assets/{operation_line_id}",
             acting_user_id=acting_user_id,
@@ -201,7 +200,7 @@ class AssetsAPI:
         Returns:
             Resolved asset detail dict.
         """
-        logger.debug("Resolving lost asset", extra={"operation_line_id": operation_line_id, "action": payload.get("action")})
+        logger.debug("resolving_lost_asset", operation_line_id=operation_line_id, action=payload.get("action"))
         return self.client.post(
             f"/lost-assets/{operation_line_id}/resolve",
             json=payload,
@@ -285,8 +284,7 @@ class AssetsAPI:
             }
 
         logger.warning(
-            "Unexpected list response format",
-            extra={"response_type": type(response).__name__},
+            "unexpected_list_response_format", response_type=type(response).__name__,
         )
         return {"items": [], "total_count": 0, "page": 1, "page_size": 20}
 

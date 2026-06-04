@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from django.contrib import messages
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect
+from django.utils.http import content_disposition_header
 from django.views import View
 
 from apps.common.mixins import SyncContextMixin
+from apps.documents.services import DocumentPdfRenderError, build_document_pdf_filename, render_document_pdf
 from apps.sync_client.documents_api import DocumentsAPI
 from apps.sync_client.exceptions import SyncServerAPIError
 
@@ -57,17 +60,42 @@ class GenerateOperationDocumentView(SyncContextMixin, View):
 
 class DocumentPdfView(SyncContextMixin, View):
     def get(self, request, document_id: str):
+        api = DocumentsAPI(self.client)
         try:
-            pdf_bytes, headers = DocumentsAPI(self.client).render_document_pdf(document_id)
+            document = _get_document_with_retry(api, document_id)
         except SyncServerAPIError as exc:
             if exc.status_code == 404:
                 raise Http404("Документ не найден.") from exc
             messages.error(request, str(exc) or "Не удалось открыть PDF.")
             return redirect("operations_spa")
 
-        response = HttpResponse(pdf_bytes, content_type="application/pdf")
-        response["Content-Disposition"] = (
-            headers.get("content-disposition")
-            or f'inline; filename="document_{document_id}.pdf"'
+        try:
+            render_result = render_document_pdf(document)
+        except DocumentPdfRenderError as exc:
+            messages.error(request, str(exc) or "Не удалось сформировать PDF.")
+            return redirect("operations_spa")
+
+        download = str(request.GET.get("download") or "").lower() in {"1", "true", "yes"}
+        filename = build_document_pdf_filename(document)
+        response = HttpResponse(render_result.pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = content_disposition_header(download, filename) or (
+            f'{"attachment" if download else "inline"}; filename="{filename}"'
         )
+        response["X-Document-Pdf-Cache"] = "hit" if render_result.cache_hit else "miss"
         return response
+
+
+def _get_document_with_retry(api: DocumentsAPI, document_id: str, *, attempts: int = 3) -> dict[str, Any]:
+    """Read freshly generated documents with a short retry to avoid open-after-create races."""
+    last_error: SyncServerAPIError | None = None
+    for attempt in range(attempts):
+        try:
+            return api.get_document(document_id)
+        except SyncServerAPIError as exc:
+            if exc.status_code != 404:
+                raise
+            last_error = exc
+            if attempt < attempts - 1:
+                time.sleep(0.15)
+    assert last_error is not None
+    raise last_error

@@ -37,6 +37,13 @@ ORGANIZATION_FULL_NAME = os.getenv(
     'Общество с ограниченной ответственностью Автоматизированные системы "Горизонт"',
 ).strip()
 ORGANIZATION_SHORT_NAME = os.getenv("ORGANIZATION_SHORT_NAME", 'ООО АС "Горизонт"').strip()
+DOCUMENT_SHIPPER_REQUISITES = os.getenv(
+    "DOCUMENT_SHIPPER_REQUISITES",
+    "ООО АС «Горизонт», ИНН:0302884660, КПП:752401001, 673314, "
+    "Забайкальский край, Карымский район, пгт. Курорт-Дарасун, "
+    "мкр. Северный, д.11, база Угдан",
+).strip()
+DOCUMENT_RENDERER_VERSION = os.getenv("DOCUMENT_RENDERER_VERSION", "waybill-pdf-v1").strip()
 
 # Django auth in this project is a technical admin/staff layer.
 # Warehouse domain users/roles/sites are owned by SyncServer.
@@ -125,6 +132,8 @@ LOGOUT_REDIRECT_URL = "/users/login/"
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", str(BASE_DIR / "media")))
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -210,3 +219,11 @@ FRONTEND_BUILD_DIR = os.getenv(
     "FRONTEND_BUILD_DIR",
     str(BASE_DIR.parent / "Warehouse_frontend" / "dist" / "warehouse-frontend" / "browser"),
 ).strip()
+
+# -------------------------------------------------------------------
+# Structured logging (structlog)
+# -------------------------------------------------------------------
+from config.settings.logging_config import LOGGING  # noqa: E402
+
+# Вызов configure_structlog() делается в AppConfig.ready() модуля apps.common
+# (см. apps/common/apps.py)

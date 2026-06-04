@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import logging
 import math
 from typing import Any
 
+import structlog
 from django.contrib import messages
 from django.db.utils import DatabaseError
 from django.http import Http404, JsonResponse
@@ -21,7 +21,7 @@ from apps.operations.services import OperationPageService
 from apps.sync_client.exceptions import SyncServerAPIError
 from apps.sync_client.temporary_items_api import TemporaryItemsAPI
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class TemporaryItemListView(SyncContextMixin, View):
@@ -61,7 +61,7 @@ class TemporaryItemListView(SyncContextMixin, View):
             current_page = result.get("page", 1)
             page_size = result.get("page_size", 20)
         except SyncServerAPIError as e:
-            logger.error("Ошибка при получении списка временных ТМЦ: %s", e)
+            logger.error("temporary_items_list_error", error=str(e))
             messages.error(request, "Не удалось загрузить список временных ТМЦ.")
             items = []
             total_count = 0
@@ -98,7 +98,7 @@ class TemporaryItemDetailView(SyncContextMixin, View):
         except SyncServerAPIError as e:
             if e.status_code == 404:
                 raise Http404("Временная ТМЦ не найдена.")
-            logger.error("Ошибка при получении временной ТМЦ %s: %s", item_id, e)
+            logger.error("temporary_item_detail_error", item_id=item_id, error=str(e))
             messages.error(request, "Не удалось загрузить данные временной ТМЦ.")
             return redirect("temporary_items:list")
 
@@ -135,7 +135,7 @@ class TemporaryItemApproveView(SyncContextMixin, View):
         except SyncServerAPIError as e:
             if e.status_code == 404:
                 raise Http404("Временная ТМЦ не найдена.")
-            logger.error("Ошибка при получении временной ТМЦ %s: %s", item_id, e)
+            logger.error("temporary_item_detail_error", item_id=item_id, error=str(e))
             messages.error(request, "Не удалось загрузить данные временной ТМЦ.")
             return redirect("temporary_items:list")
 
@@ -173,7 +173,7 @@ class TemporaryItemApproveView(SyncContextMixin, View):
         except SyncServerAPIError as e:
             if e.status_code == 404:
                 raise Http404("Временная ТМЦ не найдена.")
-            logger.error("Ошибка при получении временной ТМЦ %s: %s", item_id, e)
+            logger.error("temporary_item_detail_error", item_id=item_id, error=str(e))
             messages.error(request, "Не удалось загрузить данные временной ТМЦ.")
             return redirect("temporary_items:list")
 
@@ -219,7 +219,7 @@ class TemporaryItemApproveView(SyncContextMixin, View):
             created_item_id = create_result.data.get("id")
             temp_api.merge_to_item(item_id, {"target_item_id": created_item_id})
         except SyncServerAPIError as e:
-            logger.error("Ошибка при объединении временной ТМЦ %s с новой ТМЦ %s: %s", item_id, created_item_id, e)
+            logger.error("temporary_item_merge_error", item_id=item_id, created_item_id=created_item_id, error=str(e))
             cleanup_message = ""
             if created_item_id is not None:
                 cleanup_result = catalog_service.delete_item(str(created_item_id))
@@ -260,7 +260,7 @@ class TemporaryItemMergeView(SyncContextMixin, View):
         except SyncServerAPIError as e:
             if e.status_code == 404:
                 raise Http404("Временная ТМЦ не найдена.")
-            logger.error("Ошибка при получении временной ТМЦ %s: %s", item_id, e)
+            logger.error("temporary_item_detail_error", item_id=item_id, error=str(e))
             messages.error(request, "Не удалось загрузить данные временной ТМЦ.")
             return redirect("temporary_items:list")
 
@@ -286,7 +286,7 @@ class TemporaryItemMergeView(SyncContextMixin, View):
             messages.success(request, "Временная ТМЦ успешно объединена с существующей.")
             return redirect("temporary_items:list")
         except SyncServerAPIError as e:
-            logger.error("Ошибка при слиянии временной ТМЦ %s: %s", item_id, e)
+            logger.error("temporary_item_merge_error", item_id=item_id, error=str(e))
             messages.error(request, f"Не удалось объединить временную ТМЦ: {str(e)}")
             return redirect("temporary_items:merge", item_id=item_id)
 
@@ -304,7 +304,7 @@ class TemporaryItemCatalogSearchView(SyncContextMixin, View):
         try:
             items = service.search_items(query, limit=12)
         except DatabaseError:
-            logger.exception("Local catalog cache is not ready for temporary item merge search.")
+            logger.error("temporary_item_search_cache_error", exc_info=True)
             return JsonResponse({"items": []})
         except SyncServerAPIError as exc:
             return JsonResponse(
@@ -331,7 +331,7 @@ class TemporaryItemDeleteView(SyncContextMixin, View):
         except SyncServerAPIError as e:
             if e.status_code == 404:
                 raise Http404("Временная ТМЦ не найдена.")
-            logger.error("Ошибка при получении временной ТМЦ %s: %s", item_id, e)
+            logger.error("temporary_item_detail_error", item_id=item_id, error=str(e))
             messages.error(request, "Не удалось загрузить данные временной ТМЦ.")
             return redirect("temporary_items:list")
 
@@ -354,7 +354,7 @@ class TemporaryItemDeleteView(SyncContextMixin, View):
         except SyncServerAPIError as e:
             if e.status_code == 404:
                 raise Http404("Временная ТМЦ не найдена.")
-            logger.error("Ошибка при удалении временной ТМЦ %s: %s", item_id, e)
+            logger.error("temporary_item_delete_error", item_id=item_id, error=str(e))
             error_detail = str(e)
             try:
                 error_data = json.loads(str(e))

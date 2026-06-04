@@ -4,18 +4,18 @@ Balances API client for SyncServer v2 balances endpoints.
 
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Any, Optional
 
 from .client import SyncServerClient
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class BalancesAPI:
     def __init__(self, client: Optional[SyncServerClient] = None) -> None:
         self.client = client or SyncServerClient()
-        logger.debug("BalancesAPI client initialized")
+        logger.debug("balances_api_initialized")
 
     def list_balances(
         self,
@@ -94,8 +94,7 @@ class BalancesAPI:
         if isinstance(response, list):
             return response
         logger.warning(
-            "Unexpected response format from balances by item",
-            extra={"response_type": type(response).__name__},
+            "unexpected_response_format", endpoint="/balances/items/{item_id}", response_type=type(response).__name__,
         )
         return []
 
@@ -126,8 +125,7 @@ class BalancesAPI:
                 "page_size": len(response),
             }
         logger.warning(
-            "Unexpected balances list response format",
-            extra={"response_type": type(response).__name__},
+            "unexpected_balances_list_format", response_type=type(response).__name__,
         )
         return {"items": [], "total_count": 0, "page": 1, "page_size": 0}
 

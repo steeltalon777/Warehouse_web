@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Any, Optional
 
 from .client import SyncServerClient
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class IssueObjectsAPI:
@@ -50,8 +50,7 @@ class IssueObjectsAPI:
             }
 
         logger.warning(
-            "Unexpected response format from /issue-objects",
-            extra={"response_type": type(response).__name__},
+            "unexpected_response_format", endpoint="/issue-objects", response_type=type(response).__name__,
         )
         return {
             "items": [],
@@ -179,8 +178,7 @@ class IssueObjectsAPI:
             }
 
         logger.warning(
-            "Unexpected response format from /issue-objects/{id}/assets",
-            extra={"response_type": type(response).__name__},
+            "unexpected_response_format", endpoint="/issue-objects/{id}/assets", response_type=type(response).__name__,
         )
         return {
             "items": [],
@@ -211,8 +209,7 @@ class IssueObjectsAPI:
             return response
 
         logger.warning(
-            "Unexpected response format from /issue-objects/tree",
-            extra={"response_type": type(response).__name__},
+            "unexpected_response_format", endpoint="/issue-objects/tree", response_type=type(response).__name__,
         )
         return []
 

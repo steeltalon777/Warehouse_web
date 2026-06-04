@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any
 
+import structlog
 from django.http import JsonResponse
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
@@ -14,7 +14,7 @@ from apps.sync_client.client import SyncServerClient
 from apps.sync_client.catalog_api import CatalogAPI
 from apps.sync_client.exceptions import SyncServerAPIError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 def _build_service(request):

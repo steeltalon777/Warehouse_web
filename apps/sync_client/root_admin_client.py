@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+import structlog
 import time
 from typing import Any
 
@@ -20,7 +20,7 @@ from .exceptions import (
 from .token_resolver import get_device_token
 from .transport import execute_with_retry, get_sync_client
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class SyncServerRootAdminClient:
@@ -124,9 +124,11 @@ class SyncServerRootAdminClient:
             response = execute_with_retry(_do_request, method, retries=_retries, backoff=_backoff)
         except httpx.TimeoutException as exc:
             _duration = (time.perf_counter() - _t0) * 1000
-            logger.exception(
-                "SyncServer root-admin timeout",
-                extra={"path": normalized_path, "duration_ms": round(_duration, 1)},
+            logger.error(
+                "sync_root_admin_timeout",
+                path=normalized_path,
+                duration_ms=round(_duration, 1),
+                exc_info=True,
             )
             raise SyncBackendUnavailable(
                 "SyncServer did not respond in time.",
@@ -135,9 +137,11 @@ class SyncServerRootAdminClient:
             ) from exc
         except httpx.RequestError as exc:
             _duration = (time.perf_counter() - _t0) * 1000
-            logger.exception(
-                "SyncServer root-admin request failed",
-                extra={"path": normalized_path, "duration_ms": round(_duration, 1)},
+            logger.error(
+                "sync_root_admin_request_failed",
+                path=normalized_path,
+                duration_ms=round(_duration, 1),
+                exc_info=True,
             )
             raise SyncBackendUnavailable(
                 "SyncServer is unavailable.",

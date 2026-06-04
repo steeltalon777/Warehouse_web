@@ -11,15 +11,15 @@ needed by the Angular frontend:
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime
 from typing import Any
 
+import structlog
 from django.contrib.auth import get_user_model
 
 from apps.sync_client.client import SyncServerClient
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 def _compute_display_number(site_id: int | None, created_at: str | None) -> str | None:
@@ -36,7 +36,7 @@ def _compute_display_number(site_id: int | None, created_at: str | None) -> str 
         dt = datetime.fromisoformat(dt_str)
         return f"{site_id}/{dt.strftime('%H%M')}/{dt.strftime('%d%m%y')}"
     except (ValueError, TypeError) as exc:
-        logger.warning("Failed to compute display_number: site_id=%s created_at=%s error=%s", site_id, created_at, exc)
+        logger.warning("compute_display_number_failed", site_id=site_id, created_at=created_at, error=str(exc))
         return None
 
 
@@ -63,7 +63,7 @@ def _get_sites_index(request) -> dict[int, dict[str, Any]]:
             }
         return index
     except Exception as exc:
-        logger.warning("Failed to load sites index: %s", exc)
+        logger.warning("load_sites_index_failed", error=str(exc))
         return {}
 
 
@@ -90,7 +90,7 @@ def _get_user_labels(request, user_ids: list[Any]) -> dict[str, str]:
             )
         )
     except Exception:
-        logger.exception("Failed to resolve operation authors from local Django users.")
+        logger.error("resolve_operation_authors_failed", exc_info=True)
         return {}
 
     labels: dict[str, str] = {}
