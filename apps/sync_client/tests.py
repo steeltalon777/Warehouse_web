@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 from .assets_api import AssetsAPI
 from .client import SyncServerClient
 from .issue_objects_api import IssueObjectsAPI
+from .issue_object_categories_api import IssueObjectCategoriesAPI
 from .operations_api import OperationsAPI
 from .temporary_items_api import TemporaryItemsAPI
 
@@ -407,3 +408,178 @@ class TemporaryItemsAPITests(SimpleTestCase):
         """_build_filter_params returns empty dict for empty dict."""
         params = self.api._build_filter_params({})
         self.assertEqual(params, {})
+
+
+class IssueObjectCategoriesAPITests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.mock_client = Mock(spec=SyncServerClient)
+        self.api = IssueObjectCategoriesAPI(client=self.mock_client)
+
+    def test_list_categories_passes_params(self) -> None:
+        self.mock_client.get.return_value = {"items": []}
+
+        self.api.list_categories(filters={"search": "Test", "page": "1"})
+
+        self.mock_client.get.assert_called_once_with(
+            "/issue-object-categories",
+            params={"search": "Test", "page": "1"},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_list_categories_normalises_list_response(self) -> None:
+        self.mock_client.get.return_value = [{"id": "1"}, {"id": "2"}]
+
+        result = self.api.list_categories()
+
+        self.assertEqual(result["total_count"], 2)
+        self.assertEqual(len(result["items"]), 2)
+
+    def test_list_categories_normalises_dict_response(self) -> None:
+        self.mock_client.get.return_value = {
+            "items": [{"id": "1"}],
+            "total_count": 1,
+        }
+
+        result = self.api.list_categories()
+
+        self.assertEqual(result["total_count"], 1)
+        self.assertEqual(len(result["items"]), 1)
+
+    def test_list_categories_handles_unexpected_format(self) -> None:
+        self.mock_client.get.return_value = {"data": []}
+
+        result = self.api.list_categories()
+
+        self.assertEqual(result["items"], [])
+        self.assertEqual(result["total_count"], 0)
+
+    def test_create_category_posts_payload(self) -> None:
+        self.mock_client.post.return_value = {"id": "1"}
+
+        self.api.create_category({"name": "Test Category"})
+
+        self.mock_client.post.assert_called_once_with(
+            "/issue-object-categories",
+            json={"name": "Test Category"},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_get_category_calls_correct_path(self) -> None:
+        self.mock_client.get.return_value = {"id": 1}
+
+        self.api.get_category(1)
+
+        self.mock_client.get.assert_called_once_with(
+            "/issue-object-categories/1",
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_update_category_patches_payload(self) -> None:
+        self.mock_client.patch.return_value = {"id": 1, "name": "Updated"}
+
+        self.api.update_category(1, {"name": "Updated"})
+
+        self.mock_client.patch.assert_called_once_with(
+            "/issue-object-categories/1",
+            json={"name": "Updated"},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_delete_category_calls_delete(self) -> None:
+        self.mock_client.delete.return_value = None
+
+        self.api.delete_category(1)
+
+        self.mock_client.delete.assert_called_once_with(
+            "/issue-object-categories/1",
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_list_categories_filters_propagates_filters(self) -> None:
+        self.mock_client.get.return_value = {"items": []}
+
+        self.api.list_categories(
+            filters={
+                "search": "test",
+                "parent_id": "5",
+                "is_active": "true",
+                "include_deleted": "false",
+                "page": "2",
+                "page_size": "50",
+            }
+        )
+
+        self.mock_client.get.assert_called_once_with(
+            "/issue-object-categories",
+            params={
+                "search": "test",
+                "parent_id": "5",
+                "is_active": "true",
+                "include_deleted": "false",
+                "page": "2",
+                "page_size": "50",
+            },
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_delete_category_returns_none_on_204(self) -> None:
+        self.mock_client.delete.return_value = None
+
+        result = self.api.delete_category(1)
+
+        self.assertIsNone(result)
+
+
+class IssueObjectsTreeAPITests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.mock_client = Mock(spec=SyncServerClient)
+        self.api = IssueObjectsAPI(client=self.mock_client)
+
+    def test_get_tree_calls_correct_path(self) -> None:
+        self.mock_client.get.return_value = []
+
+        self.api.get_tree()
+
+        self.mock_client.get.assert_called_once_with(
+            "/issue-objects/tree",
+            params={},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_get_tree_passes_filters(self) -> None:
+        self.mock_client.get.return_value = []
+
+        self.api.get_tree(filters={"search": "test", "include_inactive": "true", "include_deleted": "false"})
+
+        self.mock_client.get.assert_called_once_with(
+            "/issue-objects/tree",
+            params={"search": "test", "include_inactive": "true", "include_deleted": "false"},
+            acting_user_id=None,
+            acting_site_id=None,
+        )
+
+    def test_get_tree_returns_list(self) -> None:
+        nodes = [
+            {"id": 1, "type": "category", "name": "Cat 1", "children": []},
+            {"id": 2, "type": "object", "name": "Obj 1", "category_id": 1},
+        ]
+        self.mock_client.get.return_value = nodes
+
+        result = self.api.get_tree()
+
+        self.assertEqual(result, nodes)
+        self.assertEqual(len(result), 2)
+
+    def test_get_tree_handles_unexpected_format(self) -> None:
+        self.mock_client.get.return_value = {"data": []}
+
+        result = self.api.get_tree()
+
+        self.assertEqual(result, [])

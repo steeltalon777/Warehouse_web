@@ -122,14 +122,14 @@ class BffApiViewMethodTests(TestCase):
         with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
             response = self.client.get(
                 "/bff/api/v1/operations",
-                {"search": "дрель", "item_ids": "1,2,3", "page": "1", "page_size": "20"},
+                {"search": "дрель", "item_ids": "1,2,3", "acceptance_state": "pending", "page": "1", "page_size": "20"},
             )
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertTrue(body["ok"])
         mock_api.list_operations_page.assert_called_once_with(
-            filters={"search": "дрель", "item_ids": "1,2,3", "page": "1", "page_size": "20"}
+            filters={"search": "дрель", "item_ids": "1,2,3", "acceptance_state": "pending", "page": "1", "page_size": "20"}
         )
 
     def test_operations_delete_supported(self) -> None:
@@ -143,6 +143,28 @@ class BffApiViewMethodTests(TestCase):
         body = response.json()
         self.assertTrue(body["ok"])
         self.assertEqual(body["data"], {"deleted": True})
+
+    def test_operation_waybill_open_returns_browser_pdf_urls(self) -> None:
+        mock_api = Mock()
+        mock_api.generate_operation_document.return_value = {
+            "document": {"id": "doc-1", "document_type": "waybill"},
+            "created": True,
+        }
+
+        with patch("apps.bff_api.documents_views._docs", return_value=mock_api):
+            response = self.client.post("/bff/api/v1/documents/operations/op-1/waybill/open")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["pdf_url"], "/documents/doc-1/pdf/")
+        self.assertEqual(body["data"]["download_url"], "/documents/doc-1/pdf/?download=1")
+        mock_api.generate_operation_document.assert_called_once_with(
+            operation_id="op-1",
+            document_type="waybill",
+            auto_finalize=True,
+            language="ru",
+        )
 
     def test_issue_objects_delete_supported(self) -> None:
         mock_api = Mock()
@@ -413,3 +435,233 @@ class BffApiPublicEndpointsTests(TestCase):
         body = response.json()
         self.assertTrue(body["ok"])
         self.assertEqual(body["data"], {"status": "ok"})
+
+
+class BffApiIssueObjectCategoriesTests(TestCase):
+    def setUp(self) -> None:
+        user_model = get_user_model()
+        self.storekeeper = user_model.objects.create_user(
+            username="sk_user",
+            password="pass12345",
+            is_superuser=True,
+            is_staff=True,
+            is_active=True,
+        )
+        self.plain_user = user_model.objects.create_user(
+            username="plain_user",
+            password="pass12345",
+            is_superuser=False,
+            is_staff=False,
+            is_active=True,
+        )
+
+    def test_categories_list_forwards_filters(self) -> None:
+        mock_api = Mock()
+        mock_api.list_categories.return_value = {"items": [], "total_count": 0, "page": 1, "page_size": 20}
+
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.issue_objects_views._ioc", return_value=mock_api):
+            response = self.client.get(
+                "/bff/api/v1/issue-object-categories",
+                {"search": "test", "parent_id": "5", "is_active": "true", "page": "1", "page_size": "20"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_api.list_categories.assert_called_once_with(
+            filters={"search": "test", "parent_id": "5", "is_active": "true", "page": "1", "page_size": "20"}
+        )
+
+    def test_categories_create_requires_storekeeper(self) -> None:
+        self.client.force_login(self.plain_user)
+        response = self.client.post(
+            "/bff/api/v1/issue-object-categories",
+            data=json.dumps({"name": "New Cat"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_categories_create_storekeeper_allowed(self) -> None:
+        mock_api = Mock()
+        mock_api.create_category.return_value = {"id": 1, "name": "New Cat"}
+
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.issue_objects_views._ioc", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/issue-object-categories",
+                data=json.dumps({"name": "New Cat"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["name"], "New Cat")
+
+    def test_category_detail_get_returns_ok(self) -> None:
+        mock_api = Mock()
+        mock_api.get_category.return_value = {"id": 1, "name": "Cat 1"}
+
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.issue_objects_views._ioc", return_value=mock_api):
+            response = self.client.get("/bff/api/v1/issue-object-categories/1")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["name"], "Cat 1")
+
+    def test_category_detail_update_requires_storekeeper(self) -> None:
+        self.client.force_login(self.plain_user)
+        response = self.client.patch(
+            "/bff/api/v1/issue-object-categories/1",
+            data=json.dumps({"name": "Updated"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_category_detail_update_storekeeper_allowed(self) -> None:
+        mock_api = Mock()
+        mock_api.update_category.return_value = {"id": 1, "name": "Updated"}
+
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.issue_objects_views._ioc", return_value=mock_api):
+            response = self.client.patch(
+                "/bff/api/v1/issue-object-categories/1",
+                data=json.dumps({"name": "Updated"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_api.update_category.assert_called_once_with(1, {"name": "Updated"})
+
+    def test_category_delete_requires_storekeeper(self) -> None:
+        self.client.force_login(self.plain_user)
+        response = self.client.delete("/bff/api/v1/issue-object-categories/1")
+        self.assertEqual(response.status_code, 403)
+
+    def test_category_delete_storekeeper_allowed(self) -> None:
+        mock_api = Mock()
+        mock_api.delete_category.return_value = None
+
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.issue_objects_views._ioc", return_value=mock_api):
+            response = self.client.delete("/bff/api/v1/issue-object-categories/1")
+
+        self.assertEqual(response.status_code, 200)
+        mock_api.delete_category.assert_called_once_with(1)
+
+
+class BffApiIssueObjectsTreeTests(TestCase):
+    def setUp(self) -> None:
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            username="tree_user",
+            password="pass12345",
+            is_superuser=True,
+            is_staff=True,
+            is_active=True,
+        )
+
+    def test_tree_view_returns_nodes(self) -> None:
+        mock_api = Mock()
+        mock_api.get_tree.return_value = [
+            {"id": 1, "type": "category", "name": "Cat 1", "children": []},
+        ]
+
+        self.client.force_login(self.user)
+        with patch("apps.bff_api.issue_objects_views._io", return_value=mock_api):
+            response = self.client.get("/bff/api/v1/issue-objects/tree")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(len(body["data"]), 1)
+
+    def test_tree_view_forwards_filters(self) -> None:
+        mock_api = Mock()
+        mock_api.get_tree.return_value = []
+
+        self.client.force_login(self.user)
+        with patch("apps.bff_api.issue_objects_views._io", return_value=mock_api):
+            response = self.client.get(
+                "/bff/api/v1/issue-objects/tree",
+                {"search": "test", "include_inactive": "true"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_api.get_tree.assert_called_once_with(
+            filters={"search": "test", "include_inactive": "true"}
+        )
+
+
+class BffApiIssueObjectsFilterForwardingTests(TestCase):
+    def setUp(self) -> None:
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            username="filter_user",
+            password="pass12345",
+            is_superuser=True,
+            is_staff=True,
+            is_active=True,
+        )
+
+    def test_issue_objects_list_forwards_category_id(self) -> None:
+        mock_api = Mock()
+        mock_api.list_issue_objects.return_value = {"items": [], "total_count": 0, "page": 1, "page_size": 100}
+
+        self.client.force_login(self.user)
+        with patch("apps.bff_api.issue_objects_views._io", return_value=mock_api):
+            response = self.client.get(
+                "/bff/api/v1/issue-objects",
+                {"search": "test", "category_id": "5", "is_active": "true", "page": "1"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_api.list_issue_objects.assert_called_once_with(
+            filters={"search": "test", "category_id": "5", "is_active": "true", "page": "1"}
+        )
+
+    def test_object_assets_list_forwards_search_and_item_id(self) -> None:
+        mock_api = Mock()
+        mock_api.list_object_assets.return_value = {"items": [], "total_count": 0, "page": 1, "page_size": 20}
+
+        self.client.force_login(self.user)
+        with patch("apps.bff_api.issue_objects_views._io", return_value=mock_api):
+            response = self.client.get(
+                "/bff/api/v1/issue-objects/1/assets",
+                {"search": "test", "item_id": "42", "page": "1", "page_size": "50"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_api.list_object_assets.assert_called_once_with(
+            1,
+            filters={"search": "test", "item_id": "42", "page": "1", "page_size": "50"}
+        )
+
+
+class BffApiIssuedAssetsFilterForwardingTests(TestCase):
+    def setUp(self) -> None:
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            username="issued_filter_user",
+            password="pass12345",
+            is_superuser=True,
+            is_staff=True,
+            is_active=True,
+        )
+
+    def test_issued_assets_forwards_category_id(self) -> None:
+        mock_api = Mock()
+        mock_api.list_issued_assets.return_value = {"items": [], "total_count": 0, "page": 1, "page_size": 20}
+
+        self.client.force_login(self.user)
+        with patch("apps.bff_api.assets_views._assets", return_value=mock_api):
+            response = self.client.get(
+                "/bff/api/v1/issued-assets",
+                {"issue_object_id": "1", "category_id": "5", "search": "test", "page": "1"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_api.list_issued_assets.assert_called_once_with(
+            filters={"issue_object_id": "1", "category_id": "5", "search": "test", "page": "1"}
+        )

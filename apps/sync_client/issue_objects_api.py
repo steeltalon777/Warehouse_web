@@ -189,6 +189,33 @@ class IssueObjectsAPI:
             "page_size": params.get("page_size", 100),
         }
 
+    def get_tree(
+        self,
+        filters: Optional[dict[str, Any]] = None,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Endpoint: GET /issue-objects/tree
+        """
+        params = self._build_filter_params(filters)
+        response = self.client.get(
+            "/issue-objects/tree",
+            params=params,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+        if isinstance(response, list):
+            return response
+
+        logger.warning(
+            "Unexpected response format from /issue-objects/tree",
+            extra={"response_type": type(response).__name__},
+        )
+        return []
+
     def _build_filter_params(self, filters: Optional[dict[str, Any]]) -> dict[str, Any]:
         if not filters:
             return {}

@@ -106,6 +106,7 @@ documents_patterns = [
     path("documents/<str:document_id>", documents_views.DocumentDetailView.as_view(), name="document_detail"),
     path("documents/<str:document_id>/render", documents_views.DocumentRenderView.as_view(), name="document_render"),
     path("documents/<str:document_id>/status", documents_views.DocumentStatusView.as_view(), name="document_status"),
+    path("documents/operations/<str:operation_id>/waybill/open", documents_views.OperationWaybillOpenView.as_view(), name="operation_waybill_open"),
     path("documents/operations/<str:operation_id>/documents", documents_views.OperationDocumentsView.as_view(), name="operation_documents"),
 ]
 
@@ -114,6 +115,9 @@ issue_objects_patterns = [
     path("issue-objects/merge", issue_objects_views.IssueObjectsMergeView.as_view(), name="issue_objects_merge"),
     path("issue-objects/<int:issue_object_id>", issue_objects_views.IssueObjectDetailView.as_view(), name="issue_object_detail"),
     path("issue-objects/<int:issue_object_id>/assets", issue_objects_views.ObjectAssetsListView.as_view(), name="issue_object_assets"),
+    path("issue-objects/tree", issue_objects_views.IssueObjectsTreeView.as_view(), name="issue_objects_tree"),
+    path("issue-object-categories", issue_objects_views.IssueObjectCategoriesListView.as_view(), name="issue_object_categories_list"),
+    path("issue-object-categories/<int:category_id>", issue_objects_views.IssueObjectCategoryDetailView.as_view(), name="issue_object_category_detail"),
 ]
 
 assets_patterns = [

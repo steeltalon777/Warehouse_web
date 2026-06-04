@@ -80,7 +80,7 @@ class IssuedAssetsView(LoginRequiredMixin, View):
         try:
             api = _assets(request)
             params: dict[str, str] = {}
-            for key in ("issue_object_id", "item_id", "search", "page", "page_size"):
+            for key in ("issue_object_id", "category_id", "item_id", "search", "page", "page_size"):
                 val = request.GET.get(key)
                 if val is not None:
                     params[key] = val
