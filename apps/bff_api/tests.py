@@ -6,6 +6,8 @@ from unittest.mock import Mock, patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
+from apps.users.models import Role, UserProfile
+
 
 class BffApiRoutesSmokeTests(TestCase):
     def test_bff_route_registry_has_expected_groups(self) -> None:
@@ -665,3 +667,172 @@ class BffApiIssuedAssetsFilterForwardingTests(TestCase):
         mock_api.list_issued_assets.assert_called_once_with(
             filters={"issue_object_id": "1", "category_id": "5", "search": "test", "page": "1"}
         )
+
+
+class BffApiOperationsInlineItemTests(TestCase):
+    def setUp(self) -> None:
+        user_model = get_user_model()
+        self.storekeeper = user_model.objects.create_user(
+            username="sk_inline",
+            password="pass12345",
+            is_superuser=False,
+            is_staff=False,
+            is_active=True,
+        )
+        UserProfile.objects.create(user=self.storekeeper, role=Role.STOREKEEPER)
+
+        self.observer = user_model.objects.create_user(
+            username="obs_inline",
+            password="pass12345",
+            is_superuser=False,
+            is_staff=False,
+            is_active=True,
+        )
+        UserProfile.objects.create(user=self.observer, role=Role.OBSERVER)
+
+        self.root = user_model.objects.create_user(
+            username="root_inline",
+            password="pass12345",
+            is_superuser=True,
+            is_staff=True,
+            is_active=True,
+        )
+
+    def test_operations_create_forwards_temporary_item_payload(self) -> None:
+        payload = {
+            "type": "receipt",
+            "lines": [
+                {
+                    "line_number": 1,
+                    "qty": "3",
+                    "temporary_item": {
+                        "client_key": "inline-abc123",
+                        "name": "Новая позиция",
+                        "sku": "SKU-NEW",
+                        "unit_id": 1,
+                        "category_id": 10,
+                        "description": "Описание",
+                    },
+                }
+            ],
+            "client_request_id": "req-001",
+        }
+        mock_api = Mock()
+        mock_api.create_operation.return_value = {"id": "op1", "status": "draft"}
+
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_api.create_operation.assert_called_once_with(payload)
+
+    def test_operations_patch_forwards_temporary_item_payload(self) -> None:
+        payload = {
+            "lines": [
+                {
+                    "line_number": 1,
+                    "qty": "5",
+                    "temporary_item": {
+                        "client_key": "inline-xyz789",
+                        "name": "Обновлённая позиция",
+                        "unit_id": 2,
+                    },
+                }
+            ],
+        }
+        mock_api = Mock()
+        mock_api.update_operation.return_value = {"id": "op1", "status": "draft"}
+
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.patch(
+                "/bff/api/v1/operations/op1",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_api.update_operation.assert_called_once_with("op1", payload)
+
+    def test_operations_create_storekeeper_allowed(self) -> None:
+        mock_api = Mock()
+        mock_api.create_operation.return_value = {"id": "op1", "status": "draft"}
+
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations",
+                data=json.dumps({"type": "receipt", "lines": []}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+
+    def test_operations_create_observer_forbidden(self) -> None:
+        self.client.force_login(self.observer)
+        response = self.client.post(
+            "/bff/api/v1/operations",
+            data=json.dumps({"type": "receipt", "lines": []}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "forbidden")
+
+    def test_operations_patch_storekeeper_allowed(self) -> None:
+        mock_api = Mock()
+        mock_api.update_operation.return_value = {"id": "op1", "status": "draft"}
+
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.patch(
+                "/bff/api/v1/operations/op1",
+                data=json.dumps({"lines": []}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+
+    def test_operations_patch_observer_forbidden(self) -> None:
+        self.client.force_login(self.observer)
+        response = self.client.patch(
+            "/bff/api/v1/operations/op1",
+            data=json.dumps({"lines": []}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "forbidden")
+
+    def test_bff_response_does_not_expose_syncserver_token(self) -> None:
+        mock_api = Mock()
+        mock_api.create_operation.return_value = {
+            "id": "op1",
+            "lines": [{"temporary_item": {"name": "Test"}}],
+        }
+
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations",
+                data=json.dumps({"lines": [{"temporary_item": {"name": "Test"}}]}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(set(body.keys()), {"ok", "data"})
+        response_text = response.content.decode()
+        self.assertNotIn("sync_user_token", response_text)
+        self.assertNotIn("sync_device_token", response_text)
