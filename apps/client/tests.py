@@ -64,17 +64,17 @@ class DashboardViewTests(TestCase):
         response = self.client.get(reverse("client:dashboard"))
         self.assertContains(response, "роль не привязана")
 
-    def test_dashboard_temp_item_count_renders(self):
+    def test_dashboard_review_item_count_renders(self):
         self.client.force_login(self.user)
         self._prepare_session()
         response = self.client.get(reverse("client:dashboard"))
-        self.assertContains(response, "Временные ТМЦ")
+        self.assertContains(response, "ТМЦ, требующие проверки")
 
-    def test_dashboard_temp_item_count_fallback_on_error(self):
+    def test_dashboard_review_items_graceful_fallback(self):
         self.client.force_login(self.user)
         self._prepare_session()
         response = self.client.get(reverse("client:dashboard"))
-        self.assertContains(response, "SyncServer недоступен")
+        self.assertContains(response, "Данные временно недоступны")
 
     def test_dashboard_navbar_has_logout_button(self):
         self.client.force_login(self.user)
@@ -159,16 +159,17 @@ class DashboardViewIntegrationTests(TestCase):
         response = self.client.get(reverse("client:dashboard"))
         self.assertContains(response, "0")
 
-    @patch("apps.client.views.TemporaryItemsAPI")
-    def test_dashboard_handles_api_error_gracefully(self, mock_temp_api):
+    @patch("apps.client.views.ReviewItemsAPI")
+    def test_dashboard_handles_api_error_gracefully(self, mock_review_api):
         mock_instance = MagicMock()
-        mock_instance.list_temporary_items.side_effect = Exception("API unavailable")
-        mock_temp_api.return_value = mock_instance
+        mock_instance.list_review_items_page.side_effect = Exception("API unavailable")
+        mock_review_api.return_value = mock_instance
 
         self.client.force_login(self.user)
         self._prepare_session()
         response = self.client.get(reverse("client:dashboard"))
-        self.assertContains(response, "SyncServer недоступен")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Нет ТМЦ, требующих проверки")
 
     def test_dashboard_observer_gets_forbidden(self):
         user = User.objects.create_user(username="observer_user", password="testpass")

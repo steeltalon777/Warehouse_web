@@ -186,7 +186,7 @@ class SyncManagedDeviceAdminForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.service = DeviceSyncService()
         if "sync_device_token" in self.fields:
-            self.fields["sync_device_token"].initial = self.instance.sync_device_token
+            self.fields["sync_device_token"].initial = self.instance.sync_device_token or ""
 
     def clean_device_code(self) -> str:
         return str(self.cleaned_data["device_code"]).strip()
