@@ -6,6 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Warehouse Web{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260520-1">
+    <style>
+        app-root { display: flex !important; flex-direction: column !important; height: 100% !important; overflow: hidden !important; }
+        .warehouse-spa { height: 100% !important; overflow: hidden !important; display: flex !important; flex-direction: column !important; min-height: 0 !important; }
+    </style>
     {% block head_extra %}{% endblock %}
 </head>
 <body>

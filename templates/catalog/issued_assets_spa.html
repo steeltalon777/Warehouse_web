@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Номенклатура{% endblock %}
+{% block title %}Репозиторий выдачи{% endblock %}
 
 {% block head_extra %}
   <base href="/">
@@ -11,10 +11,6 @@
   {% if spa_inline_styles %}
     <style>{{ spa_inline_styles }}</style>
   {% endif %}
-  <style>
-    app-root { display: flex !important; flex-direction: column !important; height: 100% !important; overflow: hidden !important; }
-    .warehouse-spa { height: 100% !important; overflow: hidden !important; display: flex !important; flex-direction: column !important; min-height: 0 !important; }
-  </style>
 {% endblock %}
 
 {% block content %}

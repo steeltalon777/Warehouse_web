@@ -21,7 +21,7 @@
       <span class="badge badge-warning">{{ pending_summary.operation_count }}</span>
     </div>
     <p>{{ pending_summary.line_count }} позиций</p>
-    <a class="btn" href="{% url 'operations_ssr:pending_acceptance' %}">Открыть приёмку</a>
+    <a class="btn" href="/operations/pending-acceptance">Открыть приёмку</a>
   </div>
   {% endif %}
 

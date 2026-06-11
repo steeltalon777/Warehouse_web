@@ -924,3 +924,39 @@ class PresentOperationSnapshotTests(SimpleTestCase):
         self.assertEqual(line["sku"], "CAT-SKU")
         self.assertEqual(line["unit_symbol"], "л")
         self.assertFalse(line["is_temporary"])
+
+
+class IssuedAssetsSPARouteTests(TestCase):
+    """Тесты маршрутов SPA для репозитория выдачи."""
+
+    def setUp(self):
+        self.client = Client()
+
+    def test_spa_mount_redirects_anonymous(self):
+        """SPA view requires login — anonymous gets 302."""
+        response = self.client.get("/issued-assets/")
+        self.assertEqual(response.status_code, 302)
+
+    def test_spa_catchall_redirects_anonymous(self):
+        """SPA catch-all also requires login."""
+        response = self.client.get("/issued-assets/some/deep/path")
+        self.assertEqual(response.status_code, 302)
+
+    def test_spa_url_name_resolves(self):
+        """SPA url name resolves correctly."""
+        self.assertEqual(reverse("issued_assets_spa"), "/issued-assets/")
+
+    def test_spa_catchall_url_name_resolves(self):
+        """SPA catch-all url name resolves to a non-empty path."""
+        self.assertIsNotNone(reverse("issued_assets_spa_catchall", args=["x"]))
+
+    def test_spa_renders_for_authenticated(self):
+        """Authenticated user gets 200 from SPA view."""
+        user = get_user_model().objects.create_user(
+            username="issued_assets_spa_user",
+            password="pass",
+        )
+        self.client.force_login(user)
+        response = self.client.get("/issued-assets/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "catalog/issued_assets_spa.html")

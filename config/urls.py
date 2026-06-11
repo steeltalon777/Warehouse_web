@@ -19,7 +19,7 @@ from django.contrib.auth import views as auth_views
 from django.urls import path, include, re_path
 from django.views.generic import RedirectView
 
-from apps.catalog.views import AngularStaticFilesView, OperationsSPAView, TemporaryItemsSPAView
+from apps.catalog.views import AngularStaticFilesView, IssuedAssetsSPAView, OperationsSPAView, TemporaryItemsSPAView
 from apps.common.views import HealthCheckView, SyncHealthCheckView
 from apps.users.views import logout_view
 
@@ -39,10 +39,14 @@ urlpatterns = [
     path("operations/", OperationsSPAView.as_view(), name="operations_spa"),
     path("operations/<path:path>", OperationsSPAView.as_view(), name="operations_spa_catchall"),
     path("balances/", include("apps.balances.urls")),
-    # Temporary Items SPA — exact /temporary-items/ renders Angular SPA (must come BEFORE SSR include)
+    # Temporary Items SSR fallback — must come BEFORE SPA catch-all so ssr/ paths are not swallowed
+    path("temporary-items/ssr/", include("apps.temporary_items.urls")),
+    # Temporary Items SPA — exact /temporary-items/ and catch-all render Angular SPA
     path("temporary-items/", TemporaryItemsSPAView.as_view(), name="temporary_items_spa"),
     path("temporary-items/<path:path>", TemporaryItemsSPAView.as_view(), name="temporary_items_spa_catchall"),
-    path("temporary-items/ssr/", include("apps.temporary_items.urls")),
+    # Issued Assets SPA — exact /issued-assets/ and catch-all render Angular SPA
+    path("issued-assets/", IssuedAssetsSPAView.as_view(), name="issued_assets_spa"),
+    path("issued-assets/<path:path>", IssuedAssetsSPAView.as_view(), name="issued_assets_spa_catchall"),
     path("admin-panel/", include("apps.admin_panel.urls")),
     path("documents/", include("apps.documents.urls")),
     path("users/", include("apps.users.urls")),

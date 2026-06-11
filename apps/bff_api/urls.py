@@ -63,8 +63,10 @@ catalog_admin_patterns = [
     path("catalog/admin/units/<str:unit_id>", catalog_views.AdminUnitDetailView.as_view(), name="catalog_admin_unit_detail"),
     path("catalog/admin/categories", catalog_views.AdminCategoriesListView.as_view(), name="catalog_admin_categories"),
     path("catalog/admin/categories/bulk", catalog_views.AdminCategoriesBulkView.as_view(), name="catalog_admin_categories_bulk"),
+    path("catalog/admin/categories/merge", catalog_views.AdminCategoryMergeView.as_view(), name="catalog_admin_category_merge"),
     path("catalog/admin/categories/<str:category_id>", catalog_views.AdminCategoryDetailView.as_view(), name="catalog_admin_category_detail"),
     path("catalog/admin/items", catalog_views.AdminItemsListView.as_view(), name="catalog_admin_items"),
+    path("catalog/admin/items/merge", catalog_views.AdminItemMergeView.as_view(), name="catalog_admin_item_merge"),
     path("catalog/admin/items/<str:item_id>", catalog_views.AdminItemDetailView.as_view(), name="catalog_admin_item_detail"),
     path("catalog/admin/batch", catalog_views.AdminCatalogBatchView.as_view(), name="catalog_admin_batch"),
 ]

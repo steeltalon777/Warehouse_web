@@ -836,3 +836,181 @@ class BffApiOperationsInlineItemTests(TestCase):
         response_text = response.content.decode()
         self.assertNotIn("sync_user_token", response_text)
         self.assertNotIn("sync_device_token", response_text)
+
+
+class BffApiCatalogMergeTests(TestCase):
+    def setUp(self) -> None:
+        user_model = get_user_model()
+        self.chief = user_model.objects.create_user(
+            username="merge_chief",
+            password="pass12345",
+            is_superuser=True,
+            is_staff=True,
+            is_active=True,
+        )
+        self.root = user_model.objects.create_user(
+            username="merge_root",
+            password="pass12345",
+            is_superuser=True,
+            is_staff=True,
+            is_active=True,
+        )
+        self.plain_user = user_model.objects.create_user(
+            username="merge_plain",
+            password="pass12345",
+            is_superuser=False,
+            is_staff=False,
+            is_active=True,
+        )
+
+    def test_item_merge_unauthenticated_returns_redirect(self) -> None:
+        response = self.client.post("/bff/api/v1/catalog/admin/items/merge", data="{}", content_type="application/json")
+        self.assertIn(response.status_code, (302, 403))
+
+    def test_item_merge_non_chief_returns_403(self) -> None:
+        self.client.force_login(self.plain_user)
+        response = self.client.post("/bff/api/v1/catalog/admin/items/merge", data="{}", content_type="application/json")
+        self.assertEqual(response.status_code, 403)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "forbidden")
+
+    def test_item_merge_chief_calls_api_and_returns_200(self) -> None:
+        mock_api = Mock()
+        mock_api.merge_items.return_value = {"status": "ok", "merged": 2}
+
+        self.client.force_login(self.chief)
+        payload = {"source_ids": ["i1", "i2"], "target_id": "i3"}
+
+        with patch("apps.bff_api.catalog_views.CatalogAPI", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/catalog/admin/items/merge",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["status"], "ok")
+        mock_api.merge_items.assert_called_once_with(payload)
+
+    def test_item_merge_root_calls_api_and_returns_200(self) -> None:
+        mock_api = Mock()
+        mock_api.merge_items.return_value = {"status": "ok", "merged": 2}
+
+        self.client.force_login(self.root)
+        payload = {"source_ids": ["i1"], "target_id": "i3"}
+
+        with patch("apps.bff_api.catalog_views.CatalogAPI", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/catalog/admin/items/merge",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        mock_api.merge_items.assert_called_once()
+
+    def test_item_merge_sync_error_409_is_preserved(self) -> None:
+        from apps.sync_client.exceptions import SyncServerAPIError
+
+        mock_api = Mock()
+        mock_api.merge_items.side_effect = SyncServerAPIError(
+            "Merge conflict",
+            status_code=409,
+            payload={"detail": "Merge conflict"},
+        )
+
+        self.client.force_login(self.chief)
+        payload = {"source_ids": ["i1"], "target_id": "i3"}
+
+        with patch("apps.bff_api.catalog_views.CatalogAPI", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/catalog/admin/items/merge",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 409)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "conflict")
+
+    def test_category_merge_unauthenticated_returns_redirect(self) -> None:
+        response = self.client.post("/bff/api/v1/catalog/admin/categories/merge", data="{}", content_type="application/json")
+        self.assertIn(response.status_code, (302, 403))
+
+    def test_category_merge_non_chief_returns_403(self) -> None:
+        self.client.force_login(self.plain_user)
+        response = self.client.post("/bff/api/v1/catalog/admin/categories/merge", data="{}", content_type="application/json")
+        self.assertEqual(response.status_code, 403)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "forbidden")
+
+    def test_category_merge_chief_calls_api_and_returns_200(self) -> None:
+        mock_api = Mock()
+        mock_api.merge_categories.return_value = {"status": "ok", "merged": 2}
+
+        self.client.force_login(self.chief)
+        payload = {"source_ids": ["c1", "c2"], "target_id": "c3"}
+
+        with patch("apps.bff_api.catalog_views.CatalogAPI", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/catalog/admin/categories/merge",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["status"], "ok")
+        mock_api.merge_categories.assert_called_once_with(payload)
+
+    def test_category_merge_root_calls_api_and_returns_200(self) -> None:
+        mock_api = Mock()
+        mock_api.merge_categories.return_value = {"status": "ok", "merged": 1}
+
+        self.client.force_login(self.root)
+        payload = {"source_ids": ["c1"], "target_id": "c2"}
+
+        with patch("apps.bff_api.catalog_views.CatalogAPI", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/catalog/admin/categories/merge",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        mock_api.merge_categories.assert_called_once()
+
+    def test_category_merge_sync_error_409_is_preserved(self) -> None:
+        from apps.sync_client.exceptions import SyncServerAPIError
+
+        mock_api = Mock()
+        mock_api.merge_categories.side_effect = SyncServerAPIError(
+            "Merge conflict",
+            status_code=409,
+            payload={"detail": "Merge conflict"},
+        )
+
+        self.client.force_login(self.chief)
+        payload = {"source_ids": ["c1"], "target_id": "c2"}
+
+        with patch("apps.bff_api.catalog_views.CatalogAPI", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/catalog/admin/categories/merge",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 409)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "conflict")

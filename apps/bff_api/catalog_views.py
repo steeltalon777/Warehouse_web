@@ -656,3 +656,32 @@ class CatalogCachedCategorySearchView(LoginRequiredMixin, View):
                 break
 
         return _ok({"results": results})
+
+
+# ── Admin Merge ─────────────────────────────────────────────────────
+
+
+class AdminItemMergeView(LoginRequiredMixin, View):
+    def post(self, request):
+        if not _require_chief_or_root(request.user):
+            return _error("Access denied", "forbidden", 403)
+        try:
+            payload = json.loads(request.body)
+            api = CatalogAPI(_build_client(request))
+            data = api.merge_items(payload)
+            return _ok(data)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
+
+
+class AdminCategoryMergeView(LoginRequiredMixin, View):
+    def post(self, request):
+        if not _require_chief_or_root(request.user):
+            return _error("Access denied", "forbidden", 403)
+        try:
+            payload = json.loads(request.body)
+            api = CatalogAPI(_build_client(request))
+            data = api.merge_categories(payload)
+            return _ok(data)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
