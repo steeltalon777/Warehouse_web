@@ -582,7 +582,12 @@ class BootstrapViewAuthTests(TestCase):
         """Authenticated GET /nomenclature/api/bootstrap/ returns 200 with expected keys."""
         build_service.return_value = Mock(
             get_categories_tree=Mock(return_value={"children": []}),
-            list_items=Mock(return_value=[]),
+            browse_all_items=Mock(return_value={
+                "items": [],
+                "total_count": 0,
+                "loaded_count": 0,
+                "complete": True,
+            }),
             list_units=Mock(return_value=[]),
         )
         self.client.force_login(self.user)
@@ -595,6 +600,10 @@ class BootstrapViewAuthTests(TestCase):
         self.assertTrue(data["ok"])
         self.assertIn("categories_tree", data["data"])
         self.assertIn("items", data["data"])
+        self.assertIn("items_total", data["data"])
+        self.assertIn("items_loaded", data["data"])
+        self.assertIn("items_complete", data["data"])
+        self.assertTrue(data["data"]["items_complete"])
         self.assertIn("units", data["data"])
         self.assertIn("user", data["data"])
         self.assertIn("permissions", data["data"])
@@ -841,3 +850,102 @@ class CatalogApiUnitMutationTests(TestCase):
         self.assertFalse(data["ok"])
         self.assertIn("error", data)
         self.assertEqual(data["error"]["code"], "sync_error")
+
+
+class CatalogAPIBrowseAllItemsTests(SimpleTestCase):
+    """Tests for CatalogAPI.browse_all_items() pagination loop."""
+
+    def test_collects_single_page_when_all_fit(self) -> None:
+        """When total_count <= page_size, browse_all_items collects in one request."""
+        api = CatalogAPI(client=Mock())
+        api.browse_items = Mock(return_value={
+            "items": [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}],
+            "total_count": 2,
+            "page": 1,
+            "page_size": 1000,
+        })
+
+        result = api.browse_all_items()
+
+        api.browse_items.assert_called_once()
+        self.assertEqual(len(result["items"]), 2)
+        self.assertEqual(result["total_count"], 2)
+        self.assertEqual(result["loaded_count"], 2)
+        self.assertTrue(result["complete"])
+
+    def test_collects_multiple_pages(self) -> None:
+        """When total_count > page_size, browse_all_items loops through pages."""
+        api = CatalogAPI(client=Mock())
+        api.browse_items = Mock(side_effect=[
+            {
+                "items": [{"id": i, "name": f"Item {i}"} for i in range(1000)],
+                "total_count": 1600,
+                "page": 1,
+                "page_size": 1000,
+            },
+            {
+                "items": [{"id": i, "name": f"Item {i}"} for i in range(1000, 1600)],
+                "total_count": 1600,
+                "page": 2,
+                "page_size": 1000,
+            },
+        ])
+
+        result = api.browse_all_items()
+
+        self.assertEqual(api.browse_items.call_count, 2)
+        self.assertEqual(len(result["items"]), 1600)
+        self.assertEqual(result["total_count"], 1600)
+        self.assertEqual(result["loaded_count"], 1600)
+        self.assertTrue(result["complete"])
+
+    def test_stops_on_empty_page(self) -> None:
+        """When a page returns empty items, loop stops even without total_count."""
+        api = CatalogAPI(client=Mock())
+        api.browse_items = Mock(side_effect=[
+            {"items": [{"id": 1}], "page": 1, "page_size": 1000},
+            {"items": [], "page": 2, "page_size": 1000},
+        ])
+
+        result = api.browse_all_items()
+
+        self.assertEqual(api.browse_items.call_count, 2)
+        self.assertEqual(len(result["items"]), 1)
+        self.assertEqual(result["loaded_count"], 1)
+        self.assertFalse(result["complete"])  # no total_count -> incomplete
+
+    def test_returns_complete_false_when_total_count_not_reached(self) -> None:
+        """When second page returns empty items but total_count > loaded, complete=False."""
+        api = CatalogAPI(client=Mock())
+        api.browse_items = Mock(side_effect=[
+            {"items": [{"id": 1}], "total_count": 10, "page": 1, "page_size": 1000},
+            {"items": [], "total_count": 10, "page": 2, "page_size": 1000},
+        ])
+
+        result = api.browse_all_items()
+
+        self.assertEqual(result["loaded_count"], 1)
+        self.assertEqual(result["total_count"], 10)
+        self.assertFalse(result["complete"])
+
+    def test_hashtags_preserved_beyond_first_page(self) -> None:
+        """Items on page 2 retain their hashtags."""
+        page1_items = [{"id": i, "name": f"Item {i}", "hashtags": ["page1"]} for i in range(1000)]
+        page2_items = [
+            {"id": 1000, "name": "TaggedBeyond1000", "hashtags": ["rare", "vip"]},
+        ]
+
+        api = CatalogAPI(client=Mock())
+        api.browse_items = Mock(side_effect=[
+            {"items": page1_items, "total_count": 1001, "page": 1, "page_size": 1000},
+            {"items": page2_items, "total_count": 1001, "page": 2, "page_size": 1000},
+        ])
+
+        result = api.browse_all_items()
+
+        self.assertEqual(api.browse_items.call_count, 2)
+        self.assertEqual(len(result["items"]), 1001)
+        self.assertTrue(result["complete"])
+
+        tagged = next(item for item in result["items"] if item["name"] == "TaggedBeyond1000")
+        self.assertEqual(tagged["hashtags"], ["rare", "vip"])

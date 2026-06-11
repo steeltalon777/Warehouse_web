@@ -153,6 +153,59 @@ class CatalogAPI:
         )
         return {"items": [], "total_count": 0, "page": 1, "page_size": params.get("page_size", 20)}
 
+    def browse_all_items(
+        self,
+        filters: Optional[dict[str, Any]] = None,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Collect ALL items via paginated read endpoint.
+
+        Loops through /catalog/read/items with page_size=1000 until
+        all items are collected, an empty page is returned, or max_pages
+        safeguard is reached.
+
+        Returns:
+            dict with keys: items, total_count, loaded_count, complete
+        """
+        page_size = 1000
+        page = 1
+        max_pages = 1000
+        all_items: list[dict[str, Any]] = []
+        last_total_count: int | None = None
+
+        while page <= max_pages:
+            result = self.browse_items(
+                filters={**(filters or {}), "page": page, "page_size": page_size},
+                acting_user_id=acting_user_id,
+                acting_site_id=acting_site_id,
+            )
+
+            items = result.get("items", [])
+            total_count = result.get("total_count")
+
+            all_items.extend(items)
+
+            if total_count is not None:
+                last_total_count = total_count
+                if len(all_items) >= total_count:
+                    break
+
+            if not items:
+                break
+
+            page += 1
+
+        loaded_count = len(all_items)
+        return {
+            "items": all_items,
+            "total_count": last_total_count if last_total_count is not None else loaded_count,
+            "loaded_count": loaded_count,
+            "complete": last_total_count is not None and loaded_count >= last_total_count,
+        }
+
     def list_categories(
         self,
         filters: Optional[dict[str, Any]] = None,

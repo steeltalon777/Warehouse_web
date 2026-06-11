@@ -43,11 +43,14 @@ class BootstrapView(LoginRequiredMixin, View):
         try:
             api = _build_service(request)
             tree = api.get_categories_tree()
-            items_raw = api.list_items(filters={"limit": 1000})
+            items_result = api.browse_all_items()
             units_raw = api.list_units(filters={"limit": 500})
             return _ok({
                 "categories_tree": tree if isinstance(tree, dict) else {"children": tree if isinstance(tree, list) else []},
-                "items": items_raw if isinstance(items_raw, list) else [],
+                "items": items_result["items"],
+                "items_total": items_result["total_count"],
+                "items_loaded": items_result["loaded_count"],
+                "items_complete": items_result["complete"],
                 "units": units_raw if isinstance(units_raw, list) else [],
                 "user": {
                     "id": str(request.user.id),
