@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -662,6 +663,12 @@ class CatalogApiCategoryMutationTests(TestCase):
             is_active=True,
         )
         self.client.force_login(self.user)
+        self._perm_patcher = patch("apps.catalog.api_views._require_catalog_manager", return_value=None)
+        self._perm_patcher.start()
+
+    def tearDown(self) -> None:
+        self._perm_patcher.stop()
+        super().tearDown()
 
     @patch("apps.catalog.api_views._build_service")
     def test_post_categories_creates_category(self, build_service: Mock) -> None:
@@ -728,6 +735,12 @@ class CatalogApiItemMutationTests(TestCase):
             is_active=True,
         )
         self.client.force_login(self.user)
+        self._perm_patcher = patch("apps.catalog.api_views._require_catalog_manager", return_value=None)
+        self._perm_patcher.start()
+
+    def tearDown(self) -> None:
+        self._perm_patcher.stop()
+        super().tearDown()
 
     @patch("apps.catalog.api_views._build_service")
     def test_post_items_creates_item(self, build_service: Mock) -> None:
@@ -794,6 +807,12 @@ class CatalogApiUnitMutationTests(TestCase):
             is_active=True,
         )
         self.client.force_login(self.user)
+        self._perm_patcher = patch("apps.catalog.api_views._require_catalog_manager", return_value=None)
+        self._perm_patcher.start()
+
+    def tearDown(self) -> None:
+        self._perm_patcher.stop()
+        super().tearDown()
 
     @patch("apps.catalog.api_views._build_service")
     def test_post_units_creates_unit(self, build_service: Mock) -> None:
@@ -949,3 +968,103 @@ class CatalogAPIBrowseAllItemsTests(SimpleTestCase):
 
         tagged = next(item for item in result["items"] if item["name"] == "TaggedBeyond1000")
         self.assertEqual(tagged["hashtags"], ["rare", "vip"])
+
+
+# ---------------------------------------------------------------------------
+# Permission hardening tests (Stage 1C)
+# ---------------------------------------------------------------------------
+
+
+class NomenclatureApiPermissionTest(TestCase):
+    """Tests that mutation endpoints return 403 for non-manager users."""
+
+    def setUp(self) -> None:
+        self.user = get_user_model().objects.create_user(
+            username="plain_user",
+            password="testpass123",
+            is_staff=False,
+            is_superuser=False,
+            is_active=True,
+        )
+        self.client.force_login(self.user)
+
+    def test_bootstrap_get_ok(self):
+        response = self.client.get(reverse("nomenclature:api_bootstrap"))
+        self.assertNotEqual(response.status_code, 403)
+
+    def test_create_category_forbidden(self):
+        response = self.client.post(
+            reverse("nomenclature:api_category_tree"),
+            data=json.dumps({"name": "Test"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_update_category_forbidden(self):
+        response = self.client.patch(
+            reverse("nomenclature:api_category_detail", kwargs={"pk": 1}),
+            data=json.dumps({"name": "Updated"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_delete_category_forbidden(self):
+        response = self.client.delete(
+            reverse("nomenclature:api_category_detail", kwargs={"pk": 1}),
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_item_forbidden(self):
+        response = self.client.post(
+            reverse("nomenclature:api_items_list"),
+            data=json.dumps({"name": "Test Item"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_update_item_forbidden(self):
+        response = self.client.patch(
+            reverse("nomenclature:api_item_detail", kwargs={"pk": 1}),
+            data=json.dumps({"name": "Updated"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_delete_item_forbidden(self):
+        response = self.client.delete(
+            reverse("nomenclature:api_item_detail", kwargs={"pk": 1}),
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_unit_forbidden(self):
+        response = self.client.post(
+            reverse("nomenclature:api_units_list"),
+            data=json.dumps({"name": "Test Unit"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_update_unit_forbidden(self):
+        response = self.client.patch(
+            reverse("nomenclature:api_unit_detail", kwargs={"pk": 1}),
+            data=json.dumps({"name": "Updated"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_delete_unit_forbidden(self):
+        response = self.client.delete(
+            reverse("nomenclature:api_unit_detail", kwargs={"pk": 1}),
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_read_endpoints_accessible(self):
+        endpoints = [
+            reverse("nomenclature:api_bootstrap"),
+            reverse("nomenclature:api_category_tree"),
+            reverse("nomenclature:api_items_list"),
+            reverse("nomenclature:api_units_list"),
+        ]
+        for url in endpoints:
+            response = self.client.get(url)
+            self.assertNotEqual(response.status_code, 403, f"GET {url} returned 403")

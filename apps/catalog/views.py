@@ -1293,3 +1293,16 @@ class IssuedAssetsSPAView(LoginRequiredMixin, _AngularSpaServeMixin, View):
 
     def get(self, request, path: str = "") -> HttpResponse:
         return self._render_spa(request)
+
+
+class CatalogSPAView(LoginRequiredMixin, _AngularSpaServeMixin, View):
+    """Serves the Angular SPA for /catalog/.
+
+    Static file requests are handled by AngularStaticFilesView at root level.
+    """
+
+    template_name = "catalog/catalog_spa.html"
+    asset_prefix = ""
+
+    def get(self, request, path: str = "") -> HttpResponse:
+        return self._render_spa(request)

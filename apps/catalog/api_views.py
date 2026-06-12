@@ -10,6 +10,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.contrib.auth.mixins import LoginRequiredMixin
 
+from apps.common.permissions import can_manage_catalog
 from apps.sync_client.client import SyncServerClient
 from apps.sync_client.catalog_api import CatalogAPI
 from apps.sync_client.exceptions import SyncServerAPIError
@@ -34,6 +35,12 @@ def _error(message: str, code: str = "error", status: int = 400) -> JsonResponse
         {"ok": False, "error": {"code": code, "message": message}},
         status=status,
     )
+
+
+def _require_catalog_manager(user):
+    if not can_manage_catalog(user):
+        return _error("Access denied", "forbidden", 403)
+    return None
 
 
 class BootstrapView(LoginRequiredMixin, View):
@@ -75,6 +82,9 @@ class CategoryTreeView(LoginRequiredMixin, View):
 
     def post(self, request):
         """POST /nomenclature/api/categories/ — create category"""
+        permission_error = _require_catalog_manager(request.user)
+        if permission_error:
+            return permission_error
         try:
             api = _build_service(request)
             body = json.loads(request.body)
@@ -97,6 +107,9 @@ class CategoryDetailView(LoginRequiredMixin, View):
 
     def patch(self, request, pk):
         """PATCH /nomenclature/api/categories/<id>/ — update category"""
+        permission_error = _require_catalog_manager(request.user)
+        if permission_error:
+            return permission_error
         try:
             api = _build_service(request)
             body = json.loads(request.body)
@@ -106,6 +119,9 @@ class CategoryDetailView(LoginRequiredMixin, View):
             return _error(str(exc), "sync_error", status=exc.status_code or 502)
 
     def delete(self, request, pk):
+        permission_error = _require_catalog_manager(request.user)
+        if permission_error:
+            return permission_error
         try:
             api = _build_service(request)
             api.delete_category(str(pk))
@@ -139,6 +155,9 @@ class ItemsListView(LoginRequiredMixin, View):
 
     def post(self, request):
         """POST /nomenclature/api/items/ — create item"""
+        permission_error = _require_catalog_manager(request.user)
+        if permission_error:
+            return permission_error
         try:
             api = _build_service(request)
             body = json.loads(request.body)
@@ -161,6 +180,9 @@ class ItemDetailView(LoginRequiredMixin, View):
 
     def patch(self, request, pk):
         """PATCH /nomenclature/api/items/<id>/ — update item"""
+        permission_error = _require_catalog_manager(request.user)
+        if permission_error:
+            return permission_error
         try:
             api = _build_service(request)
             body = json.loads(request.body)
@@ -170,6 +192,9 @@ class ItemDetailView(LoginRequiredMixin, View):
             return _error(str(exc), "sync_error", status=exc.status_code or 502)
 
     def delete(self, request, pk):
+        permission_error = _require_catalog_manager(request.user)
+        if permission_error:
+            return permission_error
         try:
             api = _build_service(request)
             api.delete_item(str(pk))
@@ -191,6 +216,9 @@ class UnitsListView(LoginRequiredMixin, View):
 
     def post(self, request):
         """POST /nomenclature/api/units/ — create unit"""
+        permission_error = _require_catalog_manager(request.user)
+        if permission_error:
+            return permission_error
         try:
             api = _build_service(request)
             body = json.loads(request.body)
@@ -213,6 +241,9 @@ class UnitDetailView(LoginRequiredMixin, View):
 
     def patch(self, request, pk):
         """PATCH /nomenclature/api/units/<id>/ — update unit"""
+        permission_error = _require_catalog_manager(request.user)
+        if permission_error:
+            return permission_error
         try:
             api = _build_service(request)
             body = json.loads(request.body)
@@ -222,6 +253,9 @@ class UnitDetailView(LoginRequiredMixin, View):
             return _error(str(exc), "sync_error", status=exc.status_code or 502)
 
     def delete(self, request, pk):
+        permission_error = _require_catalog_manager(request.user)
+        if permission_error:
+            return permission_error
         try:
             api = _build_service(request)
             api.delete_unit(str(pk))

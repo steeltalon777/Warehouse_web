@@ -32,24 +32,26 @@
 <div class="sidebar-group">
     <div class="sidebar-group-title">Справочники</div>
     <div class="sidebar-subnav">
-        <a href="{% url 'catalog:home' %}" class="{% if namespace == 'catalog' %}sidebar-link-active{% endif %}">
+        <a href="/catalog/" class="{% if '/catalog/' in path and '/catalog/ssr/' not in path %}sidebar-link-active{% endif %}">
             Каталог
         </a>
         {% if user|can_manage_catalog %}
         <a href="{% url 'nomenclature:spa_home' %}" class="{% if namespace == 'nomenclature' and url_name == 'spa_home' %}sidebar-link-active{% endif %}">
             Номенклатура
         </a>
+        {% endif %}
         <details class="sidebar-details">
-            <summary class="sidebar-nested-title">SSR клиент</summary>
+            <summary class="sidebar-nested-title">SSR / Legacy</summary>
             <div class="sidebar-nested-nav">
-                <a href="{% url 'nomenclature:tree' %}" class="{% if url_name == 'tree' %}sidebar-link-active{% endif %}">Дерево</a>
-                <a href="{% url 'nomenclature:item_list' %}" class="{% if url_name == 'item_list' %}sidebar-link-active{% endif %}">ТМЦ</a>
-                <a href="{% url 'nomenclature:category_list' %}" class="{% if url_name == 'category_list' %}sidebar-link-active{% endif %}">Категории</a>
-                <a href="{% url 'nomenclature:unit_list' %}" class="{% if url_name == 'unit_list' %}sidebar-link-active{% endif %}">Единицы изм.</a>
-                <a href="{% url 'temporary_items:list' %}" class="{% if namespace == 'temporary_items' %}sidebar-link-active{% endif %}">Временные ТМЦ</a>
+                <a href="/catalog/ssr/" class="{% if '/catalog/ssr/' in path %}sidebar-link-active{% endif %}">Каталог SSR legacy</a>
+                {% if user|can_manage_catalog %}
+                <a href="{% url 'nomenclature:tree' %}" class="{% if url_name == 'tree' %}sidebar-link-active{% endif %}">Дерево SSR</a>
+                <a href="{% url 'nomenclature:item_list' %}" class="{% if url_name == 'item_list' %}sidebar-link-active{% endif %}">ТМЦ SSR</a>
+                <a href="{% url 'nomenclature:category_list' %}" class="{% if url_name == 'category_list' %}sidebar-link-active{% endif %}">Категории SSR</a>
+                <a href="{% url 'nomenclature:unit_list' %}" class="{% if url_name == 'unit_list' %}sidebar-link-active{% endif %}">Единицы изм. SSR</a>
+                {% endif %}
             </div>
         </details>
-        {% endif %}
     </div>
 </div>
 

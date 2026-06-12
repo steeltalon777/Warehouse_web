@@ -19,7 +19,7 @@ from django.contrib.auth import views as auth_views
 from django.urls import path, include, re_path
 from django.views.generic import RedirectView
 
-from apps.catalog.views import AngularStaticFilesView, IssuedAssetsSPAView, OperationsSPAView, TemporaryItemsSPAView
+from apps.catalog.views import AngularStaticFilesView, CatalogSPAView, IssuedAssetsSPAView, OperationsSPAView, TemporaryItemsSPAView
 from apps.common.views import HealthCheckView, SyncHealthCheckView
 from apps.users.views import logout_view
 
@@ -30,7 +30,11 @@ urlpatterns = [
 
     path("admin/", admin.site.urls),
 
-    path("catalog/", include("apps.catalog.urls")),
+    # Catalog SSR fallback — must come BEFORE SPA catch-all so ssr/ paths are not swallowed
+    path("catalog/ssr/", include("apps.catalog.urls")),
+    # Catalog SPA — exact /catalog/ and catch-all render Angular SPA
+    path("catalog/", CatalogSPAView.as_view(), name="catalog_spa"),
+    path("catalog/<path:path>", CatalogSPAView.as_view(), name="catalog_spa_catchall"),
     path("nomenclature/", include("apps.catalog.nomenclature_urls")),
     path("client/", include("apps.client.urls")),
     # Operations SSR fallback — must come BEFORE SPA catch-all so ssr/ paths are not swallowed
