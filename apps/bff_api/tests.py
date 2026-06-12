@@ -134,6 +134,23 @@ class BffApiViewMethodTests(TestCase):
             filters={"search": "дрель", "item_ids": "1,2,3", "acceptance_state": "pending", "page": "1", "page_size": "20"}
         )
 
+    def test_operations_list_forwards_exclude_adjustments_filter(self) -> None:
+        mock_api = Mock()
+        mock_api.list_operations_page.return_value = {"items": [], "total_count": 0, "page": 1, "page_size": 20}
+
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.get(
+                "/bff/api/v1/operations",
+                {"exclude_adjustments": "true", "page": "1", "page_size": "20"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        mock_api.list_operations_page.assert_called_once_with(
+            filters={"exclude_adjustments": "true", "page": "1", "page_size": "20"}
+        )
+
     def test_operations_delete_supported(self) -> None:
         mock_api = Mock()
         mock_api.delete_operation.return_value = None

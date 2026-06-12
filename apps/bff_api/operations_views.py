@@ -53,7 +53,7 @@ class OperationsListView(LoginRequiredMixin, View):
                 "effective_after", "effective_before",
                 "created_after", "created_before",
                 "updated_after", "updated_before",
-                "search", "item_ids", "page", "page_size",
+                "search", "item_ids", "page", "page_size", "exclude_adjustments",
             ):
                 val = request.GET.get(key)
                 if val is not None:
