@@ -16,12 +16,13 @@ class BalanceViewHelpersTests(SimpleTestCase):
         self.assertEqual(_get_default_balance_site_id(request), "7")
 
     def test_global_roles_default_to_all_sites(self) -> None:
-        for role in ("observer", "chief_storekeeper", "root"):
+        """All roles now receive the default site ID; role-based filtering removed."""
+        for role in ("observer", "chief_storekeeper", "root", "storekeeper"):
             request = RequestFactory().get("/balances/")
             request.session = {"sync_role": role, "sync_default_site_id": "7"}
             request.user = SimpleNamespace(is_authenticated=True)
 
-            self.assertEqual(_get_default_balance_site_id(request), "")
+            self.assertEqual(_get_default_balance_site_id(request), "7")
 
     def test_present_balance_row_prefers_api_item_fields(self) -> None:
         row = {
