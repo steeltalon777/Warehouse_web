@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from django.conf import settings
 from django.db import models
 
@@ -162,3 +164,37 @@ class SyncDeviceBinding(models.Model):
 
     def __str__(self) -> str:
         return self.device_name or self.device_code
+
+
+class LoginAttempt(models.Model):
+    """Local audit of user login/logout events.
+
+    SyncServer-unavailable safe. Stores web-specific auth events only.
+    Business operation audit goes through SyncServer AuditEvent.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="login_attempts",
+    )
+    action = models.CharField(
+        max_length=16,
+        choices=[("login", "Вход"), ("logout", "Выход")],
+        db_index=True,
+    )
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=256, blank=True, default="")
+    request_id = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Попытка входа"
+        verbose_name_plural = "История входов"
+
+    def __str__(self) -> str:
+        return f"{self.action} {self.user} at {self.created_at}"

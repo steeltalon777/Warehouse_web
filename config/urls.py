@@ -21,6 +21,7 @@ from django.views.generic import RedirectView
 
 from apps.catalog.views import AngularStaticFilesView, CatalogSPAView, IssuedAssetsSPAView, OperationsSPAView, TemporaryItemsSPAView
 from apps.common.views import HealthCheckView, SyncHealthCheckView
+from apps.users.admin_audit_views import AdminAuditEventDetailView, AdminAuditEventListView
 from apps.users.views import logout_view
 
 urlpatterns = [
@@ -54,6 +55,16 @@ urlpatterns = [
     path("admin-panel/", include("apps.admin_panel.urls")),
     path("documents/", include("apps.documents.urls")),
     path("users/", include("apps.users.urls")),
+    path(
+        "admin/audit-events/",
+        AdminAuditEventListView.as_view(),
+        name="audit_events_list",
+    ),
+    path(
+        "admin/audit-events/<uuid:event_id>/",
+        AdminAuditEventDetailView.as_view(),
+        name="audit_event_detail",
+    ),
 
     path(
         "login/",

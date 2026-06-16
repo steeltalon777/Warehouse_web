@@ -3,6 +3,7 @@ from django.urls import path, include
 from apps.bff_api import (
     admin_views,
     assets_views,
+    audit_views,
     auth_views,
     balances_views,
     catalog_views,
@@ -39,6 +40,11 @@ admin_patterns = [
     path("admin/devices", admin_views.DevicesListView.as_view(), name="admin_devices"),
     path("admin/devices/<str:device_id>", admin_views.DeviceDetailView.as_view(), name="admin_device_detail"),
     path("admin/devices/<str:device_id>/rotate-token", admin_views.DeviceRotateTokenView.as_view(), name="admin_device_rotate_token"),
+]
+
+audit_patterns = [
+    path("admin/audit", audit_views.AuditEventsListView.as_view(), name="admin_audit_list"),
+    path("admin/audit/<str:event_id>", audit_views.AuditEventDetailView.as_view(), name="admin_audit_detail"),
 ]
 
 catalog_read_patterns = [
@@ -146,6 +152,7 @@ health_patterns = [
 urlpatterns = (
     auth_patterns
     + admin_patterns
+    + audit_patterns
     + catalog_read_patterns
     + catalog_admin_patterns
     + operations_patterns

@@ -20,6 +20,7 @@ from apps.sync_client.session_auth import (
     store_syncserver_identity,
     clear_syncserver_identity,
 )
+from apps.users.models import LoginAttempt
 
 logger = structlog.get_logger()
 
@@ -43,6 +44,9 @@ def on_user_logged_in(
         user: Authenticated Django user object
         **kwargs: Additional signal arguments
     """
+    # Record local login attempt audit
+    _record_login_attempt(request, user, "login")
+
     logger.info(
         "login_fetch_identity",
         username=user.username,
@@ -102,6 +106,9 @@ def on_user_logged_out(
         **kwargs: Additional signal arguments
     """
     username = user.username if user else "unknown"
+    # Record local logout attempt audit
+    _record_login_attempt(request, user, "logout")
+
     logger.info(
         "logout_clear_identity",
         username=username,
@@ -163,3 +170,26 @@ def sync_identity_context(request: HttpRequest) -> dict:
         'sync_identity': identity,
         'has_sync_identity': identity is not None,
     }
+
+
+def _record_login_attempt(request: HttpRequest, user: Any, action: str) -> None:
+    """Create a LoginAttempt record for login/logout events."""
+    from uuid import uuid4
+    try:
+        ip_address = request.META.get(
+            "HTTP_X_FORWARDED_FOR",
+            request.META.get("REMOTE_ADDR", ""),
+        ).split(",")[0].strip() or None
+
+        user_agent = (request.META.get("HTTP_USER_AGENT", "") or "")[:256]
+
+        LoginAttempt.objects.create(
+            user=user if user and not user.is_anonymous else None,
+            action=action,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            request_id=getattr(request, "request_id", ""),
+        )
+    except Exception:
+        logger.exception("failed to record login attempt audit")
+        # Don't raise — audit failure must not break login/logout flow
