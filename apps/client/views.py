@@ -6,7 +6,7 @@ from django.shortcuts import redirect, render
 
 from apps.client.forms import OperationCreateForm
 from apps.client.services import DomainService
-from apps.common.permissions import can_manage_catalog, is_storekeeper
+from apps.common.permissions import can_manage_catalog, is_observer, is_storekeeper
 from apps.operations.services import OperationPageService
 from apps.sync_client.assets_api import AssetsAPI
 from apps.sync_client.client import SyncServerClient
@@ -36,6 +36,8 @@ def dashboard(request):
         role = "root"
     elif can_manage_catalog(request.user):
         role = "chief_storekeeper"
+    elif is_observer(request.user):
+        role = "observer"
     elif not is_storekeeper(request.user):
         return HttpResponseForbidden("Нет доступа")
 
@@ -92,7 +94,7 @@ def dashboard(request):
 
 @login_required
 def balances_view(request):
-    if not (is_storekeeper(request.user) or can_manage_catalog(request.user) or request.user.is_superuser):
+    if not (is_storekeeper(request.user) or can_manage_catalog(request.user) or is_observer(request.user) or request.user.is_superuser):
         return HttpResponseForbidden("Нет доступа")
 
     search = request.GET.get("search") or None
@@ -121,7 +123,7 @@ def balances_view(request):
 
 @login_required
 def operations_view(request):
-    if not (is_storekeeper(request.user) or can_manage_catalog(request.user) or request.user.is_superuser):
+    if not (is_storekeeper(request.user) or can_manage_catalog(request.user) or is_observer(request.user) or request.user.is_superuser):
         return HttpResponseForbidden("Нет доступа")
 
     search = request.GET.get("search") or None
@@ -150,7 +152,7 @@ def operations_view(request):
 
 @login_required
 def operation_create(request):
-    if not (is_storekeeper(request.user) or can_manage_catalog(request.user) or request.user.is_superuser):
+    if not (is_storekeeper(request.user) or can_manage_catalog(request.user) or is_observer(request.user) or request.user.is_superuser):
         return HttpResponseForbidden("Нет доступа")
 
     if request.method == "POST":
@@ -169,6 +171,6 @@ def operation_create(request):
 
 @login_required
 def storekeeper_catalog(request):
-    if not (is_storekeeper(request.user) or can_manage_catalog(request.user) or request.user.is_superuser):
+    if not (is_storekeeper(request.user) or can_manage_catalog(request.user) or is_observer(request.user) or request.user.is_superuser):
         return HttpResponseForbidden("Нет доступа")
     return redirect("catalog:item_list")

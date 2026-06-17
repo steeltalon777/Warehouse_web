@@ -171,7 +171,7 @@ class DashboardViewIntegrationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Нет ТМЦ, требующих проверки")
 
-    def test_dashboard_observer_gets_forbidden(self):
+    def test_dashboard_observer_has_access(self):
         user = User.objects.create_user(username="observer_user", password="testpass")
         SyncUserBinding.objects.create(
             user=user,
@@ -181,7 +181,9 @@ class DashboardViewIntegrationTests(TestCase):
         )
         self.client.force_login(user)
         response = self.client.get(reverse("client:dashboard"))
-        self.assertEqual(response.status_code, 403)
+        # V3.1: observer now has access to dashboard (read-only role)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "observer")
 
     def test_dashboard_no_tokens_in_html(self):
         self.client.force_login(self.user)
