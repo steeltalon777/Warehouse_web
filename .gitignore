@@ -38,6 +38,9 @@ staticfiles/
 # mypy
 .mypy_cache/
 
+# Generated documents (waybills)
+media/documents/
+
 # Generated AI/repository maps
 repo_map_*.md
 repo_map_*.txt
