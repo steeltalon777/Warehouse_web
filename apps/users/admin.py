@@ -21,7 +21,7 @@ from apps.users.admin_forms import (
     SyncManagedUserAdminForm,
     SyncManagedUserCreationForm,
 )
-from apps.users.models import Site, SyncDeviceBinding, SyncStatus, SyncUserBinding
+from apps.users.models import LoginAttempt, Site, SyncDeviceBinding, SyncStatus, SyncUserBinding
 from apps.users.services import DeviceSyncService, SiteSyncService, UserSyncService
 
 User = get_user_model()
@@ -659,3 +659,24 @@ class SyncManagedUserAdmin(BaseUserAdmin):
             return user.sync_binding
         except SyncUserBinding.DoesNotExist:
             return None
+
+
+@admin.register(LoginAttempt)
+class LoginAttemptAdmin(admin.ModelAdmin):
+    """Admin for login/logout audit history."""
+
+    list_display = ("action", "user", "ip_address", "created_at")
+    list_filter = ("action", "created_at")
+    search_fields = ("user__username", "ip_address")
+    date_hierarchy = "created_at"
+    readonly_fields = ("user", "action", "ip_address", "user_agent", "request_id", "created_at")
+    ordering = ("-created_at",)
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj=None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj=None) -> bool:
+        return request.user.is_superuser

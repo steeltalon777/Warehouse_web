@@ -52,15 +52,15 @@ Aligned active API wrapper modules to import exceptions from the canonical excep
 - `apps/sync_client/operations_api.py`
 - `apps/sync_client/balances_api.py`
 
-### Legacy client status clarified
+### Compatibility client status clarified
 
 Canonical runtime client is now explicitly treated as:
 - `apps.sync_client.client.SyncServerClient`
 
-Legacy module:
+Compatibility module:
 - `apps/sync_client/simple_client.py`
 
-was not removed, but was explicitly marked as deprecated/legacy in the module docstring.
+was not removed, but was explicitly marked as compatibility-only in the module docstring.
 
 ## 3. Canonical API client
 
@@ -121,8 +121,8 @@ Recommended next-phase work:
 - template stabilization after refactor confirmation
 - catalog completion on top of stabilized integration layer
 - auth/session flow verification under real login/logout and site-switch scenarios
-- broader cleanup of remaining legacy `SyncAPIError` references in helper/legacy/auth modules if and only if done together with runtime validation
-- optional follow-up pass to reduce duplicate/legacy view modules after confirming which ones are still active
+- broader cleanup of remaining compatibility `SyncAPIError` references in helper/auth modules if and only if done together with runtime validation
+- optional follow-up pass to reduce duplicate compatibility view modules after confirming which ones are still active
 
 ## 8. Explicit statement: what was NOT changed
 
@@ -159,6 +159,6 @@ Runtime verification status for the above:
 
 ## 10. Notes and limitations
 
-There are still legacy/compatibility modules in the repository that reference `SyncClient` / `SyncAPIError`, especially around auth/session helper flows and example modules.
+There are still compatibility modules in the repository that reference `SyncClient` / `SyncAPIError`, especially around auth/session helper flows and example modules.
 
-In this phase they were not redesigned or removed because the task required a safe refactor without changing auth design or business logic. The active Django integration layer was stabilized around `SyncServerClient` and `SyncServerAPIError`, while compatibility was preserved for legacy paths.
+In this phase they were not redesigned or removed because the task required a safe refactor without changing auth design or business logic. The active Django integration layer was stabilized around `SyncServerClient` and `SyncServerAPIError`, while compatibility was preserved for older paths.

@@ -31,13 +31,13 @@ Usage:
 
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Any, Optional
 
 from .client import SyncServerClient
 from .exceptions import SyncAPIError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class AccessAPI:
@@ -60,7 +60,7 @@ class AccessAPI:
                    a new instance will be created with default settings.
         """
         self.client = client or SyncServerClient()
-        logger.debug("AccessAPI client initialized")
+        logger.debug("access_api_initialized")
     
     def list_access(
         self,
@@ -89,7 +89,7 @@ class AccessAPI:
             >>> for record in access_records:
             ...     print(record["user_id"], record["site_id"], record["role"])
         """
-        logger.debug("Fetching list of access records")
+        logger.debug("fetching_access_records")
         response = self.client.get(
             "/admin/access/user-sites",
             acting_user_id=acting_user_id,
@@ -103,8 +103,7 @@ class AccessAPI:
             return response
         else:
             logger.warning(
-                "Unexpected response format from /admin/access/user-sites",
-                extra={"response_type": type(response).__name__}
+                "unexpected_response_format", endpoint="/admin/access/user-sites", response_type=type(response).__name__,
             )
             return []
     
@@ -142,8 +141,7 @@ class AccessAPI:
             >>> print(new_access["id"])
         """
         logger.debug(
-            "Creating access record",
-            extra={"payload_keys": list(payload.keys())}
+            "creating_access_record", payload_keys=list(payload.keys()),
         )
         return self.client.post(
             "/admin/access/user-sites",
@@ -186,8 +184,7 @@ class AccessAPI:
             >>> print(updated_access["role"])
         """
         logger.debug(
-            "Updating access record",
-            extra={"access_id": access_id, "payload_keys": list(payload.keys())}
+            "updating_access_record", access_id=access_id, payload_keys=list(payload.keys()),
         )
         return self.client.patch(
             f"/admin/access/user-sites/{access_id}",

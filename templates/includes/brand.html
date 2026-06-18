@@ -1,8 +1,5 @@
 {% load static %}
-
-{% with brand_name="ООО АС Горизонт" logo_path="img/logo.png" %}
 <a href="{% url 'client:dashboard' %}" class="brand">
-    <img src="{% static logo_path %}" alt="{{ brand_name }}" class="brand-logo">
-    <span class="brand-text">{{ brand_name }}</span>
+    <img src="{% static organization_logo_static_path %}" alt="{{ organization_short_name }}" class="brand-logo">
+    <span class="brand-text">{{ organization_short_name }}</span>
 </a>
-{% endwith %}

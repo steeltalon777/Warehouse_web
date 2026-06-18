@@ -10,7 +10,7 @@
       }}.
     </p>
   </div>
-  <a href="{% url 'operations:list' %}" class="btn btn-secondary"
+  <a href="{% url 'operations_spa' %}" class="btn btn-secondary"
     >К журналу операций</a
   >
 </div>
@@ -187,7 +187,7 @@
       {% if operation.can_submit %}
       <form
         method="post"
-        action="{% url 'operations:submit' operation.id %}"
+        action="{% url 'operations_ssr:submit' operation.id %}"
         data-loading-form
         data-loading-scope="page"
         data-loading-overlay-text="Подтверждение операции..."
@@ -205,7 +205,7 @@
       {% endif %} {% if operation.can_cancel %}
       <form
         method="post"
-        action="{% url 'operations:cancel' operation.id %}"
+        action="{% url 'operations_ssr:cancel' operation.id %}"
         data-loading-form
         data-loading-scope="page"
         data-loading-overlay-text="Отмена операции..."
@@ -223,14 +223,14 @@
       </form>
       {% endif %} {% if operation.can_accept %}
       <a
-        href="{% url 'operations:acceptance_detail' operation_id=operation.id %}"
+        href="{% url 'operations_ssr:acceptance_detail' operation_id=operation.id %}"
         class="btn operation-action-button"
         >Приёмка</a
       >
       {% endif %}
 
       <a
-        href="{% url 'operations:list' %}"
+        href="{% url 'operations_spa' %}"
         class="btn btn-secondary operation-action-button"
         >Вернуться к журналу</a
       >

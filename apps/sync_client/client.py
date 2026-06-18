@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import logging
+import structlog
+import time
 from typing import Any
 
 import httpx
 from django.conf import settings
-from django.contrib.auth import get_user_model
 
 from .exceptions import (
     SyncAuthError,
@@ -17,8 +17,14 @@ from .exceptions import (
     SyncServerInternalError,
     SyncValidationError,
 )
+from .token_resolver import (
+    SyncIdentityNotBoundError,
+    get_device_token,
+    resolve_sync_identity,
+)
+from .transport import execute_with_retry, get_sync_client
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class SyncServerClient:
@@ -28,8 +34,10 @@ class SyncServerClient:
     Rules:
     - base URL MUST already include /api/v1
     - Django runtime auth is token-based
-    - root user uses root token from env
-    - non-root user uses token from local SyncUserBinding
+    - Django superusers use SYNC_ROOT_USER_TOKEN from env
+    - non-root users use token from local SyncUserBinding or session
+    - force_root=True also uses SYNC_ROOT_USER_TOKEN for explicit admin/system flow
+    - missing non-root binding raises SyncIdentityNotBoundError, never falls back to root
     - all HTTP calls to SyncServer should go through this client
     """
 
@@ -43,21 +51,9 @@ class SyncServerClient:
     ) -> None:
         self.base_url = settings.SYNC_SERVER_URL.rstrip("/")
         self.timeout = float(getattr(settings, "SYNC_SERVER_TIMEOUT", 10))
-        self.device_token = getattr(settings, "SYNC_DEVICE_TOKEN", "").strip()
-        self.root_user_token = getattr(settings, "SYNC_ROOT_USER_TOKEN", "").strip()
+        self.device_token = get_device_token()
         self.request = request
         self.force_root = force_root
-
-        self.default_user_id = (
-            user_id if user_id is not None else getattr(settings, "SYNC_DEFAULT_ACTING_USER_ID", "")
-        )
-        self.default_site_id = (
-            site_id if site_id is not None else getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
-        )
-        if not self.device_token:
-            raise RuntimeError("SYNC_DEVICE_TOKEN is not configured.")
-        if not self.root_user_token:
-            raise RuntimeError("SYNC_ROOT_USER_TOKEN is not configured.")
 
         if not self.base_url.endswith("/api/v1"):
             raise RuntimeError(
@@ -71,95 +67,22 @@ class SyncServerClient:
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
     ) -> dict[str, str]:
-        user_token = self._resolve_user_token(acting_user_id=acting_user_id)
+        identity = resolve_sync_identity(
+            request=self.request,
+            force_root=self.force_root,
+        )
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "X-Device-Token": self.device_token,
-            "X-User-Token": user_token,
+            "X-User-Token": identity.user_token,
         }
-        site_id = self._resolve_site_id(acting_site_id=acting_site_id)
-        if site_id:
-            headers["X-Site-Id"] = site_id
+        if self.device_token:
+            headers["X-Device-Token"] = self.device_token
+        if self.request is not None:
+            request_id = self.request.META.get("X_REQUEST_ID")
+            if request_id:
+                headers["X-Request-Id"] = request_id
         return headers
-
-    def _resolve_site_id(self, *, acting_site_id: str | int | None = None) -> str:
-        candidates = [
-            acting_site_id,
-            self.default_site_id,
-        ]
-
-        request_session = getattr(self.request, "session", None)
-        if request_session is not None:
-            candidates.extend(
-                [
-                    request_session.get("active_site"),
-                    request_session.get("sync_default_site_id"),
-                    request_session.get("site_id"),
-                ]
-            )
-
-        request_user = getattr(self.request, "user", None)
-        if request_user is not None and getattr(request_user, "is_authenticated", False):
-            try:
-                candidates.append(request_user.sync_binding.default_site_id)
-            except Exception:
-                pass
-
-        for candidate in candidates:
-            if candidate in (None, ""):
-                continue
-            return str(candidate).strip()
-
-        return ""
-
-    def _resolve_user_token(self, *, acting_user_id: str | int | None = None) -> str:
-        if self.force_root:
-            return self.root_user_token
-
-        request_user = getattr(self.request, "user", None)
-        if request_user is not None and getattr(request_user, "is_authenticated", False):
-            if getattr(request_user, "is_superuser", False):
-                return self.root_user_token
-
-        token = self._get_binding_token_for_user(request_user)
-        if token:
-            logger.info("Resolved user token from sync_binding for user %s", request_user.username)
-            return token
-
-        session_token = self._get_session_token()
-        if session_token:
-            logger.info("Resolved user token from session for user %s", request_user.username)
-            return session_token
-
-        logger.warning(
-            "Sync user token not in binding/session for Django user '%s', falling back to root token",
-            request_user.username,
-        )
-        return self.root_user_token
-
-    @staticmethod
-    def _get_binding_token_for_user(user) -> str:
-        try:
-            binding = user.sync_binding
-        except Exception:
-            return ""
-        return (binding.sync_user_token or "").strip()
-
-    @staticmethod
-    def _get_binding_token_for_user_id(user_id: str | int) -> str:
-        UserModel = get_user_model()
-        try:
-            user = UserModel.objects.select_related("sync_binding").get(pk=user_id)
-        except UserModel.DoesNotExist:
-            return ""
-        return SyncServerClient._get_binding_token_for_user(user)
-
-    def _get_session_token(self) -> str:
-        request_session = getattr(self.request, "session", None)
-        if request_session is None:
-            return ""
-        return (request_session.get("sync_user_token") or "").strip()
 
     def _normalize_path(self, path: str) -> str:
         if not path:
@@ -184,13 +107,11 @@ class SyncServerClient:
         payload: dict[str, Any] | None,
     ) -> None:
         logger.warning(
-            "SyncServer request failed",
-            extra={
-                "sync_method": method,
-                "sync_path": path,
-                "sync_status_code": status_code,
-                "sync_response_body": payload or {},
-            },
+            "sync_request_failed",
+            sync_method=method,
+            sync_path=path,
+            sync_status_code=status_code,
+            sync_response_body=payload or {},
         )
 
     def _raise_for_response(
@@ -250,30 +171,45 @@ class SyncServerClient:
             acting_site_id=acting_site_id,
         )
 
-        logger.info(
-            "SyncServer request",
-            extra={
-                "sync_method": method,
-                "sync_url": url,
-                "sync_headers": {k: v for k, v in headers.items() if k != "X-User-Token"},
-                "sync_params": params,
-                "sync_json": json,
-            },
-        )
+        _request_id = headers.get("X-Request-Id", "")
+        _call_log = {
+            "sync_method": method,
+            "sync_url": url,
+            "sync_path": normalized_path,
+        }
+        if _request_id:
+            _call_log["sync_request_id"] = _request_id
+        logger.info("sync_request", **_call_log)
+
+        _t0 = time.perf_counter()
+
+        if self.request is not None:
+            current_count = self.request.META.get("SYNC_CALL_COUNT", 0)
+            self.request.META["SYNC_CALL_COUNT"] = current_count + 1
+
+        _retries = int(getattr(settings, "SYNC_SERVER_RETRIES", 2))
+        _backoff = float(getattr(settings, "SYNC_SERVER_RETRY_BACKOFF", 0.2))
+
+        def _do_request() -> httpx.Response:
+            client = get_sync_client()
+            return client.request(
+                method=method,
+                url=url,
+                headers=headers,
+                json=json,
+                params=params,
+            )
 
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.request(
-                    method=method,
-                    url=url,
-                    headers=headers,
-                    json=json,
-                    params=params,
-                )
+            response = execute_with_retry(_do_request, method, retries=_retries, backoff=_backoff)
         except httpx.TimeoutException as exc:
-            logger.exception(
-                "SyncServer timeout",
-                extra={"sync_method": method, "sync_path": normalized_path},
+            _duration = (time.perf_counter() - _t0) * 1000
+            logger.error(
+                "sync_server_timeout",
+                sync_method=method,
+                sync_path=normalized_path,
+                sync_duration_ms=round(_duration, 1),
+                exc_info=True,
             )
             raise SyncBackendUnavailable(
                 "SyncServer не ответил вовремя.",
@@ -281,9 +217,13 @@ class SyncServerClient:
                 path=normalized_path,
             ) from exc
         except httpx.RequestError as exc:
-            logger.exception(
-                "SyncServer unreachable",
-                extra={"sync_method": method, "sync_path": normalized_path},
+            _duration = (time.perf_counter() - _t0) * 1000
+            logger.error(
+                "sync_server_unreachable",
+                sync_method=method,
+                sync_path=normalized_path,
+                sync_duration_ms=round(_duration, 1),
+                exc_info=True,
             )
             raise SyncBackendUnavailable(
                 "SyncServer недоступен.",
@@ -291,14 +231,15 @@ class SyncServerClient:
                 path=normalized_path,
             ) from exc
 
+        _duration = (time.perf_counter() - _t0) * 1000
+
         logger.info(
-            "SyncServer response",
-            extra={
-                "sync_method": method,
-                "sync_path": normalized_path,
-                "sync_status_code": response.status_code,
-                "sync_response_headers": dict(response.headers),
-            },
+            "sync_response",
+            sync_method=method,
+            sync_path=normalized_path,
+            sync_status_code=response.status_code,
+            sync_duration_ms=round(_duration, 1),
+            sync_request_id=_request_id or None,
         )
 
         if response.status_code >= 400:
@@ -337,18 +278,31 @@ class SyncServerClient:
         )
         headers["Accept"] = accept
 
+        _request_id = headers.get("X-Request-Id", "")
+        _t0 = time.perf_counter()
+
+        _retries = int(getattr(settings, "SYNC_SERVER_RETRIES", 2))
+        _backoff = float(getattr(settings, "SYNC_SERVER_RETRY_BACKOFF", 0.2))
+
+        def _do_request_bytes() -> httpx.Response:
+            client = get_sync_client()
+            return client.request(
+                method=method,
+                url=url,
+                headers=headers,
+                params=params,
+            )
+
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.request(
-                    method=method,
-                    url=url,
-                    headers=headers,
-                    params=params,
-                )
+            response = execute_with_retry(_do_request_bytes, method, retries=_retries, backoff=_backoff)
         except httpx.TimeoutException as exc:
-            logger.exception(
-                "SyncServer timeout",
-                extra={"sync_method": method, "sync_path": normalized_path},
+            _duration = (time.perf_counter() - _t0) * 1000
+            logger.error(
+                "sync_server_timeout",
+                sync_method=method,
+                sync_path=normalized_path,
+                sync_duration_ms=round(_duration, 1),
+                exc_info=True,
             )
             raise SyncBackendUnavailable(
                 "SyncServer не ответил вовремя.",
@@ -356,9 +310,13 @@ class SyncServerClient:
                 path=normalized_path,
             ) from exc
         except httpx.RequestError as exc:
-            logger.exception(
-                "SyncServer unreachable",
-                extra={"sync_method": method, "sync_path": normalized_path},
+            _duration = (time.perf_counter() - _t0) * 1000
+            logger.error(
+                "sync_server_unreachable",
+                sync_method=method,
+                sync_path=normalized_path,
+                sync_duration_ms=round(_duration, 1),
+                exc_info=True,
             )
             raise SyncBackendUnavailable(
                 "SyncServer недоступен.",
@@ -425,6 +383,22 @@ class SyncServerClient:
             acting_site_id=acting_site_id,
             json=json,
             params=params,
+        )
+
+    def put(
+        self,
+        path: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+        json: dict[str, Any] | None = None,
+    ) -> Any:
+        return self._request(
+            "PUT",
+            path,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+            json=json,
         )
 
     def patch(

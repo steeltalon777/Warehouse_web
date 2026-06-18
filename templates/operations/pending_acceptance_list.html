@@ -15,7 +15,7 @@
 </div>
 
 <div class="card">
-  <form method="get" action="{% url 'operations:pending_acceptance' %}">
+  <form method="get" action="{% url 'operations_ssr:pending_acceptance' %}">
     <div class="form-row">
       <label for="search">Поиск</label>
       <input type="text" id="search" name="search" value="{{ search|default:'' }}"
@@ -42,7 +42,7 @@
     </div>
     <div class="form-row operation-filter-actions">
       <button type="submit" class="btn btn-primary">Применить</button>
-      <a href="{% url 'operations:pending_acceptance' %}" class="btn btn-outline">Сбросить</a>
+      <a href="{% url 'operations_ssr:pending_acceptance' %}" class="btn btn-outline">Сбросить</a>
     </div>
   </form>
 </div>
@@ -67,7 +67,7 @@
         {% for group in groups %}
         <tr>
           <td>
-            <a href="{% url 'operations:detail' operation_id=group.operation_id %}">
+            <a href="{% url 'operations_ssr:detail' operation_id=group.operation_id %}">
               {{ group.document_number|default:group.operation_id|truncatechars:20 }}
             </a>
           </td>
@@ -84,9 +84,9 @@
           <td>{{ group.total_expected_qty }}</td>
           <td>{{ group.updated_at|default:"—" }}</td>
           <td class="action-cell">
-            <a href="{% url 'operations:acceptance_detail' operation_id=group.operation_id %}"
+            <a href="{% url 'operations_ssr:acceptance_detail' operation_id=group.operation_id %}"
                class="btn btn-sm btn-primary">Открыть приёмку</a>
-            <a href="{% url 'operations:detail' operation_id=group.operation_id %}"
+            <a href="{% url 'operations_ssr:detail' operation_id=group.operation_id %}"
                class="btn btn-sm btn-outline">Документ</a>
           </td>
         </tr>

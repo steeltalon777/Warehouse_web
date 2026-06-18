@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title }}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 16mm 14mm 14mm;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "DejaVu Sans", "Arial", sans-serif;
+      font-size: 11pt;
+      color: #111827;
+    }
+
+    .page + .page {
+      page-break-before: always;
+    }
+
+    h1 {
+      margin: 0 0 10mm;
+      text-align: center;
+      font-size: 16pt;
+      font-weight: 700;
+    }
+
+    .header-lines {
+      margin-bottom: 8mm;
+      line-height: 1.45;
+    }
+
+    .header-line {
+      margin: 0 0 2mm;
+    }
+
+    .label {
+      font-weight: 700;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      margin-top: 4mm;
+    }
+
+    th,
+    td {
+      border: 1px solid #111827;
+      padding: 2.4mm 2mm;
+      vertical-align: top;
+    }
+
+    th {
+      text-align: center;
+      font-weight: 700;
+      background: #f3f4f6;
+    }
+
+    .col-number { width: 11mm; text-align: center; }
+    .col-unit { width: 24mm; text-align: center; }
+    .col-quantity { width: 28mm; text-align: right; }
+
+    .signature-block {
+      margin-top: 10mm;
+      font-size: 11pt;
+      page-break-inside: avoid;
+    }
+
+    .signature-block.extra {
+      margin-top: 6mm;
+    }
+
+    .sig-label {
+      font-weight: 700;
+      margin: 0 0 2mm;
+    }
+
+    .sig-row {
+      margin: 0;
+      display: flex;
+      gap: 12mm;
+      flex-wrap: wrap;
+    }
+
+    .sig-field {
+      white-space: nowrap;
+    }
+
+    .sig-hint {
+      color: #6b7280;
+      font-size: 9pt;
+    }
+
+    .sig-placeholder {
+      letter-spacing: 0.2pt;
+    }
+
+    .signature-placeholder {
+      white-space: nowrap;
+      letter-spacing: 0.2pt;
+    }
+
+    .sheet-counter {
+      margin-top: 7mm;
+      text-align: right;
+      font-size: 9pt;
+      color: #4b5563;
+    }
+  </style>
+</head>
+<body>
+  {% for page in pages %}
+    <section class="page">
+      <h1>{{ title }}</h1>
+
+      {% if page.is_first %}
+        <div class="header-lines">
+          <p class="header-line"><span class="label">Грузоотправитель:</span> {{ shipper_requisites }}</p>
+          <p class="header-line"><span class="label">Грузополучатель:</span> {{ consignee_label }}</p>
+          <p class="header-line"><span class="label">Основание:</span> {{ basis_label }}</p>
+        </div>
+      {% endif %}
+
+      <table>
+        <thead>
+          <tr>
+            <th class="col-number">№</th>
+            <th>Наименование ТМЦ</th>
+            <th class="col-unit">Ед. изм</th>
+            <th class="col-quantity">Кол-во</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for line in page.lines %}
+            <tr>
+              <td class="col-number">{{ line.line_number }}</td>
+              <td>{{ line.item_name }}</td>
+              <td class="col-unit">{{ line.unit }}</td>
+              <td class="col-quantity">{{ line.quantity }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td class="col-number">—</td>
+              <td>Нет строк для печати</td>
+              <td class="col-unit">—</td>
+              <td class="col-quantity">0</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div class="signature-block">
+        Кладовщик: <span class="signature-placeholder">{{ signature_placeholder }}</span>
+      </div>
+
+      {% if page.is_last and extra_signatures %}
+        {% for sig in extra_signatures %}
+          <div class="signature-block extra">
+            <p class="sig-label">{{ sig.label }}:</p>
+            {% if sig.driver_signature %}
+              <p class="sig-row"><span class="sig-placeholder">{{ signature_placeholder }}</span></p>
+            {% else %}
+              <p class="sig-row">
+                <span class="sig-field">
+                  <span class="sig-hint">({{ sig.position_label }})</span> <span class="sig-placeholder">_________________</span>
+                </span>
+                <span class="sig-field">
+                  <span class="sig-hint">({{ sig.signature_label }})</span> <span class="sig-placeholder">_________________/__________________</span>
+                </span>
+              </p>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      {% if total_pages > 1 %}
+        <div class="sheet-counter">Лист {{ page.page_number }} из {{ page.total_pages }}</div>
+      {% endif %}
+    </section>
+  {% endfor %}
+</body>
+</html>

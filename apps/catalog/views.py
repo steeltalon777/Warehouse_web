@@ -7,7 +7,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.http import Http404, HttpResponseForbidden
+from django.http import Http404, HttpResponse, FileResponse, HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
 from django.views import View
@@ -35,7 +35,6 @@ def _resolve_site_id(request) -> str:
         or request.session.get("sync_default_site_id")
         or request.session.get("site_id")
         or binding_site_id
-        or getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
         or ""
     ).strip()
 
@@ -1084,3 +1083,226 @@ class ItemSplitView(CatalogManageAccessMixin, TemplateView):
 
         messages.error(request, result.form_error)
         return self.get(request, pk, *args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Angular SPA shell (Phase 1: Django as host)
+# ---------------------------------------------------------------------------
+
+import re
+from pathlib import Path
+from html.parser import HTMLParser
+
+
+class _AngularIndexParser(HTMLParser):
+    """Extract <style>, <link rel=stylesheet>, <script> from Angular index.html.
+
+    When ``asset_prefix`` is set (e.g. ``"/nomenclature"``), asset URLs are
+    prefixed so the browser resolves them independently of the page location.
+    When empty, relative URLs from index.html are kept as-is (they resolve
+    against the page URL at runtime).
+    """
+
+    def __init__(self, asset_prefix: str = "") -> None:
+        super().__init__()
+        self.asset_prefix = asset_prefix
+        self.inline_styles: list[str] = []
+        self.css_links: list[str] = []
+        self.scripts: list[str] = []
+        self._capture_style = False
+        self._style_data: list[str] = []
+
+    def _asset_url(self, relative_path: str) -> str:
+        if self.asset_prefix:
+            return f"{self.asset_prefix}/{relative_path}"
+        return relative_path
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attr_dict = dict(attrs)
+        if tag == "style" and attr_dict.get("media") != "print":
+            self._capture_style = True
+            self._style_data = []
+        elif tag == "link" and attr_dict.get("rel") == "stylesheet":
+            href = attr_dict.get("href", "")
+            if href:
+                self.css_links.append(self._asset_url(href))
+        elif tag == "script" and attr_dict.get("type") == "module":
+            src = attr_dict.get("src", "")
+            if src:
+                self.scripts.append(self._asset_url(src))
+
+    def handle_data(self, data: str) -> None:
+        if getattr(self, "_capture_style", False):
+            self._style_data.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "style" and getattr(self, "_capture_style", False):
+            self.inline_styles.append("".join(self._style_data))
+            self._capture_style = False
+
+
+class AngularStaticFilesView(View):
+    """Serves built Angular assets from ``FRONTEND_BUILD_DIR``.
+
+    Mounted at root level so that ``<base href="/">`` in the SPA template
+    resolves chunk/asset URLs against the root of the domain.
+    """
+
+    _FILE_RE = re.compile(r"\.(?:js|css|ico|png|jpg|jpeg|svg|gif|woff2?|ttf|eot|json|map)$")
+
+    _MIME: dict[str, str] = {
+        ".js": "application/javascript",
+        ".css": "text/css",
+        ".ico": "image/x-icon",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".svg": "image/svg+xml",
+        ".gif": "image/gif",
+        ".woff": "font/woff",
+        ".woff2": "font/woff2",
+        ".ttf": "font/ttf",
+        ".eot": "application/vnd.ms-fontobject",
+        ".json": "application/json",
+        ".map": "application/json",
+    }
+
+    @property
+    def dist_dir(self) -> Path:
+        return Path(settings.FRONTEND_BUILD_DIR)
+
+    def get(self, request, path: str) -> HttpResponse:
+        dist = self.dist_dir
+        if not self._FILE_RE.search(path):
+            raise Http404
+
+        file_path = (dist / path).resolve()
+        if not str(file_path).startswith(str(dist.resolve())):
+            raise Http404
+        if not file_path.exists() or not file_path.is_file():
+            raise Http404
+
+        content_type = self._MIME.get(file_path.suffix, "application/octet-stream")
+        return FileResponse(file_path.open("rb"), content_type=content_type)
+
+
+class _AngularSpaServeMixin:
+    """Mixin that renders the Angular SPA template with injected assets.
+
+    Subclasses must set:
+    - ``template_name`` — Django template path
+    - ``asset_prefix`` — URL prefix for assets (e.g. ``"/nomenclature"``) or ``""``
+    """
+
+    template_name: str = ""
+    asset_prefix: str = ""
+
+    def _render_spa(self, request) -> HttpResponse:
+        dist = Path(settings.FRONTEND_BUILD_DIR)
+        index_path = dist / "index.html"
+        if not index_path.exists():
+            raise Http404(
+                "Angular build not found. "
+                "Run 'npm run build' in Warehouse_frontend."
+            )
+
+        index_html = index_path.read_text(encoding="utf-8")
+        parser = _AngularIndexParser(asset_prefix=self.asset_prefix)
+        parser.feed(index_html)
+
+        return render(request, self.template_name, {
+            "spa_inline_styles": "\n".join(parser.inline_styles),
+            "spa_css": parser.css_links[0] if parser.css_links else None,
+            "spa_scripts": parser.scripts,
+        })
+
+
+class NomenclatureSPAView(LoginRequiredMixin, _AngularSpaServeMixin, View):
+    """Serves the Angular SPA for /nomenclature/.
+
+    File requests (js, css, etc.) are served from the build directory.
+    Everything else renders the Django template with the SPA shell.
+    """
+
+    template_name = "catalog/nomenclature_spa.html"
+    asset_prefix = ""
+
+    def get(self, request, path: str = "") -> HttpResponse:
+        dist = Path(settings.FRONTEND_BUILD_DIR)
+
+        if path:
+            file_path = (dist / path).resolve()
+            if str(file_path).startswith(str(dist.resolve())) and file_path.exists() and file_path.is_file():
+                content_type = {
+                    ".js": "application/javascript",
+                    ".css": "text/css",
+                    ".ico": "image/x-icon",
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".svg": "image/svg+xml",
+                    ".gif": "image/gif",
+                    ".woff": "font/woff",
+                    ".woff2": "font/woff2",
+                    ".ttf": "font/ttf",
+                    ".eot": "application/vnd.ms-fontobject",
+                    ".json": "application/json",
+                    ".map": "application/json",
+                }.get(file_path.suffix, "application/octet-stream")
+
+                return FileResponse(file_path.open("rb"), content_type=content_type)
+
+        return self._render_spa(request)
+
+
+class OperationsSPAView(LoginRequiredMixin, _AngularSpaServeMixin, View):
+    """Serves the Angular SPA for /operations/.
+
+    This view only renders the SPA template. Static file requests are
+    handled by ``AngularStaticFilesView`` at root level.
+    """
+
+    template_name = "catalog/operations_spa.html"
+    asset_prefix = ""
+
+    def get(self, request, path: str = "") -> HttpResponse:
+        return self._render_spa(request)
+
+
+class TemporaryItemsSPAView(LoginRequiredMixin, _AngularSpaServeMixin, View):
+    """Serves the Angular SPA for /temporary-items/.
+
+    Static file requests are handled by AngularStaticFilesView at root level.
+    """
+
+    template_name = "catalog/temp_items_spa.html"
+    asset_prefix = ""
+
+    def get(self, request, path: str = "") -> HttpResponse:
+        return self._render_spa(request)
+
+
+class IssuedAssetsSPAView(LoginRequiredMixin, _AngularSpaServeMixin, View):
+    """Serves the Angular SPA for /issued-assets/.
+
+    Static file requests are handled by AngularStaticFilesView at root level.
+    """
+
+    template_name = "catalog/issued_assets_spa.html"
+    asset_prefix = ""
+
+    def get(self, request, path: str = "") -> HttpResponse:
+        return self._render_spa(request)
+
+
+class CatalogSPAView(LoginRequiredMixin, _AngularSpaServeMixin, View):
+    """Serves the Angular SPA for /catalog/.
+
+    Static file requests are handled by AngularStaticFilesView at root level.
+    """
+
+    template_name = "catalog/catalog_spa.html"
+    asset_prefix = ""
+
+    def get(self, request, path: str = "") -> HttpResponse:
+        return self._render_spa(request)

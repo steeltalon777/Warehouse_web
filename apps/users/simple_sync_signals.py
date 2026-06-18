@@ -9,9 +9,9 @@ Signals:
     - user_logged_out: Clear SyncServer identity from session
 """
 
-import logging
 from typing import Any
 
+import structlog
 from django.contrib.auth.signals import user_logged_in, user_logged_out
 from django.dispatch import receiver
 from django.http import HttpRequest
@@ -20,8 +20,9 @@ from apps.sync_client.session_auth import (
     store_syncserver_identity,
     clear_syncserver_identity,
 )
+from apps.users.models import LoginAttempt
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 @receiver(user_logged_in)
@@ -43,35 +44,43 @@ def on_user_logged_in(
         user: Authenticated Django user object
         **kwargs: Additional signal arguments
     """
+    # Record local login attempt audit
+    _record_login_attempt(request, user, "login")
+
     logger.info(
-        "Django user logged in, fetching SyncServer identity",
-        extra={"username": user.username, "user_id": user.id}
+        "login_fetch_identity",
+        username=user.username,
+        user_id=user.id,
     )
     
     try:
+        # Django's login signal passes the authenticated user separately;
+        # request.user may still be anonymous in some login paths.
+        request.user = user
+
         # Fetch and store SyncServer identity
         identity = store_syncserver_identity(request)
         
         if identity:
             logger.info(
-                "SyncServer identity stored after Django login",
-                extra={
-                    "django_user": user.username,
-                    "sync_user_id": identity.user_id,
-                    "role": identity.role,
-                    "site_id": identity.site_id
-                }
+                "login_identity_stored",
+                django_user=user.username,
+                sync_user_id=identity.user_id,
+                role=identity.role,
+                site_id=identity.site_id,
             )
         else:
             logger.warning(
-                "Failed to fetch SyncServer identity after Django login",
-                extra={"django_user": user.username}
+                "login_identity_fetch_failed",
+                django_user=user.username,
             )
             
     except Exception as e:
-        logger.exception(
-            "Error during SyncServer identity fetch after Django login",
-            extra={"username": user.username, "error": str(e)}
+        logger.error(
+            "login_identity_fetch_error",
+            username=user.username,
+            error=str(e),
+            exc_info=True,
         )
         # Don't raise exception - allow Django login to succeed even if
         # SyncServer authentication fails (graceful degradation)
@@ -97,9 +106,12 @@ def on_user_logged_out(
         **kwargs: Additional signal arguments
     """
     username = user.username if user else "unknown"
+    # Record local logout attempt audit
+    _record_login_attempt(request, user, "logout")
+
     logger.info(
-        "Django user logged out, clearing SyncServer identity",
-        extra={"username": username}
+        "logout_clear_identity",
+        username=username,
     )
     
     try:
@@ -107,14 +119,15 @@ def on_user_logged_out(
         clear_syncserver_identity(request)
         
         logger.info(
-            "SyncServer identity cleared after Django logout",
-            extra={"username": username}
+            "logout_identity_cleared",
+            username=username,
         )
         
     except Exception as e:
-        logger.exception(
-            "Error clearing SyncServer identity after Django logout",
-            extra={"username": username}
+        logger.error(
+            "logout_identity_clear_error",
+            username=username,
+            exc_info=True,
         )
 
 
@@ -157,3 +170,26 @@ def sync_identity_context(request: HttpRequest) -> dict:
         'sync_identity': identity,
         'has_sync_identity': identity is not None,
     }
+
+
+def _record_login_attempt(request: HttpRequest, user: Any, action: str) -> None:
+    """Create a LoginAttempt record for login/logout events."""
+    from uuid import uuid4
+    try:
+        ip_address = request.META.get(
+            "HTTP_X_FORWARDED_FOR",
+            request.META.get("REMOTE_ADDR", ""),
+        ).split(",")[0].strip() or None
+
+        user_agent = (request.META.get("HTTP_USER_AGENT", "") or "")[:256]
+
+        LoginAttempt.objects.create(
+            user=user if user and not user.is_anonymous else None,
+            action=action,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            request_id=getattr(request, "request_id", ""),
+        )
+    except Exception:
+        logger.exception("failed to record login attempt audit")
+        # Don't raise — audit failure must not break login/logout flow

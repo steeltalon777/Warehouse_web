@@ -1,21 +1,26 @@
 # SYSTEM_MAP
 
-## Контекст
-`Browser -> Django SSR -> Service Layer -> SyncServerClient -> SyncServer API`
+## Context
 
-## Django зоны ответственности
-1. Technical auth/session/admin layer.
-2. Role-oriented web UI (root/chief/storekeeper).
-3. Не хранит warehouse truth в локальной ORM.
+`Browser -> Django UI/BFF -> Service Layer -> apps/sync_client -> SyncServer API`
 
-## Основные модули
-- `apps/integration/syncserver_client.py` — HTTP client к SyncServer.
-- `apps/catalog/services.py` — API-first сервисы каталога (chief workflows).
-- `apps/client/services.py` — API-first сервисы users/roles/sites/balances/operations.
-- `apps/client/views.py` — root panel + storekeeper/chief UI.
-- `apps/users/*` — legacy transition models (deprecated, non-mandatory).
+## Django Responsibilities
 
-## UI маршруты
-- Root/admin: `/client/root/users/`, `/client/root/users/create/`, `/client/root/users/<id>/edit/`
-- Chief: `/catalog/*`
-- Storekeeper: `/client/catalog/`, `/client/balances/`, `/client/operations/`, `/client/operations/create/`
+1. Technical auth, session, and admin layer.
+2. Role-oriented web UI.
+3. Same-origin BFF endpoints for Angular.
+4. SyncServer integration orchestration.
+
+## Main Modules
+
+- `apps/sync_client/*` - HTTP clients and endpoint wrappers for SyncServer.
+- `apps/catalog/services.py` - SyncServer-backed catalog orchestration.
+- `apps/catalog/views.py` - catalog/nomenclature views and BFF candidates.
+- `apps/client/services.py` - dashboard/domain orchestration.
+- `apps/users/*` - Django auth and SyncServer user binding.
+
+## UI Routes
+
+- Root/admin: `/client/root/users/`, `/client/root/users/create/`, `/client/root/users/<id>/edit/`.
+- Catalog/nomenclature: `/catalog/*`, `/nomenclature/*`.
+- Storekeeper: `/client/catalog/`, `/client/balances/`, `/client/operations/`, `/client/operations/create/`.

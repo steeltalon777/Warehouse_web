@@ -258,7 +258,7 @@ total_quantity = sum(b["quantity"] for b in item_balances)
 2. **BalancesAPI:**
    - `list()` → `list_balances()` (added filter support)
    - `summary()` → `get_balances_summary()` (renamed, added filter support)
-   - `by_site()` - deprecated in favor of `list_balances(filters={"site_id": ...})`
+   - `by_site()` - compatibility helper; prefer `list_balances(filters={"site_id": ...})`
    - Added `get_balances_by_item()` method
 
 ### Backward Compatibility

@@ -77,7 +77,7 @@ def _get_user_default_site_id(request) -> str:
 
 
 def _get_default_balance_site_id(request) -> str:
-    return ""
+    return str(request.session.get("sync_default_site_id") or "").strip()
 
 
 def _present_balance_row(
@@ -180,6 +180,17 @@ class BalancesListView(SyncContextMixin, TemplateView):
             _present_balance_row(row, sites_index=sites_index, items_index=items_index)
             for row in response.get("items", [])
         ]
+
+        sort_field = request.GET.get("sort") or ""
+        sort_dir = request.GET.get("dir") or "asc"
+        if sort_field:
+            reverse = sort_dir == "desc"
+            balances = sorted(
+                balances,
+                key=lambda row: (row.get(sort_field) is None, str(row.get(sort_field, "")).lower()),
+                reverse=reverse,
+            )
+
         total_count = int(response.get("total_count", len(balances)) or 0)
         has_previous = page > 1
         has_next = page * page_size < total_count
@@ -201,6 +212,8 @@ class BalancesListView(SyncContextMixin, TemplateView):
                 "next_page": page + 1,
                 "has_previous": has_previous,
                 "has_next": has_next,
+                "sort_field": sort_field,
+                "sort_dir": sort_dir,
             },
         )
 

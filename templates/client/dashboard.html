@@ -11,7 +11,7 @@
   <div class="card">
     <div class="kpi">Операции</div>
     <p>Создание и контроль движений.</p>
-    <a class="btn" href="{% url 'operations:list' %}">Открыть</a>
+    <a class="btn" href="{% url 'operations_spa' %}">Открыть</a>
   </div>
 
   {% if pending_summary %}
@@ -21,7 +21,35 @@
       <span class="badge badge-warning">{{ pending_summary.operation_count }}</span>
     </div>
     <p>{{ pending_summary.line_count }} позиций</p>
-    <a class="btn" href="{% url 'operations:pending_acceptance' %}">Открыть приёмку</a>
+    <a class="btn" href="/operations/pending-acceptance">Открыть приёмку</a>
+  </div>
+  {% endif %}
+
+  {% if temp_item_count is not None %}
+  <div class="card">
+    <div class="kpi">
+      ТМЦ, требующие проверки
+      {% if temp_item_count > 0 %}
+      <span class="badge badge-warning">{{ temp_item_count }}</span>
+      {% else %}
+      <span class="badge">{{ temp_item_count }}</span>
+      {% endif %}
+    </div>
+    <div class="dashboard-temp-details">
+      <p class="dashboard-temp-detail">Всего активных: <strong>{{ temp_item_count }}</strong></p>
+      {% if temp_item_count > 0 %}
+      <p class="dashboard-temp-detail dashboard-temp-detail--warning">⚠ Требуют проверки/заполнения</p>
+      {% else %}
+      <p class="dashboard-temp-detail">Нет ТМЦ, требующих проверки</p>
+      {% endif %}
+    </div>
+    <a class="btn" href="/temporary-items/">Открыть ТМЦ для проверки</a>
+  </div>
+  {% else %}
+  <div class="card">
+    <div class="kpi">ТМЦ, требующие проверки</div>
+    <p>Данные временно недоступны</p>
+    <a class="btn disabled" href="#">Нет данных</a>
   </div>
   {% endif %}
 </div>

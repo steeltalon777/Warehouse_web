@@ -12,11 +12,11 @@ Features:
 5. Optional retry for transient errors
 """
 
-import logging
 import time
 from functools import wraps
 from typing import Any, Callable, Optional, TypeVar, cast
 
+import structlog
 from django.contrib import messages
 from django.http import HttpRequest, HttpResponse
 
@@ -31,7 +31,7 @@ from apps.sync_client.exceptions import (
     SyncValidationError,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 # Type variable for function return type
 F = TypeVar('F', bound=Callable[..., Any])
@@ -76,39 +76,36 @@ class APIErrorHandler:
         
         # Log error with appropriate level
         if isinstance(error, SyncBackendUnavailable):
-            logger.error(f"SyncServer недоступен: {operation}", extra=error_details)
+            logger.error("syncserver_unavailable", operation=operation, **error_details)
             user_message = "Сервер синхронизации временно недоступен. Пожалуйста, попробуйте позже."
         elif isinstance(error, SyncAuthError):
-            logger.warning(f"Ошибка аутентификации: {operation}", extra=error_details)
+            logger.warning("sync_auth_error", operation=operation, **error_details)
             user_message = "Ошибка аутентификации. Пожалуйста, войдите снова."
         elif isinstance(error, SyncForbiddenError):
-            logger.warning(f"Доступ запрещён: {operation}", extra=error_details)
+            logger.warning("sync_forbidden_error", operation=operation, **error_details)
             user_message = "У вас недостаточно прав для выполнения этой операции."
         elif isinstance(error, SyncNotFoundError):
-            logger.warning(f"Ресурс не найден: {operation}", extra=error_details)
+            logger.warning("sync_not_found_error", operation=operation, **error_details)
             user_message = "Запрашиваемый ресурс не найден."
         elif isinstance(error, SyncValidationError):
-            logger.warning(f"Ошибка валидации: {operation}", extra=error_details)
-            # Try to extract validation errors from payload
+            logger.warning("sync_validation_error", operation=operation, **error_details)
             if error.payload and "errors" in error.payload:
                 user_message = f"Ошибка валидации: {error.payload['errors']}"
             else:
                 user_message = "Ошибка в данных запроса. Проверьте введённые данные."
         elif isinstance(error, SyncConflictError):
-            logger.warning(f"Конфликт данных: {operation}", extra=error_details)
+            logger.warning("sync_conflict_error", operation=operation, **error_details)
             user_message = "Конфликт данных. Возможно, ресурс был изменён другим пользователем."
         elif isinstance(error, SyncServerInternalError):
-            logger.error(f"Внутренняя ошибка SyncServer: {operation}", extra=error_details)
+            logger.error("sync_internal_error", operation=operation, **error_details)
             user_message = "Внутренняя ошибка сервера. Пожалуйста, попробуйте позже."
         else:
-            logger.error(f"Неизвестная ошибка SyncServer: {operation}", extra=error_details)
+            logger.error("sync_unknown_error", operation=operation, **error_details)
             user_message = "Произошла неизвестная ошибка. Пожалуйста, попробуйте позже."
         
-        # Add error message for user
         messages.error(request, user_message)
         
-        # Log full error details for debugging
-        logger.debug(f"Полные детали ошибки: {error_details}")
+        logger.debug("api_error_details", error_details=error_details)
     
     @staticmethod
     def handle_generic_error(
@@ -136,7 +133,7 @@ class APIErrorHandler:
         }
         
         # Log the error
-        logger.exception(f"Неожиданная ошибка при выполнении {operation}", extra=error_details)
+        logger.error("unexpected_error", operation=operation, **error_details, exc_info=True)
         
         # Show generic error message to user (no traceback)
         messages.error(
@@ -177,15 +174,19 @@ class APIErrorHandler:
                     # Check if we should retry
                     if attempt < max_retries:
                         logger.warning(
-                            f"Попытка {attempt + 1}/{max_retries} не удалась, "
-                            f"повтор через {current_delay}с: {e}"
+                            "retry_attempt_failed",
+                            attempt=attempt + 1,
+                            max_retries=max_retries,
+                            delay_seconds=current_delay,
+                            error=str(e),
                         )
                         time.sleep(current_delay)
                         current_delay *= backoff
                     else:
                         logger.error(
-                            f"Все {max_retries} попыток не удались",
-                            extra={"error": str(e)}
+                            "retries_exhausted",
+                            max_retries=max_retries,
+                            error=str(e),
                         )
                         raise
                 except Exception as e:
@@ -370,8 +371,8 @@ def log_api_call(
     }
     
     if status_code and status_code >= 400:
-        logger.warning(f"API запрос завершился с ошибкой", extra=log_data)
+        logger.warning("api_request_error", **log_data)
         if response_data:
-            logger.debug(f"Ответ API: {response_data}")
+            logger.debug("api_response", response_data=response_data)
     else:
-        logger.debug(f"API запрос выполнен", extra=log_data)
+        logger.debug("api_request_completed", **log_data)

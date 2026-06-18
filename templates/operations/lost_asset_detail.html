@@ -8,11 +8,11 @@
     <p class="text-muted">{{ item.item_name|default:operation_line_id }}</p>
   </div>
   <div>
-    <a href="{% url 'operations:lost_assets' %}" class="btn btn-outline"
+    <a href="{% url 'operations_ssr:lost_assets' %}" class="btn btn-outline"
       >← К списку</a
     >
     <a
-      href="{% url 'operations:detail' operation_id=item.operation_id %}"
+      href="{% url 'operations_ssr:detail' operation_id=item.operation_id %}"
       class="btn btn-outline"
       >Документ</a
     >
@@ -46,7 +46,7 @@
           <dt>Операция</dt>
           <dd>
             <a
-              href="{% url 'operations:detail' operation_id=item.operation_id %}"
+              href="{% url 'operations_ssr:detail' operation_id=item.operation_id %}"
             >
               {{ item.document_number|default:item.operation_id }}
             </a>
@@ -102,7 +102,7 @@
 
       <form
         method="post"
-        action="{% url 'operations:lost_asset_resolve' operation_line_id=operation_line_id %}"
+        action="{% url 'operations_ssr:lost_asset_resolve' operation_line_id=operation_line_id %}"
       >
         {% csrf_token %}
 
@@ -159,15 +159,15 @@
         </div>
 
         <div class="form-group">
-          <label for="responsible_recipient_id">Ответственный получатель</label>
+          <label for="responsible_issue_object_id">Ответственный получатель</label>
           <select
-            id="responsible_recipient_id"
-            name="responsible_recipient_id"
+            id="responsible_issue_object_id"
+            name="responsible_issue_object_id"
             class="form-control"
           >
             <option value="">Не указан</option>
-            {% for recipient in recipients %}
-            <option value="{{ recipient.id }}">{{ recipient.name }}</option>
+            {% for obj in issue_objects %}
+            <option value="{{ obj.id }}">{{ obj.name }}</option>
             {% endfor %}
           </select>
         </div>

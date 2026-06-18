@@ -7,7 +7,7 @@
     <p class="operation-page-note">Журнал складских документов. Откройте карточку операции, чтобы посмотреть строки и выполнить действия.</p>
   </div>
   {% if can_create_operations %}
-  <a href="{% url 'operations:create' %}" class="btn">Создать операцию</a>
+  <a href="{% url 'operations_ssr:create' %}" class="btn">Создать операцию</a>
   {% endif %}
 </div>
 
@@ -53,7 +53,7 @@
     </div>
     <div class="form-row operation-filter-actions">
       <button type="submit" class="btn" data-loading-text="Загрузка...">Применить</button>
-      <a href="{% url 'operations:list' %}" class="btn btn-secondary">Сбросить</a>
+      <a href="{% url 'operations_ssr:list' %}" class="btn btn-secondary">Сбросить</a>
     </div>
   </form>
 </div>
@@ -76,7 +76,7 @@
       <tbody>
         {% for op in operations %}
         <tr>
-          <td><a href="{% url 'operations:detail' op.id %}">{{ op.id|truncatechars:12 }}</a></td>
+          <td><a href="{% url 'operations_ssr:detail' op.id %}">{{ op.id|truncatechars:12 }}</a></td>
           <td>{{ op.type_label }}</td>
           <td><span class="operation-status-chip operation-status-chip-{{ op.status_tone }}">{{ op.status_label }}</span></td>
           <td><span class="operation-status-chip operation-status-chip-{{ op.acceptance_state_tone }}">{{ op.acceptance_state_label }}</span></td>
@@ -92,7 +92,7 @@
             <div class="operation-row-meta">{{ op.line_preview|default:"—" }}</div>
           </td>
           <td>{{ op.created_at|default:"—" }}</td>
-          <td><a href="{% url 'operations:detail' op.id %}" class="btn btn-secondary btn-small">Открыть</a></td>
+          <td><a href="{% url 'operations_ssr:detail' op.id %}" class="btn btn-secondary btn-small">Открыть</a></td>
         </tr>
         {% empty %}
         <tr>

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Профиль — {{ request.user.username }}{% endblock %}
+{% block content %}
+<div class="profile-page">
+    <h1>Профиль: {{ request.user.username }}</h1>
+    {% if success %}
+        <div class="alert alert-success">Данные сохранены.</div>
+    {% endif %}
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" class="btn btn-primary">Сохранить</button>
+    </form>
+</div>
+{% endblock %}

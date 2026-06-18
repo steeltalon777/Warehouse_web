@@ -54,13 +54,13 @@
     <div class="form-row">
       <label for="page_size">На странице</label>
       <select id="page_size" name="page_size">
-        <option value="10" {% if page_size == "10" %}selected{% endif %}>
+        <option value="10" {% if page_size == 10 %}selected{% endif %}>
           10
         </option>
-        <option value="20" {% if page_size == "20" %}selected{% endif %}>
+        <option value="20" {% if page_size == 20 %}selected{% endif %}>
           20
         </option>
-        <option value="50" {% if page_size == "50" %}selected{% endif %}>
+        <option value="50" {% if page_size == 50 %}selected{% endif %}>
           50
         </option>
       </select>
@@ -77,9 +77,12 @@
 <div class="card">
   <h3>Список временных ТМЦ ({{ total_count }})</h3>
   {% if items %}
+  <form method="post" action="{% url 'temporary_items:bulk_delete' %}" id="bulk-delete-form">
+    {% csrf_token %}
   <table class="data-table">
     <thead>
       <tr>
+        <th><input type="checkbox" id="select-all" title="Выбрать все" /></th>
         <th>ID</th>
         <th>Название</th>
         <th>Код</th>
@@ -91,7 +94,11 @@
     <tbody>
       {% for item in items %}
       <tr>
-        <td><code>{{ item.id|truncatechars:12 }}</code></td>
+        <td>
+          <input type="checkbox" name="item_ids" value="{{ item.id }}"
+                 data-status="{{ item.status }}" class="item-checkbox" />
+        </td>
+        <td><code>{{ item.id }}</code></td>
         <td>{{ item.name|default:"—" }}</td>
         <td>{{ item.code|default:"—" }}</td>
         <td>
@@ -137,8 +144,19 @@
     </tbody>
   </table>
 
-  {% if total_count > page_size %}
-  <div class="pagination">
+  <div style="margin-top: 12px; display: flex; gap: 10px; align-items: center;">
+    <button type="submit" class="btn btn-danger btn-sm"
+            onclick="return confirm('Удалить выбранные временные ТМЦ?')">
+      Удалить выбранные
+    </button>
+    <span style="color: #666; font-size: 0.9em;">
+      Удаление активно только для ТМЦ со статусом «Активна». Остальные будут пропущены.
+    </span>
+  </div>
+  </form>
+
+  {% if total_pages > 1 %}
+  <div class="pagination" style="margin-top: 16px;">
     {% if page > 1 %}
     <a
       href="?page={{ page|add:-1 }}&page_size={{ page_size }}&status={{ status|default:'' }}&search={{ search|default:'' }}"
@@ -146,11 +164,8 @@
       >← Назад</a
     >
     {% endif %}
-    <span
-      >Страница {{ page }} из {{
-      total_count|divisibleby:page_size|yesno:total_count|add:1 }}</span
-    >
-    {% if page < total_count|divisibleby:page_size %}
+    <span>Страница {{ page }} из {{ total_pages }}</span>
+    {% if page < total_pages %}
     <a
       href="?page={{ page|add:1 }}&page_size={{ page_size }}&status={{ status|default:'' }}&search={{ search|default:'' }}"
       class="btn btn-sm"
@@ -162,4 +177,13 @@
   <p>Нет временных ТМЦ, соответствующих фильтрам.</p>
   {% endif %}
 </div>
+
+<script>
+  document.getElementById('select-all').addEventListener('change', function() {
+    var checked = this.checked;
+    document.querySelectorAll('.item-checkbox').forEach(function(cb) {
+      cb.checked = checked;
+    });
+  });
+</script>
 {% endblock %}

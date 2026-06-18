@@ -1,74 +1,90 @@
 {% extends "base.html" %}
 {% block title %}Остатки{% endblock %}
 {% block content %}
-<div class="container">
-  <div class="mb-4">
-    <h1>Остатки</h1>
-    <p class="text-muted">Текущие остатки ТМЦ по доступным складам.</p>
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-      <div></div>
-      <div style="display: flex; gap: 8px;">
-        <a href="{% url 'balances:summary' %}" class="btn btn-info">Сводка</a>
-        <a href="{% url 'balances:by_site' %}" class="btn btn-secondary">По складу</a>
-      </div>
+<div class="balances-page">
+  <div class="balances-header">
+    <div>
+      <h1>Остатки</h1>
+      <p class="text-muted">Текущие остатки ТМЦ по доступным складам.</p>
+    </div>
+    <div class="balances-header-actions">
+      <a href="{% url 'balances:summary' %}" class="btn btn-info">Сводка</a>
+      <a href="{% url 'balances:by_site' %}" class="btn btn-secondary">По складу</a>
     </div>
   </div>
 
-  <div class="card mb-4">
-    <h3>Фильтры</h3>
-    <form method="get" class="grid-2" data-loading-form data-loading-text="Загрузка..." data-loading-scope="page">
-      <div class="form-row">
-        <label for="search">Поиск</label>
-        <input type="search" id="search" name="search" value="{{ search }}" placeholder="Наименование, SKU, категория или #ключевое_слово">
+  <div class="balances-filters-compact">
+    <form method="get" class="balances-filter-form" data-loading-form data-loading-text="Загрузка..." data-loading-scope="page">
+      <div class="balances-filter-row">
+        <div class="form-row compact">
+          <label for="search">Поиск</label>
+          <input type="search" id="search" name="search" value="{{ search }}" placeholder="Наименование, SKU, категория">
+        </div>
+        <div class="form-row compact">
+          <label for="item_id">ID ТМЦ</label>
+          <input type="text" id="item_id" name="item_id" value="{{ item_id }}" placeholder="Например, 15">
+        </div>
+        <div class="form-row compact">
+          <label for="site_id">Склад</label>
+          <select id="site_id" name="site_id">
+            <option value="" {% if not site_id %}selected{% endif %}>Все склады</option>
+            {% for site in sites %}
+            <option value="{{ site.site_id }}" {% if site_id|stringformat:"s" == site.site_id|stringformat:"s" %}selected{% endif %}>
+              {{ site.name }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-row compact">
+          <label for="page_size">На стр.</label>
+          <select id="page_size" name="page_size">
+            <option value="20" {% if page_size == 20 %}selected{% endif %}>20</option>
+            <option value="50" {% if page_size == 50 %}selected{% endif %}>50</option>
+            <option value="100" {% if page_size == 100 %}selected{% endif %}>100</option>
+            <option value="200" {% if page_size == 200 %}selected{% endif %}>200</option>
+          </select>
+        </div>
       </div>
-      <div class="form-row">
-        <label for="item_id">ID ТМЦ</label>
-        <input type="text" id="item_id" name="item_id" value="{{ item_id }}" placeholder="Например, 15">
-      </div>
-      <div class="form-row">
-        <label for="site_id">Склад</label>
-        <select id="site_id" name="site_id">
-          <option value="" {% if not site_id %}selected{% endif %}>Все склады</option>
-          {% for site in sites %}
-          <option value="{{ site.site_id }}" {% if site_id|stringformat:"s" == site.site_id|stringformat:"s" %}selected{% endif %}>
-            {{ site.name }}
-          </option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="form-row">
-        <label for="page_size">На странице</label>
-        <select id="page_size" name="page_size">
-          <option value="20" {% if page_size == 20 %}selected{% endif %}>20</option>
-          <option value="50" {% if page_size == 50 %}selected{% endif %}>50</option>
-          <option value="100" {% if page_size == 100 %}selected{% endif %}>100</option>
-          <option value="200" {% if page_size == 200 %}selected{% endif %}>200</option>
-        </select>
-      </div>
-      <div class="form-row" style="grid-column: span 2;">
-        <label style="display: flex; gap: 8px; align-items: center;">
+      <div class="balances-filter-actions">
+        <label class="compact-checkbox">
           <input type="checkbox" name="only_positive" value="1" {% if only_positive %}checked{% endif %}>
-          Только положительные остатки
+          Только положительные
         </label>
-      </div>
-      <div class="form-row" style="grid-column: span 2;">
-        <div style="display: flex; gap: 8px;">
-          <button type="submit" class="btn btn-primary">Применить фильтры</button>
+        <div class="balances-filter-buttons">
+          <button type="submit" class="btn btn-primary">Применить</button>
           <a href="{% url 'balances:list' %}" class="btn btn-secondary">Сбросить</a>
         </div>
       </div>
+      <input type="hidden" name="sort" value="{{ sort_field }}">
+      <input type="hidden" name="dir" value="{{ sort_dir }}">
     </form>
   </div>
 
-  <div class="card">
-    <div class="table-responsive">
-      <table>
+  <div class="balances-table-card">
+    <div class="balances-table-scroll">
+      <table class="balances-table">
         <thead>
           <tr>
-            <th>ТМЦ</th>
-            <th>Склад</th>
-            <th>Количество</th>
-            <th>Обновлено</th>
+            <th>
+              <a href="?{% if sort_field == 'item_name' and sort_dir == 'asc' %}sort=item_name&dir=desc{% else %}sort=item_name&dir=asc{% endif %}{% if search %}&search={{ search|urlencode }}{% endif %}{% if item_id %}&item_id={{ item_id }}{% endif %}{% if site_id %}&site_id={{ site_id }}{% endif %}&page_size={{ page_size }}{% if only_positive %}&only_positive=1{% endif %}" class="sort-link {% if sort_field == 'item_name' %}sort-active sort-{{ sort_dir }}{% endif %}">
+                ТМЦ
+              </a>
+            </th>
+            <th>
+              <a href="?{% if sort_field == 'site_name' and sort_dir == 'asc' %}sort=site_name&dir=desc{% else %}sort=site_name&dir=asc{% endif %}{% if search %}&search={{ search|urlencode }}{% endif %}{% if item_id %}&item_id={{ item_id }}{% endif %}{% if site_id %}&site_id={{ site_id }}{% endif %}&page_size={{ page_size }}{% if only_positive %}&only_positive=1{% endif %}" class="sort-link {% if sort_field == 'site_name' %}sort-active sort-{{ sort_dir }}{% endif %}">
+                Склад
+              </a>
+            </th>
+            <th>
+              <a href="?{% if sort_field == 'quantity' and sort_dir == 'asc' %}sort=quantity&dir=desc{% else %}sort=quantity&dir=asc{% endif %}{% if search %}&search={{ search|urlencode }}{% endif %}{% if item_id %}&item_id={{ item_id }}{% endif %}{% if site_id %}&site_id={{ site_id }}{% endif %}&page_size={{ page_size }}{% if only_positive %}&only_positive=1{% endif %}" class="sort-link {% if sort_field == 'quantity' %}sort-active sort-{{ sort_dir }}{% endif %}">
+                Количество
+              </a>
+            </th>
+            <th>
+              <a href="?{% if sort_field == 'updated_at' and sort_dir == 'asc' %}sort=updated_at&dir=desc{% else %}sort=updated_at&dir=asc{% endif %}{% if search %}&search={{ search|urlencode }}{% endif %}{% if item_id %}&item_id={{ item_id }}{% endif %}{% if site_id %}&site_id={{ site_id }}{% endif %}&page_size={{ page_size }}{% if only_positive %}&only_positive=1{% endif %}" class="sort-link {% if sort_field == 'updated_at' %}sort-active sort-{{ sort_dir }}{% endif %}">
+                Обновлено
+              </a>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -85,7 +101,7 @@
           </tr>
           {% empty %}
           <tr>
-            <td colspan="4" style="text-align: center; padding: 32px; color: var(--muted);">
+            <td colspan="4" class="balances-empty">
               Нет данных по остаткам.
             </td>
           </tr>
@@ -94,18 +110,18 @@
       </table>
     </div>
 
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+    <div class="balances-pagination">
       <div class="text-muted">
         Всего записей: {{ total_count }}
       </div>
-      <div style="display: flex; gap: 8px;">
+      <div class="balances-pagination-buttons">
         {% if has_previous %}
-        <a class="btn btn-secondary" href="?search={{ search|urlencode }}&item_id={{ item_id }}&site_id={{ site_id }}&page_size={{ page_size }}&page={{ prev_page }}{% if only_positive %}&only_positive=1{% endif %}">
+        <a class="btn btn-secondary" href="?search={{ search|urlencode }}&item_id={{ item_id }}&site_id={{ site_id }}&page_size={{ page_size }}&page={{ prev_page }}{% if only_positive %}&only_positive=1{% endif %}{% if sort_field %}&sort={{ sort_field }}&dir={{ sort_dir }}{% endif %}">
           ← Назад
         </a>
         {% endif %}
         {% if has_next %}
-        <a class="btn btn-secondary" href="?search={{ search|urlencode }}&item_id={{ item_id }}&site_id={{ site_id }}&page_size={{ page_size }}&page={{ next_page }}{% if only_positive %}&only_positive=1{% endif %}">
+        <a class="btn btn-secondary" href="?search={{ search|urlencode }}&item_id={{ item_id }}&site_id={{ site_id }}&page_size={{ page_size }}&page={{ next_page }}{% if only_positive %}&only_positive=1{% endif %}{% if sort_field %}&sort={{ sort_field }}&dir={{ sort_dir }}{% endif %}">
           Вперёд →
         </a>
         {% endif %}
@@ -115,64 +131,214 @@
 </div>
 
 <style>
-  .badge {
-    display: inline-block;
-    padding: 4px 8px;
-    border-radius: 4px;
+  .balances-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    gap: 12px;
+  }
+
+  .balances-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-shrink: 0;
+  }
+  .balances-header h1 {
+    margin: 0 0 4px 0;
+    font-size: 24px;
+  }
+  .balances-header .text-muted {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .balances-header-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .balances-filters-compact {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 16px;
+    flex-shrink: 0;
+  }
+  .balances-filter-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .balances-filter-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1.5fr 1fr;
+    gap: 12px;
+    align-items: end;
+  }
+  .balances-filter-row .form-row.compact {
+    margin: 0;
+  }
+  .balances-filter-row .form-row.compact label {
     font-size: 12px;
+    margin-bottom: 2px;
+    color: var(--muted);
+  }
+  .balances-filter-row .form-row.compact input,
+  .balances-filter-row .form-row.compact select {
+    padding: 6px 10px;
+    font-size: 13px;
+    height: 36px;
+  }
+
+  .balances-filter-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+  .compact-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .compact-checkbox input {
+    width: 16px;
+    height: 16px;
+  }
+  .balances-filter-buttons {
+    display: flex;
+    gap: 8px;
+  }
+
+  .balances-table-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .balances-table-scroll {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .balances-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .balances-table thead th {
+    position: sticky;
+    top: 0;
+    background: #f8fafc;
+    z-index: 1;
+    padding: 10px 16px;
+    text-align: left;
     font-weight: 600;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .balances-table tbody td {
+    padding: 8px 16px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+  }
+  .balances-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+  .balances-table tbody tr:hover {
+    background: #f8fafc;
   }
 
-  .bg-danger {
-    background: #dc2626;
-    color: white;
+  .sort-link {
+    color: inherit;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .sort-link:hover {
+    color: var(--brand);
+  }
+  .sort-link::after {
+    content: "⇅";
+    font-size: 11px;
+    color: #cbd5e1;
+  }
+  .sort-link.sort-active::after {
+    color: var(--brand);
+  }
+  .sort-link.sort-asc::after {
+    content: "↑";
+  }
+  .sort-link.sort-desc::after {
+    content: "↓";
   }
 
-  .bg-warning {
-    background: #f59e0b;
-    color: white;
+  .balances-empty {
+    text-align: center;
+    padding: 32px;
+    color: var(--muted);
   }
 
-  .bg-success {
-    background: #10b981;
-    color: white;
+  .balances-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    border-top: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .balances-pagination-buttons {
+    display: flex;
+    gap: 8px;
   }
 
-  .bg-info {
-    background: #0ea5e9;
-    color: white;
+  .text-muted {
+    color: var(--muted);
+    font-size: 12px;
   }
 
   .quantity {
     font-weight: bold;
     font-size: 16px;
   }
+  .quantity.danger { color: #dc2626; }
+  .quantity.warning { color: #f59e0b; }
+  .quantity.success { color: #10b981; }
 
-  .quantity.danger {
-    color: #dc2626;
+  @media (max-width: 1200px) {
+    .balances-filter-row {
+      grid-template-columns: 1fr 1fr;
+    }
   }
-
-  .quantity.warning {
-    color: #f59e0b;
-  }
-
-  .quantity.success {
-    color: #10b981;
-  }
-
-  .btn-info:hover {
-    background: #0c8bc7;
-  }
-
-  .table-responsive {
-    overflow-x: auto;
-  }
-
-  .text-muted {
-    color: var(--muted);
-    font-size: 12px;
+  @media (max-width: 768px) {
+    .balances-filter-row {
+      grid-template-columns: 1fr;
+    }
+    .balances-header {
+      flex-direction: column;
+      gap: 8px;
+    }
+    .balances-filter-actions {
+      flex-direction: column;
+      align-items: flex-start;
+    }
   }
 </style>
 {% endblock %}

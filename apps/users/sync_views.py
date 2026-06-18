@@ -9,8 +9,9 @@ Views:
     - sync_identity_info: View current SyncServer identity information
 """
 
-import logging
+from typing import Any
 
+import structlog
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render, redirect
@@ -23,7 +24,7 @@ from apps.sync_client.auth_integration import (
     has_sync_identity,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 @login_required
@@ -44,7 +45,7 @@ def sync_site_switch(request: HttpRequest) -> HttpResponse:
     
     if not identity:
         # No Sync identity - redirect to login or show error
-        logger.warning("Attempt to switch site without Sync identity")
+        logger.warning("site_switch_no_identity")
         return render(request, 'sync_auth/error.html', {
             'error': 'SyncServer identity not found. Please log in again.'
         })
@@ -61,12 +62,10 @@ def sync_site_switch(request: HttpRequest) -> HttpResponse:
         # Update site in session
         if update_sync_site(request, site_id):
             logger.info(
-                "User switched SyncServer site",
-                extra={
-                    'user_id': identity.user_id,
-                    'old_site_id': identity.site_id,
-                    'new_site_id': site_id
-                }
+                "site_switched",
+                user_id=identity.user_id,
+                old_site_id=identity.site_id,
+                new_site_id=site_id,
             )
             
             # Redirect back to referring page or dashboard
@@ -126,7 +125,7 @@ def sync_refresh_identity(request: HttpRequest) -> HttpResponse:
     """
     # Note: This would require storing credentials securely to re-authenticate
     # For now, just redirect to logout/login flow
-    logger.info("User requested Sync identity refresh")
+    logger.info("identity_refresh_requested")
     
     # Redirect to logout (which will clear Sync identity) then login
     return redirect(reverse('users:logout'))
@@ -151,8 +150,9 @@ def require_sync_auth(view_func):
     def wrapped_view(request, *args, **kwargs):
         if not has_sync_identity(request):
             logger.warning(
-                "Sync authentication required but not found",
-                extra={'path': request.path, 'user': request.user.username}
+                "sync_auth_required",
+                path=request.path,
+                user=request.user.username,
             )
             
             # Store current path for redirect after login
@@ -185,8 +185,9 @@ class SyncAuthMixin:
     def dispatch(self, request, *args, **kwargs):
         if not has_sync_identity(request):
             logger.warning(
-                "Sync authentication required but not found for class-based view",
-                extra={'view': self.__class__.__name__, 'user': request.user.username}
+                "sync_auth_required_cbv",
+                view=self.__class__.__name__,
+                user=request.user.username,
             )
             
             # Store current path for redirect after login

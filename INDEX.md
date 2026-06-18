@@ -2,61 +2,22 @@
 
 ## Project Overview
 
-Warehouse_web is a Django server-rendered web client for SyncServer. SyncServer owns warehouse domain data and rules. Django owns UI, sessions, admin tooling, and integration orchestration.
+`Warehouse_web` is the active Django web client and BFF for SyncServer.
 
-## Architecture Overview
+## Structure
 
-- browser requests are handled by Django SSR views and Django admin
-- app services orchestrate multi-step flows
-- `apps/sync_client` owns HTTP communication with SyncServer
-- SyncServer remains the source of truth for warehouse domain data
-
-## Tech Stack
-
-- Python 3.12+
-- Django 5.2
-- httpx
-- WhiteNoise
-- Gunicorn
-- SQLite / PostgreSQL
-- Docker
-
-## Application Structure
-
-- `config/` - settings, URLs, ASGI/WSGI
-- `apps/users/` - auth, sync binding, admin sync workflows
-- `apps/sync_client/` - canonical client layer
-- `apps/catalog/` - categories, units, items screens
-- `apps/operations/` - operations screens
-- `apps/balances/` - balances screens
-- `apps/client/` - dashboard and working pages
-- `apps/admin_panel/` - devices and access
-- `apps/common/` - shared helpers, permissions, mixins
-
-## Main Modules
-
-- `apps/users`
-- `apps/sync_client`
-- `apps/catalog`
-- `apps/operations`
-- `apps/balances`
-- `apps/client`
-- `apps/admin_panel`
-
-## Entry Points
-
-- `manage.py`
-- `config/urls.py`
-- `config/wsgi.py`
-- `config/asgi.py`
-- `apps/users/admin.py`
-
-## Important Models
-
-- `django.contrib.auth.models.User`
-- `apps.users.models.SyncUserBinding`
-- `apps.users.models.Site`
-- `apps.users.models.UserProfile` as a deprecated compatibility tail
+- `config/` - settings, URLs, ASGI/WSGI.
+- `apps/sync_client/` - canonical SyncServer HTTP layer.
+- `apps/users/` - auth, user binding, admin sync workflows.
+- `apps/catalog/` - catalog/nomenclature UI and BFF work.
+- `apps/catalog_cache/` - technical catalog cache.
+- `apps/operations/` - operations UI.
+- `apps/balances/` - balances UI.
+- `apps/client/` - dashboard and working pages.
+- `apps/admin_panel/` - admin screens.
+- `apps/common/` - shared helpers, permissions, mixins.
+- `templates/` - Django templates.
+- `static/` - static assets.
 
 ## Important Services
 
@@ -67,17 +28,20 @@ Warehouse_web is a Django server-rendered web client for SyncServer. SyncServer 
 - `apps.sync_client.client.SyncServerClient`
 - `apps.sync_client.root_admin_client.SyncServerRootAdminClient`
 
-## Future Modules
+## Technical Models
 
-- full API-driven units and items polish
-- further removal of deprecated local catalog/state tails
-- stronger smoke and runtime validation against SyncServer
+- `django.contrib.auth.models.User`
+- `apps.users.models.SyncUserBinding`
+- `apps.users.models.Site`
+- `apps.catalog_cache.models.CatalogCacheItem`
 
-## Architecture Decisions
+## Active Direction
 
-- [ADR-0001](docs/adr/0001-django-as-syncserver-web-client.md)
-- [ADR-0002](docs/adr/0002-syncserver-as-source-of-truth.md)
-- [ADR-0003](docs/adr/0003-centralized-syncserver-client-layer.md)
-- [ADR-0004](docs/adr/0004-django-admin-for-root-management.md)
-- [ADR-0005](docs/adr/0005-sync-user-binding-for-user-tokens.md)
-- [ADR-0006](docs/adr/0006-no-local-master-data-ownership.md)
+- Keep Django as web session host and BFF.
+- Build Angular nomenclature shell through Django.
+- Keep all catalog/domain data SyncServer-backed.
+- Strengthen tests around BFF endpoints and SyncServer client wrappers.
+
+## Verification
+
+- `python manage.py test`

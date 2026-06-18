@@ -14,11 +14,11 @@
     </p>
   </div>
   <div>
-    <a href="{% url 'operations:pending_acceptance' %}" class="btn btn-outline"
+    <a href="{% url 'operations_ssr:pending_acceptance' %}" class="btn btn-outline"
       >← К списку</a
     >
     <a
-      href="{% url 'operations:detail' operation_id=operation_id %}"
+      href="{% url 'operations_ssr:detail' operation_id=operation_id %}"
       class="btn btn-outline"
       >Документ</a
     >
@@ -34,7 +34,7 @@
 <div class="alert alert-warning">
   <strong>Обнаружены потери.</strong>
   По некоторым позициям зафиксирована недостача.
-  <a href="{% url 'operations:lost_assets' %}?operation_id={{ operation_id }}"
+  <a href="{% url 'operations_ssr:lost_assets' %}?operation_id={{ operation_id }}"
     >Перейти к потерям</a
   >
 </div>
@@ -119,7 +119,7 @@
   {% else %}
   <form
     method="post"
-    action="{% url 'operations:acceptance_submit' operation_id=operation_id %}"
+    action="{% url 'operations_ssr:acceptance_submit' operation_id=operation_id %}"
   >
     {% csrf_token %}
     <div class="operation-table-wrap">

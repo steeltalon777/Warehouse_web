@@ -1,22 +1,22 @@
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Any, Optional
 
 from .client import SyncServerClient
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
-class RecipientsAPI:
+class IssueObjectCategoriesAPI:
     """
-    High-level client for SyncServer recipient reference endpoints.
+    High-level client for SyncServer issue-object-categories endpoints.
     """
 
     def __init__(self, client: Optional[SyncServerClient] = None) -> None:
         self.client = client or SyncServerClient()
 
-    def list_recipients(
+    def list_categories(
         self,
         filters: Optional[dict[str, Any]] = None,
         *,
@@ -24,11 +24,11 @@ class RecipientsAPI:
         acting_site_id: str | int | None = None,
     ) -> dict[str, Any]:
         """
-        Endpoint: GET /recipients
+        Endpoint: GET /issue-object-categories
         """
         params = self._build_filter_params(filters)
         response = self.client.get(
-            "/recipients",
+            "/issue-object-categories",
             params=params,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
@@ -50,8 +50,7 @@ class RecipientsAPI:
             }
 
         logger.warning(
-            "Unexpected response format from /recipients",
-            extra={"response_type": type(response).__name__},
+            "unexpected_response_format", endpoint="/issue-object-categories", response_type=type(response).__name__,
         )
         return {
             "items": [],
@@ -60,7 +59,7 @@ class RecipientsAPI:
             "page_size": params.get("page_size", 100),
         }
 
-    def create_recipient(
+    def create_category(
         self,
         payload: dict[str, Any],
         *,
@@ -68,78 +67,61 @@ class RecipientsAPI:
         acting_site_id: str | int | None = None,
     ) -> dict[str, Any]:
         """
-        Endpoint: POST /recipients
+        Endpoint: POST /issue-object-categories
         """
         return self.client.post(
-            "/recipients",
+            "/issue-object-categories",
             json=payload,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
 
-    def merge_recipients(
+    def get_category(
         self,
-        payload: dict[str, Any],
+        category_id: int,
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
     ) -> dict[str, Any]:
         """
-        Endpoint: POST /recipients/merge
-        """
-        return self.client.post(
-            "/recipients/merge",
-            json=payload,
-            acting_user_id=acting_user_id,
-            acting_site_id=acting_site_id,
-        )
-
-    def get_recipient(
-        self,
-        recipient_id: str,
-        *,
-        acting_user_id: str | int | None = None,
-        acting_site_id: str | int | None = None,
-    ) -> dict[str, Any]:
-        """
-        Endpoint: GET /recipients/{recipient_id}
+        Endpoint: GET /issue-object-categories/{category_id}
         """
         return self.client.get(
-            f"/recipients/{recipient_id}",
+            f"/issue-object-categories/{category_id}",
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
 
-    def update_recipient(
+    def update_category(
         self,
-        recipient_id: str,
+        category_id: int,
         payload: dict[str, Any],
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
     ) -> dict[str, Any]:
         """
-        Endpoint: PATCH /recipients/{recipient_id}
+        Endpoint: PATCH /issue-object-categories/{category_id}
         """
         return self.client.patch(
-            f"/recipients/{recipient_id}",
+            f"/issue-object-categories/{category_id}",
             json=payload,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
 
-    def delete_recipient(
+    def delete_category(
         self,
-        recipient_id: str,
+        category_id: int,
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
-    ) -> Any:
+    ) -> None:
         """
-        Endpoint: DELETE /recipients/{recipient_id}
+        Endpoint: DELETE /issue-object-categories/{category_id}
         """
         return self.client.delete(
-            f"/recipients/{recipient_id}",
+            f"/issue-object-categories/{category_id}",
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
@@ -150,5 +132,5 @@ class RecipientsAPI:
         return {key: value for key, value in filters.items() if value is not None}
 
 
-def get_recipients_api(client: Optional[SyncServerClient] = None) -> RecipientsAPI:
-    return RecipientsAPI(client=client)
+def get_issue_object_categories_api(client: Optional[SyncServerClient] = None) -> IssueObjectCategoriesAPI:
+    return IssueObjectCategoriesAPI(client=client)

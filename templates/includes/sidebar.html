@@ -1,61 +1,59 @@
 {% load permission_tags %}
 {% if user.is_authenticated %}
-{% with namespace=request.resolver_match.namespace url_name=request.resolver_match.url_name %}
+{% with namespace=request.resolver_match.namespace url_name=request.resolver_match.url_name path=request.path %}
 
 <a href="{% url 'client:dashboard' %}" class="{% if url_name == 'dashboard' %}sidebar-link-active{% endif %}">
     Главная
 </a>
 
-<a href="{% url 'catalog:home' %}" class="{% if namespace == 'catalog' %}sidebar-link-active{% endif %}">
-    Каталог
-</a>
-
-<a href="{% url 'balances:list' %}" class="{% if namespace == 'balances' %}sidebar-link-active{% endif %}">
-    Остатки
-</a>
-
-<!-- Группа: Операции -->
+<!-- Группа: Остатки и операции -->
 <div class="sidebar-group">
-    <div class="sidebar-group-title">Операции</div>
+    <div class="sidebar-group-title">Остатки и операции</div>
     <div class="sidebar-subnav">
-        <a href="{% url 'operations:create' %}" class="{% if url_name == 'create' %}sidebar-link-active{% endif %}">
-            Создать операцию
+        <a href="{% url 'balances:list' %}" class="{% if namespace == 'balances' %}sidebar-link-active{% endif %}">
+            Остатки
         </a>
-        <a href="{% url 'operations:list' %}" class="{% if url_name == 'list' %}sidebar-link-active{% endif %}">
-            Список операций
+        <a href="{% url 'operations_spa' %}" class="{% if url_name == 'operations_spa' %}sidebar-link-active{% endif %}">
+            Операции
         </a>
-        <a href="{% url 'operations:pending_acceptance' %}" class="{% if url_name == 'pending_acceptance' %}sidebar-link-active{% endif %}">
-            Ожидающие приёмки
+        <a href="/operations/pending-acceptance" class="{% if '/operations/pending-acceptance' in path %}sidebar-link-active{% endif %}">
+            Операции к приёмке
         </a>
-        <a href="{% url 'operations:lost_assets' %}" class="{% if url_name == 'lost_assets' %}sidebar-link-active{% endif %}">
-            Непринятые
+        <a href="/operations/lost-assets" class="{% if '/operations/lost-assets' in path %}sidebar-link-active{% endif %}">
+            Репозиторий непринятого
+        </a>
+        <a href="{% url 'issued_assets_spa' %}" class="{% if url_name == 'issued_assets_spa' or url_name == 'issued_assets_spa_catchall' %}sidebar-link-active{% endif %}">
+            Репозиторий выдачи
         </a>
     </div>
 </div>
 
-{% if user|can_manage_catalog %}
+<!-- Группа: Справочники -->
 <div class="sidebar-group">
-    <div class="sidebar-group-title">Номенклатура</div>
+    <div class="sidebar-group-title">Справочники</div>
     <div class="sidebar-subnav">
-        <a href="{% url 'nomenclature:tree' %}">Дерево номенклатуры</a>
-        <a href="{% url 'nomenclature:item_list' %}">ТМЦ</a>
-        <a href="{% url 'nomenclature:category_list' %}">Категории</a>
-        <a href="{% url 'nomenclature:unit_list' %}">Единицы измерения</a>
-        <a href="{% url 'temporary_items:list' %}">Временные ТМЦ</a>
+        <a href="/catalog/" class="{% if '/catalog/' in path and '/catalog/ssr/' not in path %}sidebar-link-active{% endif %}">
+            Каталог
+        </a>
+        {% if user|can_manage_catalog %}
+        <a href="{% url 'nomenclature:spa_home' %}" class="{% if namespace == 'nomenclature' and url_name == 'spa_home' %}sidebar-link-active{% endif %}">
+            Номенклатура
+        </a>
+        {% endif %}
+        <details class="sidebar-details">
+            <summary class="sidebar-nested-title">SSR / Legacy</summary>
+            <div class="sidebar-nested-nav">
+                <a href="/catalog/ssr/" class="{% if '/catalog/ssr/' in path %}sidebar-link-active{% endif %}">Каталог SSR legacy</a>
+                {% if user|can_manage_catalog %}
+                <a href="{% url 'nomenclature:tree' %}" class="{% if url_name == 'tree' %}sidebar-link-active{% endif %}">Дерево SSR</a>
+                <a href="{% url 'nomenclature:item_list' %}" class="{% if url_name == 'item_list' %}sidebar-link-active{% endif %}">ТМЦ SSR</a>
+                <a href="{% url 'nomenclature:category_list' %}" class="{% if url_name == 'category_list' %}sidebar-link-active{% endif %}">Категории SSR</a>
+                <a href="{% url 'nomenclature:unit_list' %}" class="{% if url_name == 'unit_list' %}sidebar-link-active{% endif %}">Единицы изм. SSR</a>
+                {% endif %}
+            </div>
+        </details>
     </div>
 </div>
-{% endif %}
-
-{% if user.is_superuser %}
-<div class="sidebar-group">
-    <div class="sidebar-group-title">Администрирование</div>
-    <div class="sidebar-subnav">
-        <a href="{% url 'admin:index' %}">Django Admin</a>
-        <a href="{% url 'admin:users_syncdevicebinding_changelist' %}">Устройства</a>
-        <a href="{% url 'admin_panel:access' %}">Доступы</a>
-    </div>
-</div>
-{% endif %}
 
 {% endwith %}
 {% endif %}

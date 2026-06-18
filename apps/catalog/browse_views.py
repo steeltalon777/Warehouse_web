@@ -29,7 +29,6 @@ def _resolve_site_id(request) -> str:
         or request.session.get("sync_default_site_id")
         or request.session.get("site_id")
         or binding_site_id
-        or getattr(settings, "SYNC_DEFAULT_ACTING_SITE_ID", "")
         or ""
     ).strip()
 

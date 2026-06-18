@@ -1,0 +1,77 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}Детали события аудита{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <h1>Детали события аудита</h1>
+
+    {% if error %}
+    <div class="errornote">{{ error }}</div>
+    {% endif %}
+
+    {% if event %}
+    <div style="margin-bottom: 1em;">
+        <a href="{% url 'admin:audit_events_list' %}">← Назад к списку</a>
+    </div>
+
+    <fieldset class="module aligned">
+        <h2>Основная информация</h2>
+        <div class="form-row">
+            <div><label>ID события:</label> <code>{{ event.event_id }}</code></div>
+        </div>
+        <div class="form-row">
+            <div><label>Тип события:</label> <code>{{ event.event_type }}</code></div>
+        </div>
+        <div class="form-row">
+            <div><label>Дата и время:</label> {{ event.created_at }}</div>
+        </div>
+        <div class="form-row">
+            <div><label>Описание:</label> {{ event.summary }}</div>
+        </div>
+    </fieldset>
+
+    <fieldset class="module aligned">
+        <h2>Участники</h2>
+        <div class="form-row">
+            <div><label>Пользователь (UUID):</label> <code>{{ event.actor_user_id|default:"—" }}</code></div>
+        </div>
+        <div class="form-row">
+            <div><label>Устройство:</label> <code>{{ event.actor_device_id|default:"—" }}</code></div>
+        </div>
+        <div class="form-row">
+            <div><label>Склад:</label> {{ event.site_id|default:"—" }}</div>
+        </div>
+    </fieldset>
+
+    <fieldset class="module aligned">
+        <h2>Сущность</h2>
+        <div class="form-row">
+            <div><label>Тип:</label> {{ event.entity_type }}</div>
+        </div>
+        <div class="form-row">
+            <div><label>ID:</label> <code>{{ event.entity_id }}</code></div>
+        </div>
+    </fieldset>
+
+    {% if event.changes %}
+    <fieldset class="module aligned">
+        <h2>Изменения</h2>
+        <div class="form-row">
+            <div><pre style="background: #f8f8f8; padding: 0.5em; border-radius: 4px;">{{ event.changes|pprint }}</pre></div>
+        </div>
+    </fieldset>
+    {% endif %}
+
+    {% if event.request_id %}
+    <fieldset class="module aligned">
+        <h2>Трассировка</h2>
+        <div class="form-row">
+            <div><label>Request-ID:</label> <code>{{ event.request_id }}</code></div>
+        </div>
+    </fieldset>
+    {% endif %}
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,72 +1,33 @@
 # DOMAIN_MODEL
 
-## Entity: Category (`apps/catalog/models.py`)
-Описание: категория каталога с древовидной иерархией.
+`Warehouse_web` does not own warehouse domain entities. SyncServer owns catalog, operations, balances, users, sites, devices, access scopes, documents, recipients, and sync events.
 
-Fields:
-- `id` (UUID, PK)
-- `name`
-- `code`
-- `parent` (FK to `Category`, nullable)
-- `is_active`
-- `sort_order`
-- `created_at`, `updated_at`
+## Local Technical State
 
-Relations:
-- parent category (`parent`)
-- child categories (`children`)
-- items (`items`)
+## Django User
 
-## Entity: Unit (`apps/catalog/models.py`)
-Описание: единица измерения.
+Purpose: web authentication and Django admin access.
 
-Fields:
-- `id` (UUID, PK)
-- `code` (unique)
-- `name`
-- `created_at`
+Owner: Django.
 
-Relations:
-- items (`items`)
+## SyncUserBinding
 
-## Entity: Item (`apps/catalog/models.py`)
-Описание: номенклатурная позиция (товар/ТМЦ).
+Purpose: bind a Django user to a SyncServer user identity and token for server-side API calls.
 
-Fields:
-- `id` (UUID, PK)
-- `name`
-- `sku`
-- `category` (FK to `Category`, nullable)
-- `unit` (FK to `Unit`, protected)
-- `is_active`
-- `created_at`, `updated_at`
+Owner: Django technical integration layer.
 
-Relations:
-- category (`category`)
-- unit (`unit`)
+## Site Mirror / Helper State
 
-## Entity: Site (`apps/users/models.py`)
-Описание: площадка/объект, к которому привязываются пользователи.
+Purpose: web/admin convenience where still required by current flows.
 
-Fields:
-- `name` (unique)
-- `code` (unique)
-- `is_active`
-- `created_at`
+Owner: Django technical integration layer.
 
-Relations:
-- users (`users`)
+## CatalogCacheItem
 
-## Entity: UserProfile (`apps/users/models.py`)
-Описание: расширение стандартного Django User с ролью и site.
+Purpose: local UX/search cache populated from SyncServer data.
 
-Fields:
-- `user` (OneToOne to Django User)
-- `role` (`root`, `chief_storekeeper`, `storekeeper`)
-- `site` (FK to `Site`, nullable)
-- `is_active`
-- `created_at`, `updated_at`
+Owner: Django cache layer, not domain truth.
 
-Relations:
-- user profile for auth user (`profile`)
-- site membership (`site`)
+## Remote Domain State
+
+Remote state is accessed through `apps/sync_client/` wrappers and service classes. Domain validation and writes happen on SyncServer.

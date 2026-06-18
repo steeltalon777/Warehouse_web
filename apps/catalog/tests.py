@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -14,7 +15,7 @@ from apps.catalog.tree import build_category_item_tree
 from apps.catalog_cache.services import CatalogCacheSyncStats
 from apps.common.templatetags.permission_tags import can_manage_catalog_filter
 from apps.sync_client.catalog_api import CatalogAPI
-from apps.sync_client.recipients_api import RecipientsAPI
+from apps.sync_client.issue_objects_api import IssueObjectsAPI
 
 
 class NomenclatureHomeViewTests(TestCase):
@@ -80,7 +81,7 @@ class NomenclatureTreeViewTests(TestCase):
         response = self.client.get(reverse("nomenclature:tree"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "action=\"/nomenclature/categories/1/delete/\"", html=False)
+        self.assertContains(response, "action=\"/nomenclature/ssr/categories/1/delete/\"", html=False)
         self.assertContains(response, 'name="csrfmiddlewaretoken"', html=False)
 
 
@@ -454,53 +455,53 @@ class SyncReferenceAPIEndpointTests(SimpleTestCase):
             acting_site_id=None,
         )
 
-    def test_recipients_crud_methods_use_api_map_paths(self) -> None:
+    def test_issue_objects_crud_methods_use_api_map_paths(self) -> None:
         client = Mock()
         client.get.return_value = {"items": []}
-        api = RecipientsAPI(client)
+        api = IssueObjectsAPI(client)
 
-        api.list_recipients(filters={"search": "Ivan"})
+        api.list_issue_objects(filters={"search": "Test"})
         client.get.assert_called_with(
-            "/recipients",
-            params={"search": "Ivan"},
+            "/issue-objects",
+            params={"search": "Test"},
             acting_user_id=None,
             acting_site_id=None,
         )
 
-        api.create_recipient({"display_name": "Ivan"})
+        api.create_issue_object({"display_name": "Test"})
         client.post.assert_called_with(
-            "/recipients",
-            json={"display_name": "Ivan"},
+            "/issue-objects",
+            json={"display_name": "Test"},
             acting_user_id=None,
             acting_site_id=None,
         )
 
-        api.merge_recipients({"source_id": 1, "target_id": 2})
+        api.merge_issue_objects({"source_id": 1, "target_id": 2})
         client.post.assert_called_with(
-            "/recipients/merge",
+            "/issue-objects/merge",
             json={"source_id": 1, "target_id": 2},
             acting_user_id=None,
             acting_site_id=None,
         )
 
-        api.get_recipient("3")
+        api.get_issue_object("3")
         client.get.assert_called_with(
-            "/recipients/3",
+            "/issue-objects/3",
             acting_user_id=None,
             acting_site_id=None,
         )
 
-        api.update_recipient("3", {"is_active": False})
+        api.update_issue_object("3", {"is_active": False})
         client.patch.assert_called_with(
-            "/recipients/3",
+            "/issue-objects/3",
             json={"is_active": False},
             acting_user_id=None,
             acting_site_id=None,
         )
 
-        api.delete_recipient("3")
+        api.delete_issue_object("3")
         client.delete.assert_called_with(
-            "/recipients/3",
+            "/issue-objects/3",
             acting_user_id=None,
             acting_site_id=None,
         )
@@ -527,3 +528,543 @@ class PermissionTemplateFilterTests(SimpleTestCase):
         self.assertTrue(can_manage_catalog_filter(chief_user))
         self.assertFalse(can_manage_catalog_filter(storekeeper_user))
         self.assertFalse(can_manage_catalog_filter(observer_user))
+
+
+# ---------------------------------------------------------------------------
+# Nomenclature SPA / BFF authentication and error-handling tests (TZ-2)
+# ---------------------------------------------------------------------------
+
+class NomenclatureSPAAuthTests(TestCase):
+    """Tests for NomenclatureSPAView login requirement."""
+
+    def test_anonymous_redirected_to_login(self) -> None:
+        """Anonymous GET /nomenclature/ redirects to the login page."""
+        response = self.client.get(reverse("nomenclature:spa_home"))
+
+        self.assertEqual(response.status_code, 302)
+        # Django redirects to LOGIN_URL with ?next= appended
+        self.assertIn("/login/", response["Location"])
+
+    def test_authenticated_user_gets_spa_shell(self) -> None:
+        """Authenticated GET /nomenclature/ returns 200 (SPA index.html served)."""
+        user = get_user_model().objects.create_user(
+            username="spa_user",
+            password="secret123",
+            is_active=True,
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("nomenclature:spa_home"))
+
+        # 200 if the Angular build dist exists, 404 if it does not — both
+        # are acceptable; the important thing is no redirect to login.
+        self.assertIn(response.status_code, (200, 404))
+
+
+class BootstrapViewAuthTests(TestCase):
+    """Tests for BootstrapView login requirement and SyncServer error mapping."""
+
+    def setUp(self) -> None:
+        self.user = get_user_model().objects.create_user(
+            username="bootstrap_user",
+            password="secret123",
+            is_active=True,
+        )
+
+    def test_anonymous_redirected_to_login(self) -> None:
+        """Anonymous GET /nomenclature/api/bootstrap/ redirects to login."""
+        response = self.client.get(reverse("nomenclature:api_bootstrap"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/login/", response["Location"])
+
+    @patch("apps.catalog.api_views._build_service")
+    def test_authenticated_gets_bootstrap_json(self, build_service: Mock) -> None:
+        """Authenticated GET /nomenclature/api/bootstrap/ returns 200 with expected keys."""
+        build_service.return_value = Mock(
+            get_categories_tree=Mock(return_value={"children": []}),
+            browse_all_items=Mock(return_value={
+                "items": [],
+                "total_count": 0,
+                "loaded_count": 0,
+                "complete": True,
+            }),
+            list_units=Mock(return_value=[]),
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("nomenclature:api_bootstrap"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/json")
+        data = response.json()
+        self.assertTrue(data["ok"])
+        self.assertIn("categories_tree", data["data"])
+        self.assertIn("items", data["data"])
+        self.assertIn("items_total", data["data"])
+        self.assertIn("items_loaded", data["data"])
+        self.assertIn("items_complete", data["data"])
+        self.assertTrue(data["data"]["items_complete"])
+        self.assertIn("units", data["data"])
+        self.assertIn("user", data["data"])
+        self.assertIn("permissions", data["data"])
+        self.assertEqual(data["data"]["user"]["username"], "bootstrap_user")
+
+    @patch("apps.catalog.api_views._build_service")
+    def test_syncserver_error_maps_to_502(self, build_service: Mock) -> None:
+        """When SyncServerClient raises SyncServerAPIError, bootstrap returns 502 JSON error."""
+        from apps.sync_client.exceptions import SyncServerAPIError
+
+        build_service.return_value = Mock(
+            get_categories_tree=Mock(
+                side_effect=SyncServerAPIError("SyncServer недоступен", status_code=502),
+            ),
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("nomenclature:api_bootstrap"))
+
+        self.assertEqual(response.status_code, 502)
+        data = response.json()
+        self.assertFalse(data["ok"])
+        self.assertIn("error", data)
+        self.assertEqual(data["error"]["code"], "sync_error")
+        self.assertIn("SyncServer недоступен", data["error"]["message"])
+
+    @patch("apps.catalog.api_views._build_service")
+    def test_syncserver_error_without_status_defaults_to_502(self, build_service: Mock) -> None:
+        """SyncServerAPIError with no status_code still maps to 502."""
+        from apps.sync_client.exceptions import SyncServerAPIError
+
+        build_service.return_value = Mock(
+            get_categories_tree=Mock(
+                side_effect=SyncServerAPIError("Неизвестная ошибка"),
+            ),
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("nomenclature:api_bootstrap"))
+
+        self.assertEqual(response.status_code, 502)
+        data = response.json()
+        self.assertFalse(data["ok"])
+        self.assertIn("error", data)
+
+
+# ---------------------------------------------------------------------------
+# Catalog API mutation tests — POST / PATCH for categories, items, units
+# ---------------------------------------------------------------------------
+
+class CatalogApiCategoryMutationTests(TestCase):
+    def setUp(self) -> None:
+        self.user = get_user_model().objects.create_user(
+            username="api_chief",
+            password="secret123",
+            is_active=True,
+        )
+        self.client.force_login(self.user)
+        self._perm_patcher = patch("apps.catalog.api_views._require_catalog_manager", return_value=None)
+        self._perm_patcher.start()
+
+    def tearDown(self) -> None:
+        self._perm_patcher.stop()
+        super().tearDown()
+
+    @patch("apps.catalog.api_views._build_service")
+    def test_post_categories_creates_category(self, build_service: Mock) -> None:
+        build_service.return_value = Mock(
+            create_category=Mock(return_value={"id": "7", "name": "New Category", "is_active": True}),
+        )
+
+        response = self.client.post(
+            reverse("nomenclature:api_category_tree"),
+            data=b'{"name":"New Category","parent_id":1}',
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["data"]["name"], "New Category")
+        build_service.return_value.create_category.assert_called_once_with({"name": "New Category", "parent_id": 1})
+
+    @patch("apps.catalog.api_views._build_service")
+    def test_patch_category_updates_category(self, build_service: Mock) -> None:
+        build_service.return_value = Mock(
+            update_category=Mock(return_value={"id": "7", "name": "Updated Category", "is_active": True}),
+        )
+
+        response = self.client.patch(
+            reverse("nomenclature:api_category_detail", kwargs={"pk": "7"}),
+            data=b'{"name":"Updated Category"}',
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["data"]["name"], "Updated Category")
+        build_service.return_value.update_category.assert_called_once_with("7", {"name": "Updated Category"})
+
+    @patch("apps.catalog.api_views._build_service")
+    def test_post_category_sync_error_returns_envelope(self, build_service: Mock) -> None:
+        from apps.sync_client.exceptions import SyncServerAPIError
+
+        build_service.return_value = Mock(
+            create_category=Mock(side_effect=SyncServerAPIError("Name already exists", status_code=409)),
+        )
+
+        response = self.client.post(
+            reverse("nomenclature:api_category_tree"),
+            data=b'{"name":"Duplicate"}',
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        data = response.json()
+        self.assertFalse(data["ok"])
+        self.assertIn("error", data)
+        self.assertEqual(data["error"]["code"], "sync_error")
+
+
+class CatalogApiItemMutationTests(TestCase):
+    def setUp(self) -> None:
+        self.user = get_user_model().objects.create_user(
+            username="api_items_chief",
+            password="secret123",
+            is_active=True,
+        )
+        self.client.force_login(self.user)
+        self._perm_patcher = patch("apps.catalog.api_views._require_catalog_manager", return_value=None)
+        self._perm_patcher.start()
+
+    def tearDown(self) -> None:
+        self._perm_patcher.stop()
+        super().tearDown()
+
+    @patch("apps.catalog.api_views._build_service")
+    def test_post_items_creates_item(self, build_service: Mock) -> None:
+        build_service.return_value = Mock(
+            create_item=Mock(return_value={"id": "42", "name": "New Item", "sku": "SKU-42", "category_id": "1"}),
+        )
+
+        response = self.client.post(
+            reverse("nomenclature:api_items_list"),
+            data=b'{"name":"New Item","sku":"SKU-42","category_id":"1"}',
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["data"]["sku"], "SKU-42")
+        build_service.return_value.create_item.assert_called_once_with({"name": "New Item", "sku": "SKU-42", "category_id": "1"})
+
+    @patch("apps.catalog.api_views._build_service")
+    def test_patch_item_updates_item(self, build_service: Mock) -> None:
+        build_service.return_value = Mock(
+            update_item=Mock(return_value={"id": "42", "name": "Updated Item", "sku": "SKU-42"}),
+        )
+
+        response = self.client.patch(
+            reverse("nomenclature:api_item_detail", kwargs={"pk": "42"}),
+            data=b'{"name":"Updated Item"}',
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["data"]["name"], "Updated Item")
+        build_service.return_value.update_item.assert_called_once_with("42", {"name": "Updated Item"})
+
+    @patch("apps.catalog.api_views._build_service")
+    def test_post_item_sync_error_returns_envelope(self, build_service: Mock) -> None:
+        from apps.sync_client.exceptions import SyncServerAPIError
+
+        build_service.return_value = Mock(
+            create_item=Mock(side_effect=SyncServerAPIError("Invalid SKU", status_code=400)),
+        )
+
+        response = self.client.post(
+            reverse("nomenclature:api_items_list"),
+            data=b'{"name":"Bad","sku":""}',
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertFalse(data["ok"])
+        self.assertIn("error", data)
+        self.assertEqual(data["error"]["code"], "sync_error")
+
+
+class CatalogApiUnitMutationTests(TestCase):
+    def setUp(self) -> None:
+        self.user = get_user_model().objects.create_user(
+            username="api_units_chief",
+            password="secret123",
+            is_active=True,
+        )
+        self.client.force_login(self.user)
+        self._perm_patcher = patch("apps.catalog.api_views._require_catalog_manager", return_value=None)
+        self._perm_patcher.start()
+
+    def tearDown(self) -> None:
+        self._perm_patcher.stop()
+        super().tearDown()
+
+    @patch("apps.catalog.api_views._build_service")
+    def test_post_units_creates_unit(self, build_service: Mock) -> None:
+        build_service.return_value = Mock(
+            create_unit=Mock(return_value={"id": "5", "name": "Meter", "symbol": "m"}),
+        )
+
+        response = self.client.post(
+            reverse("nomenclature:api_units_list"),
+            data=b'{"name":"Meter","symbol":"m"}',
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["data"]["symbol"], "m")
+        build_service.return_value.create_unit.assert_called_once_with({"name": "Meter", "symbol": "m"})
+
+    @patch("apps.catalog.api_views._build_service")
+    def test_patch_unit_updates_unit(self, build_service: Mock) -> None:
+        build_service.return_value = Mock(
+            update_unit=Mock(return_value={"id": "5", "name": "Kilogram", "symbol": "kg"}),
+        )
+
+        response = self.client.patch(
+            reverse("nomenclature:api_unit_detail", kwargs={"pk": "5"}),
+            data=b'{"name":"Kilogram","symbol":"kg"}',
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["data"]["symbol"], "kg")
+        build_service.return_value.update_unit.assert_called_once_with("5", {"name": "Kilogram", "symbol": "kg"})
+
+    @patch("apps.catalog.api_views._build_service")
+    def test_post_unit_sync_error_returns_envelope(self, build_service: Mock) -> None:
+        from apps.sync_client.exceptions import SyncServerAPIError
+
+        build_service.return_value = Mock(
+            create_unit=Mock(side_effect=SyncServerAPIError("Duplicate symbol", status_code=409)),
+        )
+
+        response = self.client.post(
+            reverse("nomenclature:api_units_list"),
+            data=b'{"name":"Duplicate","symbol":"m"}',
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        data = response.json()
+        self.assertFalse(data["ok"])
+        self.assertIn("error", data)
+        self.assertEqual(data["error"]["code"], "sync_error")
+
+
+class CatalogAPIBrowseAllItemsTests(SimpleTestCase):
+    """Tests for CatalogAPI.browse_all_items() pagination loop."""
+
+    def test_collects_single_page_when_all_fit(self) -> None:
+        """When total_count <= page_size, browse_all_items collects in one request."""
+        api = CatalogAPI(client=Mock())
+        api.browse_items = Mock(return_value={
+            "items": [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}],
+            "total_count": 2,
+            "page": 1,
+            "page_size": 1000,
+        })
+
+        result = api.browse_all_items()
+
+        api.browse_items.assert_called_once()
+        self.assertEqual(len(result["items"]), 2)
+        self.assertEqual(result["total_count"], 2)
+        self.assertEqual(result["loaded_count"], 2)
+        self.assertTrue(result["complete"])
+
+    def test_collects_multiple_pages(self) -> None:
+        """When total_count > page_size, browse_all_items loops through pages."""
+        api = CatalogAPI(client=Mock())
+        api.browse_items = Mock(side_effect=[
+            {
+                "items": [{"id": i, "name": f"Item {i}"} for i in range(1000)],
+                "total_count": 1600,
+                "page": 1,
+                "page_size": 1000,
+            },
+            {
+                "items": [{"id": i, "name": f"Item {i}"} for i in range(1000, 1600)],
+                "total_count": 1600,
+                "page": 2,
+                "page_size": 1000,
+            },
+        ])
+
+        result = api.browse_all_items()
+
+        self.assertEqual(api.browse_items.call_count, 2)
+        self.assertEqual(len(result["items"]), 1600)
+        self.assertEqual(result["total_count"], 1600)
+        self.assertEqual(result["loaded_count"], 1600)
+        self.assertTrue(result["complete"])
+
+    def test_stops_on_empty_page(self) -> None:
+        """When a page returns empty items, loop stops even without total_count."""
+        api = CatalogAPI(client=Mock())
+        api.browse_items = Mock(side_effect=[
+            {"items": [{"id": 1}], "page": 1, "page_size": 1000},
+            {"items": [], "page": 2, "page_size": 1000},
+        ])
+
+        result = api.browse_all_items()
+
+        self.assertEqual(api.browse_items.call_count, 2)
+        self.assertEqual(len(result["items"]), 1)
+        self.assertEqual(result["loaded_count"], 1)
+        self.assertFalse(result["complete"])  # no total_count -> incomplete
+
+    def test_returns_complete_false_when_total_count_not_reached(self) -> None:
+        """When second page returns empty items but total_count > loaded, complete=False."""
+        api = CatalogAPI(client=Mock())
+        api.browse_items = Mock(side_effect=[
+            {"items": [{"id": 1}], "total_count": 10, "page": 1, "page_size": 1000},
+            {"items": [], "total_count": 10, "page": 2, "page_size": 1000},
+        ])
+
+        result = api.browse_all_items()
+
+        self.assertEqual(result["loaded_count"], 1)
+        self.assertEqual(result["total_count"], 10)
+        self.assertFalse(result["complete"])
+
+    def test_hashtags_preserved_beyond_first_page(self) -> None:
+        """Items on page 2 retain their hashtags."""
+        page1_items = [{"id": i, "name": f"Item {i}", "hashtags": ["page1"]} for i in range(1000)]
+        page2_items = [
+            {"id": 1000, "name": "TaggedBeyond1000", "hashtags": ["rare", "vip"]},
+        ]
+
+        api = CatalogAPI(client=Mock())
+        api.browse_items = Mock(side_effect=[
+            {"items": page1_items, "total_count": 1001, "page": 1, "page_size": 1000},
+            {"items": page2_items, "total_count": 1001, "page": 2, "page_size": 1000},
+        ])
+
+        result = api.browse_all_items()
+
+        self.assertEqual(api.browse_items.call_count, 2)
+        self.assertEqual(len(result["items"]), 1001)
+        self.assertTrue(result["complete"])
+
+        tagged = next(item for item in result["items"] if item["name"] == "TaggedBeyond1000")
+        self.assertEqual(tagged["hashtags"], ["rare", "vip"])
+
+
+# ---------------------------------------------------------------------------
+# Permission hardening tests (Stage 1C)
+# ---------------------------------------------------------------------------
+
+
+class NomenclatureApiPermissionTest(TestCase):
+    """Tests that mutation endpoints return 403 for non-manager users."""
+
+    def setUp(self) -> None:
+        self.user = get_user_model().objects.create_user(
+            username="plain_user",
+            password="testpass123",
+            is_staff=False,
+            is_superuser=False,
+            is_active=True,
+        )
+        self.client.force_login(self.user)
+
+    def test_bootstrap_get_ok(self):
+        response = self.client.get(reverse("nomenclature:api_bootstrap"))
+        self.assertNotEqual(response.status_code, 403)
+
+    def test_create_category_forbidden(self):
+        response = self.client.post(
+            reverse("nomenclature:api_category_tree"),
+            data=json.dumps({"name": "Test"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_update_category_forbidden(self):
+        response = self.client.patch(
+            reverse("nomenclature:api_category_detail", kwargs={"pk": 1}),
+            data=json.dumps({"name": "Updated"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_delete_category_forbidden(self):
+        response = self.client.delete(
+            reverse("nomenclature:api_category_detail", kwargs={"pk": 1}),
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_item_forbidden(self):
+        response = self.client.post(
+            reverse("nomenclature:api_items_list"),
+            data=json.dumps({"name": "Test Item"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_update_item_forbidden(self):
+        response = self.client.patch(
+            reverse("nomenclature:api_item_detail", kwargs={"pk": 1}),
+            data=json.dumps({"name": "Updated"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_delete_item_forbidden(self):
+        response = self.client.delete(
+            reverse("nomenclature:api_item_detail", kwargs={"pk": 1}),
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_unit_forbidden(self):
+        response = self.client.post(
+            reverse("nomenclature:api_units_list"),
+            data=json.dumps({"name": "Test Unit"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_update_unit_forbidden(self):
+        response = self.client.patch(
+            reverse("nomenclature:api_unit_detail", kwargs={"pk": 1}),
+            data=json.dumps({"name": "Updated"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_delete_unit_forbidden(self):
+        response = self.client.delete(
+            reverse("nomenclature:api_unit_detail", kwargs={"pk": 1}),
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_read_endpoints_accessible(self):
+        endpoints = [
+            reverse("nomenclature:api_bootstrap"),
+            reverse("nomenclature:api_category_tree"),
+            reverse("nomenclature:api_items_list"),
+            reverse("nomenclature:api_units_list"),
+        ]
+        for url in endpoints:
+            response = self.client.get(url)
+            self.assertNotEqual(response.status_code, 403, f"GET {url} returned 403")

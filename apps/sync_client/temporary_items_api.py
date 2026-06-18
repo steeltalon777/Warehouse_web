@@ -29,13 +29,13 @@ Usage:
 
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Any, Optional
 
 from .client import SyncServerClient
 from .exceptions import SyncServerAPIError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class TemporaryItemsAPI:
@@ -58,7 +58,7 @@ class TemporaryItemsAPI:
                    a new instance will be created with default settings.
         """
         self.client = client or SyncServerClient()
-        logger.debug("TemporaryItemsAPI client initialized")
+        logger.debug("temporary_items_api_initialized")
 
     # ------------------------------------------------------------------
     # List and retrieve
@@ -98,8 +98,7 @@ class TemporaryItemsAPI:
             >>> items = temp_api.list_temporary_items(filters={"search": "cable"})
         """
         logger.debug(
-            "Fetching temporary items list",
-            extra={"filters": filters or {}}
+            "fetching_temporary_items_list", filters=filters or {},
         )
 
         params = self._build_filter_params(filters)
@@ -119,8 +118,7 @@ class TemporaryItemsAPI:
             return response
         else:
             logger.warning(
-                "Unexpected response format from /temporary-items",
-                extra={"response_type": type(response).__name__}
+                "unexpected_response_format", endpoint="/temporary-items", response_type=type(response).__name__,
             )
             return []
 
@@ -149,8 +147,7 @@ class TemporaryItemsAPI:
                 page_size (int): Page size used
         """
         logger.debug(
-            "Fetching temporary items page",
-            extra={"filters": filters or {}}
+            "fetching_temporary_items_page", filters=filters or {},
         )
 
         params = self._build_filter_params(filters)
@@ -166,23 +163,22 @@ class TemporaryItemsAPI:
                 response = {**response, "items": response.get("temporary_items", [])}
             response.setdefault("items", [])
             response.setdefault("total_count", len(response.get("items", [])))
-            response.setdefault("page", params.get("page", 1))
-            response.setdefault("page_size", params.get("page_size", len(response.get("items", [])) or 20))
+            response["page"] = int(response.get("page", params.get("page", 1)))
+            response["page_size"] = int(response.get("page_size", params.get("page_size", len(response.get("items", [])) or 20)))
             return response
 
         if isinstance(response, list):
             return {
                 "items": response,
                 "total_count": len(response),
-                "page": params.get("page", 1),
-                "page_size": params.get("page_size", len(response) or 20),
+                "page": int(params.get("page", 1)),
+                "page_size": int(params.get("page_size", len(response) or 20)),
             }
 
         logger.warning(
-            "Unexpected response format from /temporary-items",
-            extra={"response_type": type(response).__name__}
+            "unexpected_response_format", endpoint="/temporary-items", response_type=type(response).__name__,
         )
-        return {"items": [], "total_count": 0, "page": 1, "page_size": params.get("page_size", 20)}
+        return {"items": [], "total_count": 0, "page": 1, "page_size": int(params.get("page_size", 20))}
 
     def get_temporary_item(
         self,
@@ -209,8 +205,7 @@ class TemporaryItemsAPI:
             SyncNotFoundError: If the temporary item does not exist
         """
         logger.debug(
-            "Fetching temporary item",
-            extra={"temporary_item_id": temporary_item_id}
+            "fetching_temporary_item", temporary_item_id=temporary_item_id,
         )
 
         return self.client.get(
@@ -245,8 +240,7 @@ class TemporaryItemsAPI:
             SyncServerAPIError: If the API request fails
         """
         logger.debug(
-            "Fetching operations for temporary item",
-            extra={"temporary_item_id": temporary_item_id}
+            "fetching_temporary_item_operations", temporary_item_id=temporary_item_id,
         )
 
         params = self._build_filter_params(filters)
@@ -265,8 +259,7 @@ class TemporaryItemsAPI:
             return response
         else:
             logger.warning(
-                "Unexpected response format from /temporary-items/{temporary_item_id}/operations",
-                extra={"response_type": type(response).__name__}
+                "unexpected_response_format", endpoint="/temporary-items/{temporary_item_id}/operations", response_type=type(response).__name__,
             )
             return []
 
@@ -300,8 +293,7 @@ class TemporaryItemsAPI:
             SyncConflictError: If a catalog item with similar attributes already exists
         """
         logger.info(
-            "Approving temporary item as catalog item",
-            extra={"temporary_item_id": temporary_item_id}
+            "approving_temporary_item", temporary_item_id=temporary_item_id,
         )
 
         return self.client.post(
@@ -343,11 +335,7 @@ class TemporaryItemsAPI:
             SyncNotFoundError: If the target item does not exist
         """
         logger.info(
-            "Merging temporary item with catalog item",
-            extra={
-                "temporary_item_id": temporary_item_id,
-                "target_item_id": payload.get("target_item_id")
-            }
+            "merging_temporary_item", temporary_item_id=temporary_item_id, target_item_id=payload.get("target_item_id"),
         )
 
         return self.client.post(
@@ -384,8 +372,7 @@ class TemporaryItemsAPI:
                 (e.g., non-pending status, non-zero balance, active registers)
         """
         logger.info(
-            "Deleting temporary item",
-            extra={"temporary_item_id": temporary_item_id}
+            "deleting_temporary_item", temporary_item_id=temporary_item_id,
         )
 
         return self.client.delete(

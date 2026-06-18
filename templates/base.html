@@ -5,7 +5,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Warehouse Web{% endblock %}</title>
-    <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260429-1">
+    <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260616-2">
+    <style>
+        app-root { display: flex !important; flex-direction: column !important; height: 100% !important; overflow: hidden !important; }
+        .warehouse-spa { height: 100% !important; overflow: hidden !important; display: flex !important; flex-direction: column !important; min-height: 0 !important; }
+    </style>
+    {% block head_extra %}{% endblock %}
 </head>
 <body>
 <div class="topbar">
@@ -93,5 +98,6 @@
 })();
 </script>
 <script src="{% static 'js/ui_components.js' %}?v=20260326-1"></script>
+{% block body_extra %}{% endblock %}
 </body>
 </html>

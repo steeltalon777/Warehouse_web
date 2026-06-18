@@ -16,25 +16,55 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.views.generic import RedirectView
 
+from apps.catalog.views import AngularStaticFilesView, CatalogSPAView, IssuedAssetsSPAView, OperationsSPAView, TemporaryItemsSPAView
 from apps.common.views import HealthCheckView, SyncHealthCheckView
+from apps.users.admin_audit_views import AdminAuditEventDetailView, AdminAuditEventListView
 from apps.users.views import logout_view
 
 urlpatterns = [
+    # Angular built assets at root level (baseHref="/")
+    re_path(r"^(?P<path>[\w-]+\.(?:js|css|map))$", AngularStaticFilesView.as_view(), name="angular_asset"),
+    re_path(r"^(?P<path>favicon\.ico)$", AngularStaticFilesView.as_view(), name="angular_favicon"),
 
     path("admin/", admin.site.urls),
 
-    path("catalog/", include("apps.catalog.urls")),
+    # Catalog SSR fallback — must come BEFORE SPA catch-all so ssr/ paths are not swallowed
+    path("catalog/ssr/", include("apps.catalog.urls")),
+    # Catalog SPA — exact /catalog/ and catch-all render Angular SPA
+    path("catalog/", CatalogSPAView.as_view(), name="catalog_spa"),
+    path("catalog/<path:path>", CatalogSPAView.as_view(), name="catalog_spa_catchall"),
     path("nomenclature/", include("apps.catalog.nomenclature_urls")),
     path("client/", include("apps.client.urls")),
-    path("operations/", include("apps.operations.urls")),
+    # Operations SSR fallback — must come BEFORE SPA catch-all so ssr/ paths are not swallowed
+    path("operations/ssr/", include("apps.operations.ssr_urls")),
+    # Operations SPA — exact /operations/ and catch-all render Angular SPA
+    path("operations/", OperationsSPAView.as_view(), name="operations_spa"),
+    path("operations/<path:path>", OperationsSPAView.as_view(), name="operations_spa_catchall"),
     path("balances/", include("apps.balances.urls")),
-    path("temporary-items/", include("apps.temporary_items.urls")),
+    # Temporary Items SSR fallback — must come BEFORE SPA catch-all so ssr/ paths are not swallowed
+    path("temporary-items/ssr/", include("apps.temporary_items.urls")),
+    # Temporary Items SPA — exact /temporary-items/ and catch-all render Angular SPA
+    path("temporary-items/", TemporaryItemsSPAView.as_view(), name="temporary_items_spa"),
+    path("temporary-items/<path:path>", TemporaryItemsSPAView.as_view(), name="temporary_items_spa_catchall"),
+    # Issued Assets SPA — exact /issued-assets/ and catch-all render Angular SPA
+    path("issued-assets/", IssuedAssetsSPAView.as_view(), name="issued_assets_spa"),
+    path("issued-assets/<path:path>", IssuedAssetsSPAView.as_view(), name="issued_assets_spa_catchall"),
     path("admin-panel/", include("apps.admin_panel.urls")),
     path("documents/", include("apps.documents.urls")),
     path("users/", include("apps.users.urls")),
+    path(
+        "admin/audit-events/",
+        AdminAuditEventListView.as_view(),
+        name="audit_events_list",
+    ),
+    path(
+        "admin/audit-events/<uuid:event_id>/",
+        AdminAuditEventDetailView.as_view(),
+        name="audit_event_detail",
+    ),
 
     path(
         "login/",
@@ -51,6 +81,8 @@ urlpatterns = [
     ),
 
     path("healthz/", HealthCheckView.as_view(), name="healthz"),
+    path("bff/api/v1/", include("apps.bff_api.urls")),
+
     path("healthz/sync/", SyncHealthCheckView.as_view(), name="healthz_sync"),
 
     path("", RedirectView.as_view(url="/client/", permanent=False)),

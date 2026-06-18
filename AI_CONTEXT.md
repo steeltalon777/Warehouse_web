@@ -1,56 +1,40 @@
 # AI Context
 
-## System Architecture
+## Role
 
-Warehouse_web is a Django SSR client for SyncServer. It is not a second backend. SyncServer owns warehouse domain data, access scopes, and business rules.
+`Warehouse_web` is the active Django web client, admin UI, session host, and BFF layer for browser features.
 
-## Backend Rules
+## Rules
 
-- keep business logic in SyncServer whenever possible
-- keep Django views thin
-- put multi-step orchestration into service classes
-- route every new SyncServer HTTP call through `apps/sync_client`
-- do not add raw `httpx` calls directly inside views or templates
+- SyncServer owns warehouse truth and business validation.
+- Django owns web technical state and UI orchestration.
+- Do not add local Django ORM models for catalog or other warehouse domain entities.
+- Every SyncServer HTTP call must go through `apps/sync_client/`.
+- Keep views thin; put multi-step UI workflows in services.
+- Do not expose SyncServer tokens to browser JavaScript.
+- Angular integration must use Django same-origin BFF endpoints and CSRF.
 
-## Database Rules
+## Local State
 
-- local Django DB is for technical application state
-- local truth includes auth users, sessions, `SyncUserBinding`, and a transitional site mirror
-- local catalog tables are legacy-only and must not become active domain storage again
-- do not treat local `Site` as the source of truth
+Allowed local state:
 
-## Layered Architecture
+- Django auth and sessions.
+- SyncServer user binding.
+- Technical cache.
+- BFF/UI support state.
 
-### API
+Not allowed local state:
 
-- Django URLs, SSR views, Django admin actions
+- Authoritative catalog, operation, balance, document, recipient, user, site, or device domain state.
 
-### Services
+## Main Work Areas
 
-- user sync, site sync, catalog orchestration, domain page preparation
+- `apps/sync_client/` - canonical SyncServer integration.
+- `apps/catalog/` - catalog and nomenclature UI/BFF flows.
+- `apps/users/` - auth and SyncServer binding.
+- `templates/` - SSR pages and host templates.
+- `config/settings/` - Django settings.
 
-### Repositories
+## Verification
 
-- SyncServer HTTP clients and endpoint wrappers in `apps/sync_client`
-
-### Models
-
-- `User`
-- `SyncUserBinding`
-- `Site`
-- `UserProfile` only as compatibility tail
-
-## Client Rules
-
-- root admin operations use the root token from environment variables
-- non-root runtime operations use per-user tokens from `SyncUserBinding`
-- runtime headers are resolved by the canonical SyncServer client layer
-- Django admin is the canonical UI for root-managed users and sites
-
-## Architecture Constraints
-
-- do not redesign SyncServer contracts from Django
-- do not move warehouse business rules into Django models
-- do not create a second catalog/site source of truth in Django
-- treat `site_id` as access context for global catalog master data unless SyncServer behavior changes
-- prefer deleting deprecated paths over keeping parallel active flows
+- Run `python manage.py test` after Django changes.

@@ -48,13 +48,13 @@ Usage:
 
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Any, Optional
 
 from .client import SyncServerClient
 from .exceptions import SyncServerAPIError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class OperationsAPI:
@@ -77,7 +77,7 @@ class OperationsAPI:
                    a new instance will be created with default settings.
         """
         self.client = client or SyncServerClient()
-        logger.debug("OperationsAPI client initialized")
+        logger.debug("operations_api_initialized")
 
     def list_operations(
         self,
@@ -114,8 +114,7 @@ class OperationsAPI:
             >>> operations = operations_api.list_operations(filters={"type": "receipt"})
         """
         logger.debug(
-            "Fetching operations list",
-            extra={"filters": filters or {}}
+            "fetching_operations_list", filters=filters or {},
         )
 
         params = self._build_filter_params(filters)
@@ -135,8 +134,7 @@ class OperationsAPI:
             return response
         else:
             logger.warning(
-                "Unexpected response format from /operations",
-                extra={"response_type": type(response).__name__}
+                "unexpected_response_format", endpoint="/operations", response_type=type(response).__name__,
             )
             return []
 
@@ -148,8 +146,7 @@ class OperationsAPI:
         acting_site_id: str | int | None = None,
     ) -> dict[str, Any]:
         logger.debug(
-            "Fetching operations page",
-            extra={"filters": filters or {}}
+            "fetching_operations_page", filters=filters or {},
         )
 
         params = self._build_filter_params(filters)
@@ -178,8 +175,7 @@ class OperationsAPI:
             }
 
         logger.warning(
-            "Unexpected response format from /operations",
-            extra={"response_type": type(response).__name__}
+            "unexpected_response_format", endpoint="/operations", response_type=type(response).__name__,
         )
         return {"items": [], "total_count": 0, "page": 1, "page_size": params.get("page_size", 20)}
 
@@ -211,7 +207,7 @@ class OperationsAPI:
             >>> operation = operations_api.get_operation("op-789")
             >>> print(operation["type"], operation["status"], operation["quantity"])
         """
-        logger.debug("Fetching operation", extra={"operation_id": operation_id})
+        logger.debug("fetching_operation", operation_id=operation_id)
         return self.client.get(
             f"/operations/{operation_id}",
             acting_user_id=acting_user_id,
@@ -256,8 +252,7 @@ class OperationsAPI:
             >>> print(new_operation["id"])
         """
         logger.debug(
-            "Creating operation",
-            extra={"payload_keys": list(payload.keys())}
+            "creating_operation", payload_keys=list(payload.keys()),
         )
         return self.client.post(
             "/operations",
@@ -301,8 +296,7 @@ class OperationsAPI:
             >>> print(updated_operation["quantity"])
         """
         logger.debug(
-            "Updating operation",
-            extra={"operation_id": operation_id, "payload_keys": list(payload.keys())}
+            "updating_operation", operation_id=operation_id, payload_keys=list(payload.keys()),
         )
         return self.client.patch(
             f"/operations/{operation_id}",
@@ -340,7 +334,7 @@ class OperationsAPI:
             >>> submitted_operation = operations_api.submit_operation("op-789")
             >>> print(submitted_operation["status"])  # should be "submitted"
         """
-        logger.debug("Submitting operation", extra={"operation_id": operation_id})
+        logger.debug("submitting_operation", operation_id=operation_id)
         return self.client.post(
             f"/operations/{operation_id}/submit",
             json=payload or {"submit": True},
@@ -377,10 +371,41 @@ class OperationsAPI:
             >>> cancelled_operation = operations_api.cancel_operation("op-789")
             >>> print(cancelled_operation["status"])  # should be "cancelled"
         """
-        logger.debug("Cancelling operation", extra={"operation_id": operation_id})
+        logger.debug("cancelling_operation", operation_id=operation_id)
         return self.client.post(
             f"/operations/{operation_id}/cancel",
             json=payload or {"cancel": True},
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
+    def delete_operation(
+        self,
+        operation_id: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> None:
+        """
+        Delete a cancelled operation (soft delete).
+
+        Endpoint: DELETE /operations/{operation_id}
+
+        Args:
+            operation_id: Operation identifier to delete
+            acting_user_id: Optional acting user ID override
+            acting_site_id: Optional acting site ID override
+
+        Raises:
+            SyncAPIError: If the API request fails
+
+        Example:
+            >>> operations_api = OperationsAPI()
+            >>> operations_api.delete_operation("op-789")
+        """
+        logger.debug("deleting_operation", operation_id=operation_id)
+        self.client.delete(
+            f"/operations/{operation_id}",
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
         )
@@ -411,7 +436,7 @@ class OperationsAPI:
         Raises:
             SyncServerAPIError: On backend errors (409, 422, 403, etc.).
         """
-        logger.debug("Accepting operation lines", extra={"operation_id": operation_id})
+        logger.debug("accepting_operation_lines", operation_id=operation_id)
         return self.client.post(
             f"/operations/{operation_id}/accept-lines",
             json=payload,

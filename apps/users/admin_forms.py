@@ -75,6 +75,10 @@ class SyncManagedUserAdminForm(UserChangeForm):
 
         self._prepared_sync = None
 
+    def clean_password(self) -> str:
+        """Не менять пароль, если поле оставлено пустым."""
+        return self.cleaned_data.get("password", "")
+
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
 
@@ -186,7 +190,7 @@ class SyncManagedDeviceAdminForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.service = DeviceSyncService()
         if "sync_device_token" in self.fields:
-            self.fields["sync_device_token"].initial = self.instance.sync_device_token
+            self.fields["sync_device_token"].initial = self.instance.sync_device_token or ""
 
     def clean_device_code(self) -> str:
         return str(self.cleaned_data["device_code"]).strip()

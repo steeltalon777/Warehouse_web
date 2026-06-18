@@ -21,7 +21,7 @@ Requirements met:
 
 from __future__ import annotations
 
-import logging
+import structlog
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -30,8 +30,9 @@ from django.http import HttpRequest
 
 from .auth_api import AuthAPI, get_auth_api
 from .exceptions import SyncAPIError
+from .token_resolver import SyncIdentityNotBoundError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 @dataclass
@@ -75,11 +76,11 @@ def store_syncserver_identity(request: HttpRequest) -> Optional[SyncIdentity]:
     Returns:
         SyncIdentity object if successful, None otherwise
     """
-    logger.info("Fetching SyncServer identity for Django session")
+    logger.info("fetching_syncserver_identity")
     
     try:
         # Initialize AuthAPI
-        auth_api = get_auth_api()
+        auth_api = get_auth_api(request)
         
         # Get authentication context from SyncServer
         context = auth_api.get_context(request)
@@ -96,7 +97,7 @@ def store_syncserver_identity(request: HttpRequest) -> Optional[SyncIdentity]:
         user_token = _resolve_sync_user_token(request, context, user)
 
         if not user_token:
-            logger.error("No user token found in SyncServer context")
+            logger.error("no_user_token_in_sync_context")
             return None
         
         # Create identity object
@@ -113,28 +114,24 @@ def store_syncserver_identity(request: HttpRequest) -> Optional[SyncIdentity]:
         _store_identity_in_session(request, identity)
         
         logger.info(
-            "SyncServer identity stored in session",
-            extra={
-                "user_id": identity.user_id,
-                "role": identity.role,
-                "site_id": identity.site_id,
-                "available_sites": len(identity.available_sites)
-            }
+            "sync_identity_stored_in_session",
+            user_id=identity.user_id,
+            role=identity.role,
+            site_id=identity.site_id,
+            available_sites=len(identity.available_sites),
         )
         
         return identity
         
     except SyncAPIError as e:
         logger.error(
-            "Failed to fetch SyncServer identity",
-            extra={
-                "error": str(e),
-                "status_code": e.status_code
-            }
+            "failed_to_fetch_sync_identity",
+            error=str(e),
+            status_code=e.status_code,
         )
         return None
     except Exception as e:
-        logger.exception("Unexpected error fetching SyncServer identity")
+        logger.error("unexpected_error_fetching_sync_identity", exc_info=True)
         return None
 
 
@@ -147,7 +144,7 @@ def clear_syncserver_identity(request: HttpRequest) -> None:
     Args:
         request: Django HttpRequest object
     """
-    logger.debug("Clearing SyncServer identity from session")
+    logger.debug("clearing_syncserver_identity")
     
     # Clear all SyncServer-related session keys
     session_keys = [
@@ -164,7 +161,7 @@ def clear_syncserver_identity(request: HttpRequest) -> None:
         if key in request.session:
             del request.session[key]
     
-    logger.info("SyncServer identity cleared from session")
+    logger.info("sync_identity_cleared_from_session")
 
 
 def get_sync_identity(request: HttpRequest) -> Optional[SyncIdentity]:
@@ -188,7 +185,7 @@ def get_sync_identity(request: HttpRequest) -> Optional[SyncIdentity]:
     
     for key in required_keys:
         if key not in request.session:
-            logger.debug(f"Missing session key for Sync identity: {key}")
+            logger.debug("missing_session_key", key=key)
             return None
     
     try:
@@ -208,10 +205,10 @@ def get_sync_identity(request: HttpRequest) -> Optional[SyncIdentity]:
         return identity
         
     except KeyError as e:
-        logger.warning(f"Corrupted Sync identity in session: {e}")
+        logger.warning("corrupted_sync_identity", error=str(e))
         return None
     except Exception as e:
-        logger.exception("Error parsing Sync identity from session")
+        logger.error("error_parsing_sync_identity", exc_info=True)
         return None
 
 
@@ -251,12 +248,10 @@ def _store_identity_in_session(request: HttpRequest, identity: SyncIdentity) -> 
     request.session.modified = True
     
     logger.debug(
-        "Stored Sync identity in session",
-        extra={
-            "user_id": identity.user_id,
-            "role": identity.role,
-            "has_site": identity.site_id is not None
-        }
+        "stored_sync_identity_in_session",
+        user_id=identity.user_id,
+        role=identity.role,
+        has_site=identity.site_id is not None,
     )
 
 
@@ -276,18 +271,12 @@ def _resolve_sync_user_token(
     ]
     for candidate in token_candidates:
         if candidate not in (None, ""):
-            logger.debug("Resolved SyncServer token from context/session")
+            logger.debug("resolved_token_from_context_or_session")
             return str(candidate)
 
     request_user = getattr(request, "user", None)
     if request_user is None or not getattr(request_user, "is_authenticated", False):
         return ""
-
-    if getattr(request_user, "is_superuser", False):
-        token = getattr(settings, "SYNC_ROOT_USER_TOKEN", "").strip()
-        if token:
-            logger.debug("Resolved SyncServer token from root user fallback")
-        return token
 
     try:
         token = str(request_user.sync_binding.sync_user_token or "").strip()
@@ -295,9 +284,16 @@ def _resolve_sync_user_token(
         token = ""
 
     if token:
-        logger.debug("Resolved SyncServer token from sync binding fallback")
+        logger.debug("resolved_token_from_sync_binding")
+        return token
 
-    return token
+    if getattr(request_user, "is_superuser", False):
+        root_token = getattr(settings, "SYNC_ROOT_USER_TOKEN", "").strip()
+        if root_token:
+            logger.debug("resolved_token_from_root_env")
+            return root_token
+
+    return ""
 
 
 def _normalize_sync_site(site: dict[str, Any]) -> dict[str, Any]:
@@ -321,17 +317,15 @@ def handle_django_login(request: HttpRequest) -> None:
         identity = store_syncserver_identity(request)
         if identity:
             logger.info(
-                "SyncServer identity stored after Django login",
-                extra={
-                    "django_user": request.user.username,
-                    "sync_user_id": identity.user_id,
-                    "role": identity.role
-                }
+                "sync_identity_stored_after_login",
+                django_user=request.user.username,
+                sync_user_id=identity.user_id,
+                role=identity.role,
             )
         else:
             logger.warning(
-                "Failed to store SyncServer identity after Django login",
-                extra={"django_user": request.user.username}
+                "failed_to_store_sync_identity_after_login",
+                django_user=request.user.username,
             )
 
 
@@ -346,6 +340,6 @@ def handle_django_logout(request: HttpRequest) -> None:
     """
     clear_syncserver_identity(request)
     logger.info(
-        "SyncServer identity cleared after Django logout",
-        extra={"user": request.user.username if request.user.is_authenticated else "unknown"}
+        "sync_identity_cleared_after_logout",
+        user=request.user.username if request.user.is_authenticated else "unknown",
     )

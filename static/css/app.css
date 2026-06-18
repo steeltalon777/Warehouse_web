@@ -22,9 +22,13 @@ html, body {
 }
 
 body {
- font-family:Inter, Arial, sans-serif;
- color:var(--text);
- background:var(--bg);
+  font-family:Inter, Arial, sans-serif;
+  color:var(--text);
+  background:var(--bg);
+  display:flex;
+  flex-direction:column;
+  height:100vh;
+  overflow:hidden;
 }
 
 a {
@@ -37,15 +41,19 @@ a:hover {
 }
 
 .layout {
- display:grid;
- grid-template-columns:240px 1fr;
- min-height:100vh;
+  display:grid;
+  grid-template-columns:240px 1fr;
+  flex:1;
+  min-height:0;
+  overflow:hidden;
 }
 
 .sidebar {
- background:var(--sidebar);
- color:#e2e8f0;
- padding:20px 16px;
+  background:var(--sidebar);
+  color:#e2e8f0;
+  padding:20px 16px;
+  overflow-y:auto;
+  min-height:0;
 }
 
 .sidebar a {
@@ -88,7 +96,9 @@ a:hover {
 }
 
 .content {
- padding:24px;
+  padding:24px;
+  overflow-y:auto;
+  min-height:0;
 }
 
 .topbar {
@@ -283,12 +293,40 @@ button:active, .btn:active {
  font-size:14px;
 }
 
-.logout-form{
- margin:0;
+.role-badge{
+ display:inline-block;
+ padding:2px 10px;
+ border-radius:12px;
+ font-size:12px;
+ font-weight:600;
+ line-height:1.5;
+ white-space:nowrap;
 }
 
-.logout-form button{
- margin:0;
+.role-badge.role-storekeeper{
+ background:#17a2b8;
+ color:#fff;
+}
+
+.role-badge.role-chief_storekeeper{
+ background:#28a745;
+ color:#fff;
+}
+
+.role-badge.role-root{
+ background:#dc3545;
+ color:#fff;
+}
+
+.role-badge.role-observer{
+ background:#6c757d;
+ color:#fff;
+}
+
+.role-badge.role-none{
+ background:#f0f0f0;
+ color:#999;
+ border:1px dashed #ccc;
 }
 
 .logout-form{
@@ -313,6 +351,40 @@ button:active, .btn:active {
 .btn-danger:hover{
  background:#b91c1c;
  color:#fff;
+}
+
+.badge{
+ display:inline-block;
+ padding:4px 10px;
+ border-radius:4px;
+ font-size:12px;
+ font-weight:600;
+ line-height:1.4;
+ white-space:nowrap;
+}
+
+.badge-warning{
+ background:#f59e0b;
+ color:#fff;
+}
+
+.badge-success{
+ background:#10b981;
+ color:#fff;
+}
+
+.badge-info{
+ background:#0ea5e9;
+ color:#fff;
+}
+
+.badge-danger{
+ background:#dc2626;
+ color:#fff;
+}
+
+.text-muted{
+ color:var(--muted);
 }
 
 .catalog-page-header{
@@ -1310,6 +1382,53 @@ button.is-loading{
     font-size: 14px;
 }
 
+.sidebar-details {
+    margin: 0;
+    padding: 0;
+}
+
+.sidebar-details summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 8px 12px 8px 24px;
+    font-size: 14px;
+    color: var(--sidebar-text);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.sidebar-details summary::-webkit-details-marker {
+    display: none;
+}
+
+.sidebar-details summary::after {
+    content: "▸";
+    font-size: 12px;
+    color: var(--sidebar-muted);
+    transition: transform 0.2s;
+}
+
+.sidebar-details[open] summary::after {
+    content: "▾";
+}
+
+.sidebar-details summary:hover {
+    background: var(--sidebar-hover);
+}
+
+.sidebar-nested-nav {
+    display: grid;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.sidebar-nested-nav a {
+    padding-left: 40px;
+    font-size: 14px;
+}
+
 /* Инлайн-редактирование таблиц */
 .table-input {
     width: 100%;
@@ -1448,4 +1567,58 @@ button.is-loading{
     border-radius: 4px;
     margin: 2px 4px 2px 0;
     white-space: nowrap;
+}
+
+.password-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.password-input-wrap input {
+    padding-right: 42px;
+}
+
+.password-toggle {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+
+.password-toggle:hover {
+    color: var(--text);
+    background: #f1f5f9;
+}
+
+.password-toggle:active {
+    transform: translateY(-50%);
+}
+
+.password-toggle .eye-on {
+    display: none;
+}
+
+.password-toggle .eye-off {
+    display: block;
+}
+
+.password-toggle.password-visible .eye-on {
+    display: block;
+}
+
+.password-toggle.password-visible .eye-off {
+    display: none;
 }

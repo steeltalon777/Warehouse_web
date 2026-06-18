@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import logging
+import structlog
+import time
 from typing import Any
 
 import httpx
@@ -16,19 +17,24 @@ from .exceptions import (
     SyncServerInternalError,
     SyncValidationError,
 )
+from .token_resolver import get_device_token
+from .transport import execute_with_retry, get_sync_client
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class SyncServerRootAdminClient:
     """
     Root-token SyncServer client for Django-admin management operations.
+
+    This client is for Django staff/superuser admin or system jobs only.
+    It must not be exposed to browser-facing BFF endpoints for ordinary users.
     """
 
     def __init__(self) -> None:
         self.base_url = settings.SYNC_SERVER_URL.rstrip("/")
         self.timeout = float(getattr(settings, "SYNC_SERVER_TIMEOUT", 10))
-        self.device_token = getattr(settings, "SYNC_DEVICE_TOKEN", "").strip()
+        self.device_token = get_device_token()
         self.root_user_token = getattr(settings, "SYNC_ROOT_USER_TOKEN", "").strip()
 
         if not self.base_url.endswith("/api/v1"):
@@ -36,18 +42,18 @@ class SyncServerRootAdminClient:
                 "SYNC_SERVER_URL must include '/api/v1'. "
                 f"Current value: {self.base_url}"
             )
-        if not self.device_token:
-            raise RuntimeError("SYNC_DEVICE_TOKEN is not configured.")
         if not self.root_user_token:
             raise RuntimeError("SYNC_ROOT_USER_TOKEN is not configured.")
 
     def _build_headers(self) -> dict[str, str]:
-        return {
+        headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "X-Device-Token": self.device_token,
             "X-User-Token": self.root_user_token,
         }
+        if self.device_token:
+            headers["X-Device-Token"] = self.device_token
+        return headers
 
     def _normalize_path(self, path: str) -> str:
         if not path:
@@ -99,24 +105,44 @@ class SyncServerRootAdminClient:
         url = f"{self.base_url}{normalized_path}"
         headers = self._build_headers()
 
+        _t0 = time.perf_counter()
+
+        _retries = int(getattr(settings, "SYNC_SERVER_RETRIES", 2))
+        _backoff = float(getattr(settings, "SYNC_SERVER_RETRY_BACKOFF", 0.2))
+
+        def _do_request() -> httpx.Response:
+            client = get_sync_client()
+            return client.request(
+                method=method,
+                url=url,
+                headers=headers,
+                json=json,
+                params=params,
+            )
+
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.request(
-                    method=method,
-                    url=url,
-                    headers=headers,
-                    json=json,
-                    params=params,
-                )
+            response = execute_with_retry(_do_request, method, retries=_retries, backoff=_backoff)
         except httpx.TimeoutException as exc:
-            logger.exception("SyncServer root-admin timeout", extra={"path": normalized_path})
+            _duration = (time.perf_counter() - _t0) * 1000
+            logger.error(
+                "sync_root_admin_timeout",
+                path=normalized_path,
+                duration_ms=round(_duration, 1),
+                exc_info=True,
+            )
             raise SyncBackendUnavailable(
                 "SyncServer did not respond in time.",
                 method=method,
                 path=normalized_path,
             ) from exc
         except httpx.RequestError as exc:
-            logger.exception("SyncServer root-admin request failed", extra={"path": normalized_path})
+            _duration = (time.perf_counter() - _t0) * 1000
+            logger.error(
+                "sync_root_admin_request_failed",
+                path=normalized_path,
+                duration_ms=round(_duration, 1),
+                exc_info=True,
+            )
             raise SyncBackendUnavailable(
                 "SyncServer is unavailable.",
                 method=method,

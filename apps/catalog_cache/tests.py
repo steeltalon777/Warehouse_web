@@ -48,6 +48,48 @@ class CatalogLookupServiceTests(TestCase):
 
         self.assertEqual([item["id"] for item in items], [101])
 
+    def test_search_returns_category_id_and_hashtags(self) -> None:
+        now = timezone.now()
+        CatalogCacheItem.objects.create(
+            sync_id="104",
+            name="Гвоздь 100",
+            sku="NAIL-100",
+            search_text="гвоздь 100 nail-100 крепеж #fastener",
+            category_id="12",
+            category_name="Крепеж",
+            unit_symbol="кг",
+            is_active=True,
+            hashtags=["fastener", "nail"],
+            source_updated_at=now,
+            synced_at=now,
+        )
+
+        items = CatalogLookupService().search_items("гвоздь", limit=10)
+        item = next((i for i in items if i["id"] == 104), None)
+        self.assertIsNotNone(item)
+        self.assertEqual(item["category_id"], "12")
+        self.assertEqual(item["hashtags"], ["fastener", "nail"])
+
+    def test_search_matches_by_hashtag_text(self) -> None:
+        now = timezone.now()
+        CatalogCacheItem.objects.create(
+            sync_id="105",
+            name="Анкер",
+            sku="ANCHOR-10",
+            search_text="анкер anchor-10 крепеж #heavy",
+            category_id="12",
+            category_name="Крепеж",
+            unit_symbol="шт",
+            is_active=True,
+            hashtags=["heavy", "metal"],
+            source_updated_at=now,
+            synced_at=now,
+        )
+
+        items = CatalogLookupService().search_items("heavy", limit=10)
+        self.assertGreater(len(items), 0)
+        self.assertIn(105, {i["id"] for i in items})
+
     def test_search_matches_wrong_keyboard_layout(self) -> None:
         now = timezone.now()
         CatalogCacheItem.objects.create(

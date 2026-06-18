@@ -59,8 +59,8 @@ This document describes the integration of SyncServer authentication with Django
 - `sync_available_sites` - List of sites user has access to
 - `sync_default_site_id` - Default site ID for operations
 
-### Legacy Compatibility:
-- `user_token` - Also stored for backward compatibility with existing SyncClient
+### Compatibility Session Key:
+- `user_token` - Also stored for existing SyncClient-compatible flows
 
 ## Helper Functions
 
@@ -173,7 +173,7 @@ TEMPLATES = [
 ### Graceful Degradation:
 - Django login succeeds even if SyncServer is unavailable
 - Views can check `has_sync_identity` and provide fallback behavior
-- Legacy code continues to work with `user_token` session key
+- Existing SyncClient-compatible flows continue to work with `user_token` session key
 
 ## Security Considerations
 
@@ -211,14 +211,12 @@ TEMPLATES = [
 ```python
 # Already in config/settings/base.py
 SYNC_SERVER_URL = "http://syncserver:8000/api/v1"
-SYNC_SERVER_SERVICE_TOKEN = "your-service-token"
 ```
 
 ### Optional Settings:
 ```python
-# Default acting context for service accounts
-SYNC_DEFAULT_ACTING_USER_ID = "service-account"
-SYNC_DEFAULT_ACTING_SITE_ID = "default-site"
+# Optional device-token for audit context (not for ordinary auth)
+SYNC_DEVICE_TOKEN = ""
 ```
 
 ## Troubleshooting
@@ -227,7 +225,7 @@ SYNC_DEFAULT_ACTING_SITE_ID = "default-site"
 
 1. **No Sync identity after login**
    - Check SyncServer connectivity
-   - Verify service token is configured
+   - Verify root token is configured (SYNC_ROOT_USER_TOKEN)
    - Check authentication logs
 
 2. **Site switching fails**

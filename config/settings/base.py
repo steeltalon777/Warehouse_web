@@ -37,6 +37,13 @@ ORGANIZATION_FULL_NAME = os.getenv(
     'Общество с ограниченной ответственностью Автоматизированные системы "Горизонт"',
 ).strip()
 ORGANIZATION_SHORT_NAME = os.getenv("ORGANIZATION_SHORT_NAME", 'ООО АС "Горизонт"').strip()
+DOCUMENT_SHIPPER_REQUISITES = os.getenv(
+    "DOCUMENT_SHIPPER_REQUISITES",
+    "ООО АС «Горизонт», ИНН:0302884660, КПП:752401001, 673314, "
+    "Забайкальский край, Карымский район, пгт. Курорт-Дарасун, "
+    "мкр. Северный, д.11, база Угдан",
+).strip()
+DOCUMENT_RENDERER_VERSION = os.getenv("DOCUMENT_RENDERER_VERSION", "waybill-pdf-v1").strip()
 
 # Django auth in this project is a technical admin/staff layer.
 # Warehouse domain users/roles/sites are owned by SyncServer.
@@ -58,10 +65,13 @@ INSTALLED_APPS = [
     "apps.balances",
     "apps.admin_panel",
     "apps.temporary_items",
+    "apps.bff_api",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "apps.common.middleware.RequestTracingMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -82,6 +92,8 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "apps.common.context_processors.shell_context",
+                "apps.common.context_processors.sync_identity_context",
             ],
         },
     },
@@ -121,8 +133,39 @@ LOGOUT_REDIRECT_URL = "/users/login/"
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", str(BASE_DIR / "media")))
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# -------------------------------------------------------------------
+# Cache policy for BFF transport acceleration
+# -------------------------------------------------------------------
+# Allowed:
+#   - catalog read/search responses
+#   - units/categories/sites lookups
+#   - navigation/sidebar permission summaries
+#   - dashboard counters with short TTL
+#   - screen bootstrap bundles
+# Forbidden:
+#   - raw user/device tokens
+#   - SyncServer root token
+#   - uncommitted operation write decisions
+#   - final authority for balances, access rights, or operation submission
+# Cache key MUST include user role / site scope where permissions affect results.
+# -------------------------------------------------------------------
+_CACHE_BACKEND = os.getenv("DJANGO_CACHE_BACKEND", "django.core.cache.backends.locmem.LocMemCache")
+_CACHE_LOCATION = os.getenv("DJANGO_CACHE_LOCATION", "bff_transport_cache")
+CACHES = {
+    "default": {
+        "BACKEND": _CACHE_BACKEND,
+        "LOCATION": _CACHE_LOCATION,
+    },
+}
+# Standard TTLs (seconds) for cache decorators in BFF views.
+CACHE_TTL_SHORT = int(os.getenv("CACHE_TTL_SHORT", "30"))       # dashboard counters
+CACHE_TTL_MEDIUM = int(os.getenv("CACHE_TTL_MEDIUM", "120"))    # catalog lookups
+CACHE_TTL_LONG = int(os.getenv("CACHE_TTL_LONG", "600"))        # reference data (units, sites)
 
 # -------------------------------------------------------------------
 # SyncServer integration (canonical)
@@ -130,32 +173,58 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # IMPORTANT:
 # - Django SSR client must talk only to versioned SyncServer API.
 # - Base URL MUST already include /api/v1
-# - Web client uses service-auth only.
+# - Transport uses only X-User-Token and X-Device-Token headers.
 SYNC_SERVER_URL = os.getenv("SYNC_SERVER_URL", "http://syncserver:8000/api/v1").rstrip("/")
-SYNC_SERVER_SERVICE_TOKEN = os.getenv("SYNC_SERVER_SERVICE_TOKEN", "").strip()
 SYNC_ROOT_USER_TOKEN = os.getenv("SYNC_ROOT_USER_TOKEN", "").strip()
 SYNC_SERVER_TIMEOUT = float(os.getenv("SYNC_SERVER_TIMEOUT", "10"))
 
-# Optional default acting context for technical/service flows.
-# Business requests should normally pass explicit acting context from app layer.
-SYNC_DEFAULT_ACTING_USER_ID = os.getenv("SYNC_DEFAULT_ACTING_USER_ID", "").strip()
-SYNC_DEFAULT_ACTING_SITE_ID = os.getenv("SYNC_DEFAULT_ACTING_SITE_ID", "").strip()
+# Fine-grained timeouts for SyncServer HTTP transport.
+# Each value is parsed as float seconds; falls back to SYNC_SERVER_TIMEOUT if not set.
+_SYNC_FALLBACK = os.getenv("SYNC_SERVER_TIMEOUT", "10")
+SYNC_SERVER_CONNECT_TIMEOUT = float(os.getenv("SYNC_SERVER_CONNECT_TIMEOUT", _SYNC_FALLBACK))
+SYNC_SERVER_READ_TIMEOUT = float(os.getenv("SYNC_SERVER_READ_TIMEOUT", _SYNC_FALLBACK))
+SYNC_SERVER_WRITE_TIMEOUT = float(os.getenv("SYNC_SERVER_WRITE_TIMEOUT", _SYNC_FALLBACK))
+SYNC_SERVER_POOL_TIMEOUT = float(os.getenv("SYNC_SERVER_POOL_TIMEOUT", _SYNC_FALLBACK))
 
-# -------------------------------------------------------------------
-# Legacy device-auth settings
-# -------------------------------------------------------------------
-# DEPRECATED:
-# Django web client MUST NOT use device auth for business/admin operations.
-# Left here only to avoid hard crash in unrelated old code during migration.
-SYNC_SITE_ID = os.getenv("SYNC_SITE_ID", "").strip()
-SYNC_DEVICE_ID = os.getenv("SYNC_DEVICE_ID", "").strip()
+# Retry policy for idempotent SyncServer requests (GET, health).
+# Applied only to safe reads; mutations are never retried without idempotency key.
+SYNC_SERVER_RETRIES = int(os.getenv("SYNC_SERVER_RETRIES", "2"))
+SYNC_SERVER_RETRY_BACKOFF = float(os.getenv("SYNC_SERVER_RETRY_BACKOFF", "0.2"))
+
+# Optional device-token for audit context (not for ordinary auth).
 SYNC_DEVICE_TOKEN = os.getenv("SYNC_DEVICE_TOKEN", "").strip()
-SYNC_CLIENT_VERSION = os.getenv("SYNC_CLIENT_VERSION", "warehouse-web/1.0").strip()
 
-# Legacy alias support (read-only fallback). Do not use in new code.
-SYNCSERVER_API_URL = SYNC_SERVER_URL
+# -------------------------------------------------------------------
+# HISTORICAL — removed from active use
+# -------------------------------------------------------------------
+# The following settings were used by the old multi-header auth model
+# (service tokens, acting context headers, legacy device auth).
+# They are retained here only as env-var references for backward
+# compat during transition. Active code must not read them.
+#
+# Removed: SYNC_SERVER_SERVICE_TOKEN, SYNC_DEFAULT_ACTING_USER_ID,
+#          SYNC_DEFAULT_ACTING_SITE_ID, SYNC_SITE_ID, SYNC_DEVICE_ID,
+#          SYNC_CLIENT_VERSION, SYNCSERVER_API_URL, SYNC_WEB_DEVICE_ID.
 
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/client/"
 LOGOUT_REDIRECT_URL = "/login/"
-SYNC_WEB_DEVICE_ID = os.getenv("SYNC_WEB_DEVICE_ID", "00000000-0000-0000-0000-000000000001").strip()
+
+# -------------------------------------------------------------------
+# Frontend SPA integration
+# -------------------------------------------------------------------
+# FRONTEND_MODE: "dev" (Angular dev server at :4200 with proxy) or "build" (Django serves built files)
+FRONTEND_MODE = os.getenv("FRONTEND_MODE", "build").strip()
+FRONTEND_DEV_SERVER_URL = os.getenv("FRONTEND_DEV_SERVER_URL", "http://localhost:4200").strip()
+FRONTEND_BUILD_DIR = os.getenv(
+    "FRONTEND_BUILD_DIR",
+    str(BASE_DIR.parent / "Warehouse_frontend" / "dist" / "warehouse-frontend" / "browser"),
+).strip()
+
+# -------------------------------------------------------------------
+# Structured logging (structlog)
+# -------------------------------------------------------------------
+from config.settings.logging_config import LOGGING  # noqa: E402
+
+# Вызов configure_structlog() делается в AppConfig.ready() модуля apps.common
+# (см. apps/common/apps.py)
