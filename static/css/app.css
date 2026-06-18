@@ -1568,3 +1568,57 @@ button.is-loading{
     margin: 2px 4px 2px 0;
     white-space: nowrap;
 }
+
+.password-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.password-input-wrap input {
+    padding-right: 42px;
+}
+
+.password-toggle {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+
+.password-toggle:hover {
+    color: var(--text);
+    background: #f1f5f9;
+}
+
+.password-toggle:active {
+    transform: translateY(-50%);
+}
+
+.password-toggle .eye-on {
+    display: none;
+}
+
+.password-toggle .eye-off {
+    display: block;
+}
+
+.password-toggle.password-visible .eye-on {
+    display: block;
+}
+
+.password-toggle.password-visible .eye-off {
+    display: none;
+}

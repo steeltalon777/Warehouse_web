@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Вход{% endblock %}
 
@@ -16,11 +17,47 @@
             {{ form.username }}
         </div>
 
-        <div>
+        <div class="password-field">
             <label for="{{ form.password.id_for_label }}">Пароль</label>
-            {{ form.password }}
+            <div class="password-input-wrap">
+                {{ form.password }}
+                <button type="button" class="password-toggle" id="password-toggle" aria-label="Показать пароль" title="Показать пароль">
+                    <svg class="eye-icon eye-off" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                        <path d="m1 1 22 22"/>
+                    </svg>
+                    <svg class="eye-icon eye-on" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden>
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                </button>
+            </div>
         </div>
 
         <button type="submit">Войти</button>
     </form>
+{% endblock %}
+
+{% block body_extra %}
+<script>
+(() => {
+    const toggle = document.getElementById('password-toggle');
+    const password = document.getElementById('{{ form.password.id_for_label }}');
+    if (!toggle || !password) return;
+
+    const eyeOff = toggle.querySelector('.eye-off');
+    const eyeOn = toggle.querySelector('.eye-on');
+    let visible = false;
+    toggle.addEventListener('click', () => {
+        visible = !visible;
+        password.type = visible ? 'text' : 'password';
+        toggle.setAttribute('aria-label', visible ? 'Скрыть пароль' : 'Показать пароль');
+        toggle.title = visible ? 'Скрыть пароль' : 'Показать пароль';
+        toggle.classList.toggle('password-visible', visible);
+        if (eyeOff) eyeOff.hidden = visible;
+        if (eyeOn) eyeOn.hidden = !visible;
+    });
+})();
+</script>
 {% endblock %}
