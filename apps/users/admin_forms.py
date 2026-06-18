@@ -75,6 +75,10 @@ class SyncManagedUserAdminForm(UserChangeForm):
 
         self._prepared_sync = None
 
+    def clean_password(self) -> str:
+        """Не менять пароль, если поле оставлено пустым."""
+        return self.cleaned_data.get("password", "")
+
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
 

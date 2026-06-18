@@ -4,7 +4,7 @@
 
 <div class="navbar-right">
     {% if request.user.is_authenticated %}
-        <span class="user-name">{{ request.user.username }}</span>
+        <a href="{% url 'users:profile' %}" class="user-name profile-link">{{ request.user.username }}</a>
         {% if has_sync_identity and sync_role_label %}
         <span class="role-badge role-{{ sync_role }}">{{ sync_role_label }}</span>
         {% elif not has_sync_identity %}
