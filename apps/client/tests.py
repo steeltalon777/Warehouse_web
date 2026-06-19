@@ -159,11 +159,25 @@ class DashboardViewIntegrationTests(TestCase):
         response = self.client.get(reverse("client:dashboard"))
         self.assertContains(response, "0")
 
+    @patch("apps.client.views.AssetsAPI")
+    @patch("apps.client.views.TemporaryItemsAPI")
     @patch("apps.client.views.ReviewItemsAPI")
-    def test_dashboard_handles_api_error_gracefully(self, mock_review_api):
-        mock_instance = MagicMock()
-        mock_instance.list_review_items_page.side_effect = Exception("API unavailable")
-        mock_review_api.return_value = mock_instance
+    def test_dashboard_handles_api_error_gracefully(self, mock_review_api, mock_temp_api, mock_assets_api):
+        mock_review_instance = MagicMock()
+        mock_review_instance.list_review_items_page.side_effect = Exception("API unavailable")
+        mock_review_api.return_value = mock_review_instance
+
+        mock_temp_instance = MagicMock()
+        mock_temp_instance.list_temporary_items_page.return_value = {
+            "items": [], "total_count": 0, "page": 1, "page_size": 1
+        }
+        mock_temp_api.return_value = mock_temp_instance
+
+        mock_assets_instance = MagicMock()
+        mock_assets_instance.list_pending_acceptance_all_pages.return_value = {
+            "items": [], "total_count": 0
+        }
+        mock_assets_api.return_value = mock_assets_instance
 
         self.client.force_login(self.user)
         self._prepare_session()
