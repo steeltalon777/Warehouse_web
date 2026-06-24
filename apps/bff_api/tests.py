@@ -117,6 +117,30 @@ class BffApiViewMethodTests(TestCase):
         self.assertTrue(body["ok"])
         self.assertEqual(body["data"]["status"], "submitted")
 
+    def test_operations_submit_sync_conflict_409_preserves_detail(self) -> None:
+        from apps.sync_client.exceptions import SyncConflictError
+
+        detail_message = "SKU «М0001789» уже занят. Укажите другой SKU или оставьте поле пустым для автоматической генерации."
+        mock_api = Mock()
+        mock_api.submit_operation.side_effect = SyncConflictError(
+            detail_message,
+            status_code=409,
+            payload={"detail": detail_message},
+        )
+
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations/op1/submit",
+                data=json.dumps({"submit": True}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 409)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "conflict")
+        self.assertEqual(body["error"]["message"], detail_message)
+
     def test_operations_list_forwards_item_ids_filter(self) -> None:
         mock_api = Mock()
         mock_api.list_operations_page.return_value = {"items": [], "total_count": 0, "page": 1, "page_size": 20}
