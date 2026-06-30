@@ -123,6 +123,17 @@ class BrowseItemsView(LoginRequiredMixin, View):
             return _handle_sync_error(exc)
 
 
+
+class ItemReadView(LoginRequiredMixin, View):
+    def get(self, request, item_id):
+        try:
+            api = _catalog(request)
+            data = api.get_item_read_model(str(item_id))
+            return _ok(data)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
+
+
 class BrowseCategoriesView(LoginRequiredMixin, View):
     def get(self, request):
         try:

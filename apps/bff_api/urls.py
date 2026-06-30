@@ -40,6 +40,8 @@ admin_patterns = [
     path("admin/devices", admin_views.DevicesListView.as_view(), name="admin_devices"),
     path("admin/devices/<str:device_id>", admin_views.DeviceDetailView.as_view(), name="admin_device_detail"),
     path("admin/devices/<str:device_id>/rotate-token", admin_views.DeviceRotateTokenView.as_view(), name="admin_device_rotate_token"),
+    path("admin/devices/<str:device_id>/status", admin_views.DeviceSyncStatusView.as_view(), name="admin_device_sync_status"),
+    path("admin/devices/<str:device_id>/refresh-status", admin_views.DeviceRefreshStatusView.as_view(), name="admin_device_refresh_status"),
 ]
 
 audit_patterns = [
@@ -49,6 +51,7 @@ audit_patterns = [
 
 catalog_read_patterns = [
     path("catalog/items", catalog_views.ItemsView.as_view(), name="catalog_items"),
+    path("catalog/items/<int:item_id>", catalog_views.ItemReadView.as_view(), name="catalog_item_read"),
     path("catalog/categories", catalog_views.CategoriesView.as_view(), name="catalog_categories"),
     path("catalog/categories/tree", catalog_views.CategoriesTreeView.as_view(), name="catalog_categories_tree"),
     path("catalog/units", catalog_views.UnitsView.as_view(), name="catalog_units"),

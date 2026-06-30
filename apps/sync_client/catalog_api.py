@@ -382,7 +382,25 @@ class CatalogAPI:
         logger.warning(
             "unexpected_response_format", endpoint="/catalog/read/categories/{category_id}/parent-chain", response_type=type(response).__name__,
         )
-        return {"category_id": category_id, "parent_chain_summary": []}
+
+    def get_item_read_model(
+        self,
+        item_id: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get a single catalog item via read model (only active items).
+
+        Endpoint: GET /catalog/read/items/{item_id}
+        """
+        logger.debug("fetching_catalog_read_item", item_id=item_id)
+        return self.client.get(
+            f"/catalog/read/items/{item_id}",
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
 
     def get_categories_tree(
         self,
