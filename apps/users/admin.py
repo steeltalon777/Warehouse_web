@@ -10,6 +10,8 @@ from django.db import transaction
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import path, reverse
+from datetime import timedelta
+
 from django.utils import timezone
 from django.utils.html import format_html
 
@@ -17,6 +19,7 @@ from apps.sync_client.exceptions import SyncServerAPIError
 from apps.users.admin_forms import (
     SuperuserLocalAdminForm,
     SyncManagedDeviceAdminForm,
+    SyncManagedDeviceCreationForm,
     SyncManagedSiteAdminForm,
     SyncManagedUserAdminForm,
     SyncManagedUserCreationForm,
@@ -118,7 +121,6 @@ class SyncUserBindingAdmin(admin.ModelAdmin):
                     "user",
                     "syncserver_user_id",
                     "sync_role",
-                    "default_site_id",
                     "site_ids",
                     "sync_user_token",
                     "sync_status",
@@ -184,22 +186,33 @@ class SyncUserBindingAdmin(admin.ModelAdmin):
 @admin.register(SyncDeviceBinding)
 class SyncDeviceBindingAdmin(admin.ModelAdmin):
     form = SyncManagedDeviceAdminForm
+    add_form = SyncManagedDeviceCreationForm
     change_form_template = "admin/users/syncdevicebinding/change_form.html"
-    actions = ("repair_selected_bindings", "mark_selected_for_repair")
+    actions = ("repair_selected_bindings", "mark_selected_for_repair", "refresh_device_status_action")
     list_display = (
         "device_code",
         "device_name",
         "is_active",
         "sync_status",
         "last_sync_at",
+        "online_status",
+        "health_status",
         "masked_device_token",
+        "sync_state_behind_by",
     )
+    list_display_links = ("device_code",)
+    list_filter = ("is_active", "sync_status", "device_code")
     search_fields = ("device_code", "device_name", "syncserver_device_id")
     readonly_fields = (
         "syncserver_device_id",
         "sync_device_token",
         "sync_status",
         "last_sync_at",
+        "last_seen_at",
+        "sync_state_status",
+        "sync_state_last_seq",
+        "sync_state_behind_by",
+        "health_status",
         "last_sync_error",
         "last_sync_payload_pretty",
         "token_rotated_at",
@@ -215,9 +228,14 @@ class SyncDeviceBindingAdmin(admin.ModelAdmin):
         "sync_device_token",
         "is_active",
         "sync_status",
+        "sync_state_status",
+        "sync_state_last_seq",
+        "sync_state_behind_by",
+        "health_status",
         "last_sync_error",
         "last_sync_payload_pretty",
         "last_sync_at",
+        "last_seen_at",
         "token_rotated_at",
         "manual_token_updated_at",
         "manual_token_updated_by",
@@ -251,10 +269,51 @@ class SyncDeviceBindingAdmin(admin.ModelAdmin):
     def last_sync_payload_pretty(self, obj: SyncDeviceBinding) -> str:
         return format_html("<pre style='white-space:pre-wrap;max-width:960px;'>{}</pre>", obj.last_sync_payload or {})
 
-    def save_model(self, request: HttpRequest, obj: SyncDeviceBinding, form, change: bool) -> None:
+    @admin.display(description="Статус", ordering="sync_state_status")
+    def online_status(self, obj):
+        """Colour-coded badge based on cached ``sync_state_status`` field.
+
+        Per TZ Task 2.3 this reads the cached field (populated by the
+        admin action ``refresh_device_status_action``) and MUST NOT call
+        the SyncServer API.
+
+        When ``sync_state_status`` is not set (null/empty), falls back to
+        computing online/offline from ``last_seen_at`` for backward
+        compatibility with devices that have not been refreshed yet.
+        """
+        if obj.sync_state_status:
+            status_colors = {
+                "online": ("green", "Online"),
+                "offline": ("red", "Offline"),
+                "error": ("red", "Error"),
+                "unknown": ("gray", "Неизвестно"),
+            }
+            color, label = status_colors.get(obj.sync_state_status, ("gray", "—"))
+            return format_html('<span style="color:{};">\u25cf {}</span>', color, label)
+
+        # Fallback: compute from last_seen_at (backward compat)
+        if not obj.last_seen_at:
+            return format_html('<span style="color:gray;">—</span>')
+        delta = timezone.now() - obj.last_seen_at
+        if delta < timedelta(minutes=5):
+            return format_html('<span style="color:green;">\U0001f7e2 Online</span>')
+        elif delta < timedelta(hours=1):
+            return format_html('<span style="color:orange;">\U0001f7e1 Away</span>')
+        return format_html('<span style="color:red;">\U0001f534 Offline</span>')
+
+    def save_model(self, request, obj, form, change):
         service = DeviceSyncService()
         try:
             with transaction.atomic():
+                # MANUAL_OVERRIDE следует паттерну SyncUserBindingAdmin.save_model():
+                # sync_device_token имеет disabled=True, поэтому change не поймает его
+                # из формы. Код остаётся для консистентности — если токен изменится
+                # программно или через другую форму, статус обновится корректно.
+                if change and "sync_device_token" in form.changed_data:
+                    obj.sync_status = SyncStatus.MANUAL_OVERRIDE
+                    obj.manual_token_updated_at = timezone.now()
+                    obj.manual_token_updated_by = request.user
+                    obj.last_sync_error = ""
                 super().save_model(request, obj, form, change)
                 if change:
                     service.sync_existing_binding(binding=obj)
@@ -354,6 +413,27 @@ class SyncDeviceBindingAdmin(admin.ModelAdmin):
         updated = queryset.update(sync_status=SyncStatus.REPAIR_REQUIRED, updated_at=timezone.now())
         self.message_user(request, f"Помечено для ремонта device binding-записей: {updated}.", level="warning")
 
+    @admin.action(description="Refresh device status from SyncServer")
+    def refresh_device_status_action(self, request: HttpRequest, queryset):
+        service = DeviceSyncService()
+        refreshed = 0
+        failed = 0
+        for binding in queryset:
+            try:
+                service.refresh_device_status(binding=binding)
+                refreshed += 1
+            except Exception as exc:
+                failed += 1
+        if refreshed:
+            self.message_user(request, f"Обновлён статус устройств: {refreshed}.", level="success")
+        if failed:
+            self.message_user(request, f"Не удалось обновить статус устройств: {failed}.", level="error")
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        if obj is None:
+            kwargs["form"] = self.add_form
+        return super().get_form(request, obj, change=change, **kwargs)
+
     def _change_url(self, object_id: int) -> str:
         return reverse("admin:users_syncdevicebinding_change", args=[object_id])
 
@@ -397,10 +477,10 @@ class SyncManagedUserAdmin(BaseUserAdmin):
                     "password_confirm",
                     "full_name",
                     "sync_role",
-                    "default_site_id",
+                    "site_ids",
                     "is_active",
                     "sync_user_token",
-                ),
+                )
             },
         ),
     )
@@ -416,7 +496,7 @@ class SyncManagedUserAdmin(BaseUserAdmin):
                     "password_confirm",
                     "full_name",
                     "sync_role",
-                    "default_site_id",
+                    "site_ids",
                     "sync_user_token",
                     "is_active",
                 )
@@ -476,13 +556,10 @@ class SyncManagedUserAdmin(BaseUserAdmin):
         if prepared is None:
             raise RuntimeError("Sync state was not prepared before saving the user.")
 
-        password = form.cleaned_data.get("password")
         obj.email = form.cleaned_data["email"]
         obj.first_name = form.cleaned_data.get("full_name") or ""
         obj.is_staff = False
         obj.is_superuser = False
-        if password:
-            obj.set_password(password)
 
         service = UserSyncService()
         binding = None
@@ -490,9 +567,10 @@ class SyncManagedUserAdmin(BaseUserAdmin):
             with transaction.atomic():
                 obj.save()
                 binding, _ = SyncUserBinding.objects.get_or_create(user=obj)
+                site_ids_list = [str(sid) for sid in (form.cleaned_data.get("site_ids") or [])]
                 binding.sync_role = form.cleaned_data["sync_role"]
-                binding.default_site_id = str(form.cleaned_data["default_site_id"])
-                binding.site_ids = [str(form.cleaned_data["default_site_id"])]
+                binding.default_site_id = site_ids_list[0] if site_ids_list else ""
+                binding.site_ids = site_ids_list
                 binding.sync_status = SyncStatus.PENDING
                 binding.last_sync_error = ""
                 binding.last_sync_at = timezone.now()
@@ -503,8 +581,8 @@ class SyncManagedUserAdmin(BaseUserAdmin):
                     binding=binding,
                     prepared=prepared,
                     role=form.cleaned_data["sync_role"],
-                    site_ids=[str(form.cleaned_data["default_site_id"])],
-                    default_site_id=str(form.cleaned_data["default_site_id"]),
+                    site_ids=site_ids_list,
+                    default_site_id=site_ids_list[0] if site_ids_list else "",
                 )
         except Exception as exc:
             if binding and binding.pk:

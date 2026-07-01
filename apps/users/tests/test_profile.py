@@ -246,32 +246,26 @@ class ProfileViewTests(TestCase):
 # ──────────────────────────────────────────────
 
 
-class SyncManagedUserAdminFormCleanPasswordTest(TestCase):
-    """Tests for clean_password() in SyncManagedUserAdminForm.
+class SyncManagedUserAdminFormPasswordSaveTest(TestCase):
+    """Tests for save() in SyncManagedUserAdminForm.
 
-    The method intercepts empty password fields to prevent UserChangeForm
-    from running Django password validators on empty values.
-    Full pipeline testing is done in the existing test suite.
+    The method intercepts save() to prevent UserChangeForm
+    from calling set_password("") on empty password fields.
     """
 
-    def test_clean_password_method_exists(self) -> None:
-        """Метод clean_password определён на форме."""
-        user = User.objects.create_user(username="cp-test", password="test123")
-        form = SyncManagedUserAdminForm(instance=user)
-        self.assertTrue(hasattr(form, "clean_password"))
-        self.assertTrue(callable(form.clean_password))
-
     @patch.object(SyncManagedUserAdminForm, "site_choices", [("1", "WH")])
+    @patch("apps.users.admin_forms.SyncUserBinding.objects.get_or_create")
     @patch("apps.users.admin_forms.UserSyncService.prepare_sync")
     @patch("apps.users.admin_forms.UserSyncService")
-    def test_clean_password_returns_empty_when_no_password_data(
-        self, mock_service_cls, mock_prepare
+    def test_save_does_not_clear_password_when_empty(
+        self, mock_service_cls, mock_prepare, mock_binding
     ) -> None:
-        """clean_password не даёт ошибок при пустом поле пароля."""
-        user = User.objects.create_user(username="cp-empty", password="test123")
+        """save() не вызывает set_password('') при пустом поле пароля."""
+        user = User.objects.create_user(username="cp-empty", password="secret123")
         mock_service_cls.return_value.list_sites.return_value = [
             {"site_id": 1, "name": "WH", "is_active": True}
         ]
+        mock_binding.return_value = (None, False)
         form = SyncManagedUserAdminForm(
             instance=user,
             data={
@@ -279,20 +273,38 @@ class SyncManagedUserAdminFormCleanPasswordTest(TestCase):
                 "email": "cp@test.com",
                 "full_name": "",
                 "sync_role": "storekeeper",
-                "default_site_id": "1",
+                "site_ids": ["1"],
                 "is_active": True,
             },
         )
-        # clean_password runs inside is_valid(); should not raise
-        try:
-            form.is_valid()
-        except Exception:
-            pass  # other validation may fail due to mocked sync
-        # Verify clean_password didn't cause an AttributeError
-        # by checking that errors don't mention password validation
-        password_errors = form.errors.get("password", [])
-        self.assertFalse(
-            any("пароль" in err.lower() for err in password_errors
-                if "оставьте пустым" not in err.lower()),
-            msg="clean_password should prevent password validation on empty field",
+        self.assertTrue(form.is_valid(), msg=f"Form errors: {form.errors}")
+        form.save(commit=False)
+        self.assertTrue(user.check_password("secret123"))
+
+    @patch.object(SyncManagedUserAdminForm, "site_choices", [("1", "WH")])
+    @patch("apps.users.admin_forms.UserSyncService.prepare_sync")
+    @patch("apps.users.admin_forms.UserSyncService")
+    def test_save_sets_password_when_provided(
+        self, mock_service_cls, mock_prepare
+    ) -> None:
+        """save() вызывает set_password при заполненном поле пароля."""
+        user = User.objects.create_user(username="cp-set", password="oldpass")
+        mock_service_cls.return_value.list_sites.return_value = [
+            {"site_id": 1, "name": "WH", "is_active": True}
+        ]
+        form = SyncManagedUserAdminForm(
+            instance=user,
+            data={
+                "username": "cp-set",
+                "email": "cp@test.com",
+                "full_name": "",
+                "password": "newpass123",
+                "password_confirm": "newpass123",
+                "sync_role": "storekeeper",
+                "site_ids": ["1"],
+                "is_active": True,
+            },
         )
+        self.assertTrue(form.is_valid(), msg=f"Form errors: {form.errors}")
+        form.save(commit=False)
+        self.assertTrue(user.check_password("newpass123"))

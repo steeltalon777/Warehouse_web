@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
@@ -327,6 +328,9 @@ class DeviceSyncService:
         binding.last_sync_error = ""
         binding.last_sync_at = timezone.now()
         binding.last_sync_payload = payload or remote_device
+        remote_last_seen = remote_device.get("last_seen_at")
+        if remote_last_seen is not None:
+            binding.last_seen_at = remote_last_seen
         binding.save()
         return binding
 
@@ -376,6 +380,88 @@ class DeviceSyncService:
                 "updated_at",
             ]
         )
+        return binding
+
+    def fetch_device_sync_status(self, device_id: int) -> dict[str, Any]:
+        """Fetch device sync state from SyncServer.
+
+        Calls ``GET /api/v1/sync/status/{device_id}`` through the root admin
+        client. The response contains ``last_sequence_number``,
+        ``last_sync_at``, ``status``, ``server_seq_upto``, ``behind_by``.
+        """
+        return self.client.get(f"/sync/status/{device_id}")
+
+    def refresh_device_status(self, *, binding: SyncDeviceBinding) -> SyncDeviceBinding:
+        """Refresh device runtime status from SyncServer sync_state.
+
+        1. Calls ``GET /api/v1/sync/status/{device_id}`` via the root client.
+        2. Computes online/offline from *last_sync_at* using the configurable
+           threshold (default 300 seconds / 5 minutes).
+        3. Computes health from *behind_by*:
+             - ``healthy``: behind_by < 50
+             - ``degraded``: 50 <= behind_by <= 200
+             - ``unhealthy``: behind_by > 200 or status == "error"
+        4. Persists the derived fields on the binding so they are visible in
+           the admin list without repeated online calls.
+        """
+        if not binding.syncserver_device_id:
+            raise ValueError("Binding has no SyncServer device id for refresh.")
+
+        data = self.fetch_device_sync_status(binding.syncserver_device_id)
+        threshold = getattr(settings, "SYNC_ONLINE_THRESHOLD_SECONDS", 300)
+
+        # ── Sync state fields from SyncServer response ─────────────────
+        state_status: str = data.get("status", "unknown")
+        last_seq: int | None = data.get("last_sequence_number")
+        behind_by: int = data.get("behind_by", 0)
+        last_sync_at_raw = data.get("last_sync_at")
+
+        # ── Derive online/offline ──────────────────────────────────────
+        binding.last_seen_at = last_sync_at_raw
+        if state_status == "online":
+            binding.sync_state_status = "online"
+        elif state_status == "offline":
+            binding.sync_state_status = "offline"
+        elif state_status == "error":
+            binding.sync_state_status = "error"
+        else:
+            # Fallback: compute from last_sync_at
+            if last_sync_at_raw is not None:
+                try:
+                    from django.utils import timezone as tz
+                    # Accept both string (ISO) and datetime objects
+                    if isinstance(last_sync_at_raw, str):
+                        from datetime import datetime
+                        parsed = datetime.fromisoformat(last_sync_at_raw.replace("Z", "+00:00"))
+                    else:
+                        parsed = last_sync_at_raw
+                    delta = tz.now() - parsed
+                    binding.sync_state_status = "online" if delta.total_seconds() < threshold else "offline"
+                except (TypeError, ValueError):
+                    binding.sync_state_status = "unknown"
+            else:
+                binding.sync_state_status = "unknown"
+
+        # ── Derive health ──────────────────────────────────────────────
+        if state_status == "error":
+            binding.health_status = "unhealthy"
+        elif behind_by < 50:
+            binding.health_status = "healthy"
+        elif behind_by <= 200:
+            binding.health_status = "degraded"
+        else:
+            binding.health_status = "unhealthy"
+
+        binding.sync_state_last_seq = last_seq
+        binding.sync_state_behind_by = behind_by
+        binding.save(update_fields=[
+            "sync_state_status",
+            "sync_state_last_seq",
+            "sync_state_behind_by",
+            "health_status",
+            "last_seen_at",
+            "updated_at",
+        ])
         return binding
 
     def mark_failure(

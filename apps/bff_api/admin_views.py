@@ -289,3 +289,42 @@ class DeviceRotateTokenView(LoginRequiredMixin, View):
             return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
+
+
+class DeviceSyncStatusView(LoginRequiredMixin, View):
+    def get(self, request, device_id):
+        if not _require_root(request.user):
+            return _error("Only root can view device sync status", "forbidden", 403)
+        try:
+            from apps.users.services import DeviceSyncService
+            data = DeviceSyncService().fetch_device_sync_status(int(device_id))
+            return _ok(data)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
+        except (ValueError, TypeError):
+            return _error("Invalid device_id", "validation_error", 400)
+
+
+class DeviceRefreshStatusView(LoginRequiredMixin, View):
+    def post(self, request, device_id):
+        if not _require_root(request.user):
+            return _error("Only root can refresh device status", "forbidden", 403)
+        try:
+            from apps.users.models import SyncDeviceBinding
+            from apps.users.services import DeviceSyncService
+            binding = SyncDeviceBinding.objects.get(syncserver_device_id=int(device_id))
+            service = DeviceSyncService()
+            service.refresh_device_status(binding=binding)
+            return _ok({
+                "sync_state_status": binding.sync_state_status,
+                "sync_state_last_seq": binding.sync_state_last_seq,
+                "sync_state_behind_by": binding.sync_state_behind_by,
+                "health_status": binding.health_status,
+                "last_seen_at": binding.last_seen_at,
+            })
+        except SyncDeviceBinding.DoesNotExist:
+            return _error("Device binding not found", "not_found", 404)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
+        except (ValueError, TypeError):
+            return _error("Invalid device_id", "validation_error", 400)

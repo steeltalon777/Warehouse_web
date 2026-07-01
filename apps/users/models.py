@@ -143,6 +143,11 @@ class SyncDeviceBinding(models.Model):
         default=SyncStatus.PENDING,
     )
     last_sync_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    sync_state_status = models.CharField(max_length=32, null=True, blank=True)
+    sync_state_last_seq = models.BigIntegerField(null=True, blank=True)
+    sync_state_behind_by = models.IntegerField(null=True, blank=True)
+    health_status = models.CharField(max_length=32, default="unknown")
     last_sync_error = models.TextField(blank=True, null=True)
     last_sync_payload = models.JSONField(default=dict, blank=True)
     token_rotated_at = models.DateTimeField(null=True, blank=True)

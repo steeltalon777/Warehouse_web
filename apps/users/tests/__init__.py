@@ -73,7 +73,7 @@ class SyncManagedUserAdminTests(TestCase):
         self.assertIn("password_confirm", form_class.base_fields)
         self.assertIn("full_name", form_class.base_fields)
         self.assertIn("sync_role", form_class.base_fields)
-        self.assertIn("default_site_id", form_class.base_fields)
+        self.assertIn("site_ids", form_class.base_fields)
         self.assertIn("sync_user_token", form_class.base_fields)
 
     def test_get_form_for_superuser_uses_default_admin_fieldset(self) -> None:

@@ -37,10 +37,11 @@ class SyncManagedUserAdminForm(UserChangeForm):
     )
     full_name = forms.CharField(label="ФИО", max_length=255, required=False)
     sync_role = forms.ChoiceField(label="Роль", choices=MANAGED_ROLE_CHOICES)
-    default_site_id = forms.ChoiceField(
-        label="Склад",
+    site_ids = forms.MultipleChoiceField(
+        label="Склады",
         choices=[],
         required=True,
+        help_text="Выберите один или несколько складов, к которым привязан пользователь.",
     )
     sync_user_token = forms.CharField(
         label="User token",
@@ -61,7 +62,7 @@ class SyncManagedUserAdminForm(UserChangeForm):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.service = UserSyncService()
-        self.fields["default_site_id"].choices = self.site_choices
+        self.fields["site_ids"].choices = self.site_choices
         self.fields["password"].help_text = ""
         self.fields["password"].initial = ""
         self.fields["password_confirm"].initial = ""
@@ -70,14 +71,10 @@ class SyncManagedUserAdminForm(UserChangeForm):
         binding = self._get_binding()
         if binding:
             self.fields["sync_role"].initial = binding.sync_role
-            self.fields["default_site_id"].initial = str(binding.default_site_id or "")
+            self.fields["site_ids"].initial = [str(s) for s in (binding.site_ids or [])]
             self.fields["sync_user_token"].initial = binding.sync_user_token
 
         self._prepared_sync = None
-
-    def clean_password(self) -> str:
-        """Не менять пароль, если поле оставлено пустым."""
-        return self.cleaned_data.get("password", "")
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
@@ -89,16 +86,16 @@ class SyncManagedUserAdminForm(UserChangeForm):
                 raise ValidationError("Пароли не совпадают.")
 
         role = cleaned_data.get("sync_role")
-        default_site_id = str(cleaned_data.get("default_site_id") or "")
+        site_ids_list = [str(sid) for sid in (cleaned_data.get("site_ids") or [])]
 
         if not role:
             raise ValidationError("Роль обязательна.")
         if role == Role.ROOT:
             raise ValidationError("Root-пользователи не управляются через Django-admin.")
-        if not default_site_id:
-            raise ValidationError("Нужно выбрать склад.")
+        if not site_ids_list:
+            raise ValidationError("Нужно выбрать хотя бы один склад.")
 
-        site_ids = [default_site_id]
+        default_site_id = site_ids_list[0]
 
         self.instance.username = cleaned_data.get("username") or self.instance.username
         self.instance.email = cleaned_data.get("email") or ""
@@ -110,7 +107,7 @@ class SyncManagedUserAdminForm(UserChangeForm):
                 user=self.instance,
                 full_name=cleaned_data.get("full_name") or "",
                 role=role,
-                site_ids=site_ids,
+                site_ids=site_ids_list,
                 default_site_id=default_site_id,
                 syncserver_user_id=binding.syncserver_user_id if binding else None,
             )
@@ -126,6 +123,17 @@ class SyncManagedUserAdminForm(UserChangeForm):
             return self.instance.sync_binding
         except SyncUserBinding.DoesNotExist:
             return None
+
+    def save(self, commit: bool = True):
+        user = super(UserChangeForm, self).save(commit=False)
+        password = self.cleaned_data.get("password")
+        if password:
+            user.set_password(password)
+        if commit:
+            user.save()
+            if hasattr(self, "save_m2m"):
+                self.save_m2m()
+        return user
 
 
 class SyncManagedUserCreationForm(SyncManagedUserAdminForm):
@@ -197,3 +205,8 @@ class SyncManagedDeviceAdminForm(forms.ModelForm):
 
     def clean_device_name(self) -> str:
         return str(self.cleaned_data["device_name"]).strip()
+
+
+class SyncManagedDeviceCreationForm(SyncManagedDeviceAdminForm):
+    class Meta(SyncManagedDeviceAdminForm.Meta):
+        fields = ("device_code", "device_name", "is_active")
