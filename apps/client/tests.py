@@ -44,7 +44,7 @@ class DashboardViewTests(TestCase):
         self.client.force_login(self.user)
         self._prepare_session()
         response = self.client.get(reverse("client:dashboard"))
-        self.assertContains(response, settings.ORGANIZATION_SHORT_NAME, html=True)
+        self.assertContains(response, settings.APP_PRODUCT_NAME, html=True)
 
     def test_dashboard_contains_username(self):
         self.client.force_login(self.user)
@@ -131,28 +131,38 @@ class DashboardViewIntegrationTests(TestCase):
         session["sync_default_site_id"] = ""
         session.save()
 
+    @patch("apps.client.views.ReviewItemsAPI")
     @patch("apps.client.views.TemporaryItemsAPI")
-    def test_dashboard_renders_temp_item_count_from_api(self, mock_temp_api):
-        mock_instance = MagicMock()
-        mock_instance.list_temporary_items.return_value = []
-        mock_instance.list_temporary_items_page.return_value = {
+    def test_dashboard_renders_temp_item_count_from_api(self, mock_temp_api, mock_review_api):
+        mock_review_instance = MagicMock()
+        mock_review_instance.list_review_items_page.side_effect = Exception("force fallback")
+        mock_review_api.return_value = mock_review_instance
+
+        mock_temp_instance = MagicMock()
+        mock_temp_instance.list_temporary_items.return_value = []
+        mock_temp_instance.list_temporary_items_page.return_value = {
             "items": [], "total_count": 5, "page": 1, "page_size": 1
         }
-        mock_temp_api.return_value = mock_instance
+        mock_temp_api.return_value = mock_temp_instance
 
         self.client.force_login(self.user)
         self._prepare_session()
         response = self.client.get(reverse("client:dashboard"))
         self.assertContains(response, "5")
 
+    @patch("apps.client.views.ReviewItemsAPI")
     @patch("apps.client.views.TemporaryItemsAPI")
-    def test_dashboard_renders_zero_count(self, mock_temp_api):
-        mock_instance = MagicMock()
-        mock_instance.list_temporary_items.return_value = []
-        mock_instance.list_temporary_items_page.return_value = {
+    def test_dashboard_renders_zero_count(self, mock_temp_api, mock_review_api):
+        mock_review_instance = MagicMock()
+        mock_review_instance.list_review_items_page.side_effect = Exception("force fallback")
+        mock_review_api.return_value = mock_review_instance
+
+        mock_temp_instance = MagicMock()
+        mock_temp_instance.list_temporary_items.return_value = []
+        mock_temp_instance.list_temporary_items_page.return_value = {
             "items": [], "total_count": 0, "page": 1, "page_size": 1
         }
-        mock_temp_api.return_value = mock_instance
+        mock_temp_api.return_value = mock_temp_instance
 
         self.client.force_login(self.user)
         self._prepare_session()
