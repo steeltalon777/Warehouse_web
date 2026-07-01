@@ -17,11 +17,16 @@ from typing import Any
 
 import structlog
 from django.conf import settings
+from django.core.cache import cache
 from django.core.files.base import ContentFile
+from django.http import HttpResponse
 from django.template.loader import render_to_string
 from django.utils import timezone
 
 from .models import RenderedDocumentArtifact
+
+CACHE_KEY_PREFIX = "waybill_pdf:"
+CACHE_TTL = 3600  # 1 hour
 
 logger = structlog.get_logger()
 
@@ -41,29 +46,41 @@ class RenderedDocumentResult:
 
 
 def render_document_pdf(document: dict[str, Any], *, force: bool = False) -> RenderedDocumentResult:
-    """Render PDF through Django and cache it by document payload/template identity."""
+    """Render PDF through Django and cache in Django cache (not disk)."""
     identity = _cache_identity(document)
+    cache_key = f"{CACHE_KEY_PREFIX}{identity['document_id']}:{identity['payload_hash']}"
+
+    # Check Django cache
+    if not force:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            pdf_bytes, artifact_id = cached
+            try:
+                artifact = RenderedDocumentArtifact.objects.get(id=artifact_id)
+            except RenderedDocumentArtifact.DoesNotExist:
+                pass
+            else:
+                return RenderedDocumentResult(artifact=artifact, pdf_bytes=pdf_bytes, cache_hit=True)
+
+    # Create/reuse artifact record for audit
+    identity_dict = _cache_identity(document)
     artifact, _created = RenderedDocumentArtifact.objects.get_or_create(
-        document_id=identity["document_id"],
-        revision=identity["revision"],
-        payload_hash=identity["payload_hash"],
-        template_name=identity["template_name"],
-        template_version=identity["template_version"],
-        renderer_version=identity["renderer_version"],
+        document_id=identity_dict["document_id"],
+        revision=identity_dict["revision"],
+        payload_hash=identity_dict["payload_hash"],
+        template_name=identity_dict["template_name"],
+        template_version=identity_dict["template_version"],
+        renderer_version=identity_dict["renderer_version"],
         defaults={
-            "document_type": identity["document_type"],
+            "document_type": identity_dict["document_type"],
             "status": RenderedDocumentArtifact.Status.RENDERING,
         },
     )
 
-    if not force and artifact.is_ready and artifact.pdf_file.storage.exists(artifact.pdf_file.name):
-        with artifact.pdf_file.open("rb") as pdf_file:
-            return RenderedDocumentResult(artifact=artifact, pdf_bytes=pdf_file.read(), cache_hit=True)
-
     try:
         html = render_document_html(document)
         pdf_bytes = _render_html_to_pdf_bytes(html)
-    except Exception as exc:  # pragma: no cover - concrete message is tested through wrapper paths
+    except Exception as exc:
         artifact.status = RenderedDocumentArtifact.Status.FAILED
         artifact.last_error = str(exc)
         artifact.save(update_fields=["status", "last_error", "updated_at"])
@@ -72,16 +89,17 @@ def render_document_pdf(document: dict[str, Any], *, force: bool = False) -> Ren
         raise DocumentPdfRenderError(str(exc)) from exc
 
     pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
-    filename = build_document_pdf_filename(document)
 
-    artifact.document_type = identity["document_type"]
+    # Update artifact without saving pdf_file
     artifact.status = RenderedDocumentArtifact.Status.READY
-    artifact.pdf_file.save(filename, ContentFile(pdf_bytes), save=False)
     artifact.pdf_sha256 = pdf_sha256
     artifact.size_bytes = len(pdf_bytes)
     artifact.rendered_at = timezone.now()
     artifact.last_error = ""
-    artifact.save()
+    artifact.save(update_fields=["status", "pdf_sha256", "size_bytes", "rendered_at", "last_error", "updated_at"])
+
+    # Store in Django cache
+    cache.set(cache_key, (pdf_bytes, artifact.id), CACHE_TTL)
 
     return RenderedDocumentResult(artifact=artifact, pdf_bytes=pdf_bytes, cache_hit=False)
 
@@ -179,28 +197,44 @@ def _build_extra_signatures(operation_type: str) -> list[dict[str, Any]]:
 def paginate_waybill_lines(
     lines: list[dict[str, Any]],
     *,
-    first_page_capacity: int = 24,
-    continuation_capacity: int = 30,
+    first_page_max_rows: int = 24,
+    continuation_max_rows: int = 30,
+    estimated_row_height_mm: float = 7.0,
+    available_height_first_page_mm: float = 170.0,
+    available_height_continuation_mm: float = 210.0,
 ) -> list[dict[str, Any]]:
-    """Chunk lines so every rendered table/page gets its own storekeeper signature."""
+    """
+    Paginate waybill lines dynamically based on content height.
+
+    Each line contributes estimated_row_height_mm plus extra for multi-line names.
+    Returns page dicts matching the template format:
+    {page_number, lines, is_first, total_pages, is_last}
+    """
     pages: list[dict[str, Any]] = []
     current: list[dict[str, Any]] = []
-    current_weight = 0
-    current_capacity = first_page_capacity
+    current_height = 0.0
+    page_index = 0
 
     def flush() -> None:
-        nonlocal current, current_weight, current_capacity
+        nonlocal current, current_height, page_index
         pages.append({"page_number": len(pages) + 1, "lines": current, "is_first": len(pages) == 0})
         current = []
-        current_weight = 0
-        current_capacity = continuation_capacity
+        current_height = 0.0
+        page_index += 1
 
     for line in lines:
-        weight = _line_weight(line)
-        if current and current_weight + weight > current_capacity:
+        name = str(line.get("item_name") or "")
+        # Estimate line height: base + 1 extra row per ~60 chars
+        extra_lines = len(name) // 60
+        line_height = estimated_row_height_mm + (extra_lines * estimated_row_height_mm * 0.6)
+
+        max_height = available_height_first_page_mm if page_index == 0 else available_height_continuation_mm
+
+        if current_height + line_height > max_height and current:
             flush()
+
         current.append(line)
-        current_weight += weight
+        current_height += line_height
 
     if current or not pages:
         flush()
@@ -283,11 +317,6 @@ def _format_quantity(value: Any) -> str:
     return text or "0"
 
 
-def _line_weight(line: dict[str, Any]) -> int:
-    name_length = len(str(line.get("item_name") or ""))
-    return max(1, 1 + name_length // 70)
-
-
 def _consignee_label(payload: dict[str, Any]) -> str:
     if _text(payload.get("consignee_label")):
         return _text(payload.get("consignee_label"))
@@ -339,3 +368,22 @@ def _safe_filename_part(value: str) -> str:
 
 def _text(value: Any) -> str:
     return str(value).strip() if value is not None else ""
+
+
+def render_document_pdf_streaming(document: dict[str, Any]) -> HttpResponse:
+    """Render waybill PDF in-memory and return as streaming response."""
+    result = render_document_pdf(document)
+    filename = build_document_pdf_filename(document)
+    response = HttpResponse(result.pdf_bytes, content_type="application/pdf")
+    response["Content-Disposition"] = f'inline; filename="{filename}"'
+    response["X-Document-Pdf-Cache"] = "hit" if result.cache_hit else "miss"
+    return response
+
+
+def get_cached_or_render(document_id: str, payload_hash: str) -> bytes | None:
+    """Get PDF from cache or return None if not cached."""
+    cache_key = f"{CACHE_KEY_PREFIX}{document_id}:{payload_hash}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached[0]
+    return None

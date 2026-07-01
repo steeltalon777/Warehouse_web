@@ -112,6 +112,13 @@
       font-size: 9pt;
       color: #4b5563;
     }
+
+    .waybill-table tr {
+        page-break-inside: avoid;
+    }
+    .waybill-table thead {
+        display: table-header-group;
+    }
   </style>
 </head>
 <body>
@@ -127,7 +134,7 @@
         </div>
       {% endif %}
 
-      <table>
+      <table class="waybill-table">
         <thead>
           <tr>
             <th class="col-number">№</th>
