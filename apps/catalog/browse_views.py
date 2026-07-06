@@ -100,6 +100,8 @@ def _build_catalog_home_url(request, **overrides) -> str:
 
 class CatalogAccessMixin(LoginRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         if not can_use_client(request.user):
             return HttpResponseForbidden("Нет доступа")
 
