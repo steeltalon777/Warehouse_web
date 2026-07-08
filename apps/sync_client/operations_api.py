@@ -379,6 +379,37 @@ class OperationsAPI:
             acting_site_id=acting_site_id,
         )
 
+    def restore_operation(
+        self,
+        operation_id: str,
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Restore a cancelled operation back to draft status.
+
+        Endpoint: POST /operations/{operation_id}/restore
+
+        Args:
+            operation_id: Operation identifier to restore
+            acting_user_id: Optional acting user ID override
+            acting_site_id: Optional acting site ID override
+
+        Returns:
+            dict: Restored operation information
+
+        Raises:
+            SyncServerAPIError: If the API request fails
+        """
+        logger.debug("restoring_operation", operation_id=operation_id)
+        return self.client.post(
+            f"/operations/{operation_id}/restore",
+            json={"restore": True},
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+
     def delete_operation(
         self,
         operation_id: str,

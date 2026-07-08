@@ -166,6 +166,18 @@ class OperationCancelView(LoginRequiredMixin, View):
             return _error("Invalid JSON body", "validation_error", 400)
 
 
+class OperationRestoreView(LoginRequiredMixin, View):
+    def post(self, request, operation_id):
+        if not _require_storekeeper(request.user):
+            return _error("Access denied", "forbidden", 403)
+        try:
+            api = _ops(request)
+            data = api.restore_operation(operation_id)
+            return _ok(data)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
+
+
 class OperationAcceptLinesView(LoginRequiredMixin, View):
     def post(self, request, operation_id):
         if not _require_storekeeper(request.user):

@@ -86,6 +86,7 @@ operations_patterns = [
     path("operations/<str:operation_id>/effective-at", operations_views.OperationEffectiveAtView.as_view(), name="operation_effective_at"),
     path("operations/<str:operation_id>/submit", operations_views.OperationSubmitView.as_view(), name="operation_submit"),
     path("operations/<str:operation_id>/cancel", operations_views.OperationCancelView.as_view(), name="operation_cancel"),
+    path("operations/<str:operation_id>/restore", operations_views.OperationRestoreView.as_view(), name="operation_restore"),
     path("operations/<str:operation_id>/accept-lines", operations_views.OperationAcceptLinesView.as_view(), name="operation_accept_lines"),
 ]
 
