@@ -44,7 +44,7 @@ class DashboardViewTests(TestCase):
         self.client.force_login(self.user)
         self._prepare_session()
         response = self.client.get(reverse("client:dashboard"))
-        self.assertContains(response, settings.APP_PRODUCT_NAME, html=True)
+        self.assertContains(response, settings.ORGANIZATION_SHORT_NAME, html=True)
 
     def test_dashboard_contains_username(self):
         self.client.force_login(self.user)

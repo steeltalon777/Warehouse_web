@@ -4,7 +4,8 @@
 {% block title %}Вход{% endblock %}
 
 {% block content %}
-    <h2>Вход в систему</h2>
+    <h1 class="login-product-name">{{ organization_short_name }}</h1>
+    <h2 class="login-subtitle">Вход в систему учёта</h2>
 
     {% if form.errors %}
         <p>Неверный логин или пароль.</p>

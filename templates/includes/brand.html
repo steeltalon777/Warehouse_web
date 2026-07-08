@@ -1,5 +1,8 @@
 {% load static %}
 <a href="{% url 'client:dashboard' %}" class="brand">
-    <img src="{% static organization_logo_static_path %}" alt="{{ organization_short_name }}" class="brand-logo">
-    <span class="brand-text">{{ organization_short_name }}</span>
+    <img src="{% static APP_BRAND_LOGO %}" alt="{{ organization_short_name }}" class="brand-logo">
+    <span class="brand-stack">
+        <span class="brand-text">{{ organization_short_name }}</span>
+        <span class="brand-tagline">{{ APP_PRODUCT_TAGLINE }}</span>
+    </span>
 </a>

@@ -4,7 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Warehouse Web{% endblock %}</title>
+    <title>{% block title %}{{ organization_short_name }} — {{ APP_PRODUCT_TAGLINE }}{% endblock %}</title>
+    <link rel="icon" href="{% static APP_BRAND_FAVICON %}" type="image/x-icon">
     <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260616-2">
     <style>
         app-root { display: flex !important; flex-direction: column !important; height: 100% !important; overflow: hidden !important; }
@@ -35,6 +36,9 @@
         <span class="page-loading-overlay__text">Загрузка...</span>
     </div>
 </div>
+<footer class="app-footer">
+    <span class="app-footer__brand">&copy; {{ organization_short_name }} {{ APP_PRODUCT_VERSION }}</span>
+</footer>
 <script>
 (() => {
   const overlay = document.getElementById("page-loading-overlay");
