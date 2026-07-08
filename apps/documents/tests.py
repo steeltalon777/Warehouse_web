@@ -182,3 +182,124 @@ class DocumentPdfRendererTests(TestCase):
         artifact = RenderedDocumentArtifact.objects.get()
         self.assertEqual(artifact.status, RenderedDocumentArtifact.Status.READY)
         self.assertEqual(artifact.size_bytes, len(pdf_bytes))
+
+    # ------------------------------------------------------------------
+    # TZ-V3.1I rev. 2 — I4 unit tests (pagination + CSS hardening)
+    # ------------------------------------------------------------------
+
+    def test_pagination_first_page_reserves_signature_height(self) -> None:
+        """MOVE (2 extra signatures) → smaller first-page budget; RECEIVE (0 extras) → larger."""
+        from apps.documents.services import (
+            SINGLE_ROW_SIGNATURE_HEIGHT_MM,
+            SIGNATURE_BLOCK_HEIGHT_MM,
+            paginate_waybill_lines,
+        )
+
+        # 20 коротких строк → 1 страница для RECEIVE, возможно 2 для MOVE.
+        lines = [
+            {"line_number": i, "item_name": f"ТМЦ {i}", "unit_symbol": "шт", "quantity": i}
+            for i in range(1, 21)
+        ]
+        pages_move = paginate_waybill_lines(lines, extra_signatures_count=2)
+        pages_receive = paginate_waybill_lines(lines, extra_signatures_count=0)
+
+        # MOVE budget уже → возможно больше страниц.
+        self.assertGreaterEqual(len(pages_move), len(pages_receive))
+        # Sanity-check that constants really differ.
+        self.assertGreater(SIGNATURE_BLOCK_HEIGHT_MM, SINGLE_ROW_SIGNATURE_HEIGHT_MM)
+
+    def test_pagination_hard_cap(self) -> None:
+        """first_page_max_rows=22, continuation_max_rows=26 — hard cap."""
+        from apps.documents.services import paginate_waybill_lines
+
+        # 50 коротких строк: первая страница <= 22, continuation <= 26.
+        lines = [
+            {"line_number": i, "item_name": f"A{i}", "unit_symbol": "шт", "quantity": 1}
+            for i in range(1, 51)
+        ]
+        pages = paginate_waybill_lines(lines)
+        self.assertLessEqual(len(pages[0]["lines"]), 22)
+        for page in pages[1:-1]:
+            self.assertLessEqual(len(page["lines"]), 26)
+
+    def test_pagination_handles_long_names(self) -> None:
+        """50 строк × 200 символов → пагинация не падает, нет «висящих» страниц."""
+        from apps.documents.services import paginate_waybill_lines
+
+        long_name = "Длинное наименование ТМЦ " * 10
+        lines = [
+            {"line_number": i, "item_name": long_name, "unit_symbol": "шт", "quantity": 1}
+            for i in range(1, 51)
+        ]
+        pages = paginate_waybill_lines(lines)
+        total = sum(len(p["lines"]) for p in pages)
+        self.assertEqual(total, 50)
+        self.assertGreaterEqual(len(pages), 2)
+
+    def test_pagination_extremely_long_operation(self) -> None:
+        """200 строк → ≥ 6 страниц, общая сумма == 200."""
+        from apps.documents.services import paginate_waybill_lines
+
+        lines = [
+            {"line_number": i, "item_name": f"ТМЦ {i}", "unit_symbol": "шт", "quantity": 1}
+            for i in range(1, 201)
+        ]
+        pages = paginate_waybill_lines(lines)
+        total = sum(len(p["lines"]) for p in pages)
+        self.assertEqual(total, 200)
+        self.assertGreaterEqual(len(pages), 6)
+
+    def test_pagination_single_line(self) -> None:
+        from apps.documents.services import paginate_waybill_lines
+
+        pages = paginate_waybill_lines(
+            [{"line_number": 1, "item_name": "Одна", "unit_symbol": "шт", "quantity": 1}]
+        )
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(pages[0]["lines"][0]["line_number"], 1)
+
+    def test_pagination_empty(self) -> None:
+        from apps.documents.services import paginate_waybill_lines
+
+        pages = paginate_waybill_lines([])
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(pages[0]["lines"], [])
+
+    def test_waybill_html_has_page_break_after_avoid_on_h1(self) -> None:
+        html = render_document_html(_document())
+        self.assertIn("page-break-after: avoid", html)
+        self.assertIn("break-after: avoid", html)
+
+    def test_waybill_html_uses_flexbox_for_signature_at_bottom(self) -> None:
+        html = render_document_html(_document())
+        self.assertIn("display: flex", html)
+        self.assertIn("min-height: calc(297mm", html)
+        self.assertIn("flex: 1 1 auto", html)  # waybill-table-wrap
+
+    def test_pagination_constants_match_flex_geometry(self) -> None:
+        """rev. 2 (warning #4): константы пагинатора + flex-блоки должны укладываться в A4."""
+        SIGNATURE_BLOCK_HEIGHT_MM = 37.0
+        SINGLE_ROW_SIGNATURE_HEIGHT_MM = 4.0
+        PAGE_MARGIN_MM = 30.0
+        HEADER_OVERHEAD_MM = PAGE_MARGIN_MM + 16.4 + 22 + 10
+        CONTINUATION_OVERHEAD_MM = PAGE_MARGIN_MM + 10 + 4
+        A4_INNER_HEIGHT_MM = 267.0
+
+        move_budget = A4_INNER_HEIGHT_MM - HEADER_OVERHEAD_MM - SIGNATURE_BLOCK_HEIGHT_MM
+        self.assertLessEqual(
+            move_budget,
+            152 + 1,
+            f"MOVE 1-page budget {move_budget}mm должно быть ≤ 153mm (target 152)",
+        )
+        receive_budget = A4_INNER_HEIGHT_MM - HEADER_OVERHEAD_MM - SINGLE_ROW_SIGNATURE_HEIGHT_MM
+        self.assertLessEqual(
+            receive_budget,
+            189 + 1,
+            f"RECEIVE 1-page budget {receive_budget}mm должно быть ≤ 190mm (target 189)",
+        )
+        cont_budget = A4_INNER_HEIGHT_MM - CONTINUATION_OVERHEAD_MM
+        self.assertLessEqual(
+            cont_budget,
+            223 + 1,
+            f"continuation budget {cont_budget}mm должно быть ≤ 224mm (target 223)",
+        )

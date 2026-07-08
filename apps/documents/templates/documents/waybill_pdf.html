@@ -18,20 +18,30 @@
       color: #111827;
     }
 
-    .page + .page {
-      page-break-before: always;
+    .page {
+      display: flex;
+      flex-direction: column;
+      min-height: calc(297mm - 16mm - 14mm);
     }
+    .page + .page { page-break-before: always; }
+
+    .page > h1 { flex: 0 0 auto; }
+    .page > .header-lines { flex: 0 0 auto; }
 
     h1 {
       margin: 0 0 10mm;
       text-align: center;
       font-size: 16pt;
       font-weight: 700;
+      page-break-after: avoid;
+      break-after: avoid;
     }
 
     .header-lines {
       margin-bottom: 8mm;
       line-height: 1.45;
+      page-break-after: avoid;
+      break-after: avoid;
     }
 
     .header-line {
@@ -70,6 +80,8 @@
       margin-top: 10mm;
       font-size: 11pt;
       page-break-inside: avoid;
+      break-inside: avoid;
+      flex: 0 0 auto;
     }
 
     .signature-block.extra {
@@ -113,8 +125,14 @@
       color: #4b5563;
     }
 
+    .waybill-table-wrap {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
     .waybill-table tr {
         page-break-inside: avoid;
+        break-inside: avoid;
     }
     .waybill-table thead {
         display: table-header-group;
@@ -134,33 +152,35 @@
         </div>
       {% endif %}
 
-      <table class="waybill-table">
-        <thead>
-          <tr>
-            <th class="col-number">№</th>
-            <th>Наименование ТМЦ</th>
-            <th class="col-unit">Ед. изм</th>
-            <th class="col-quantity">Кол-во</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for line in page.lines %}
+      <div class="waybill-table-wrap">
+        <table class="waybill-table">
+          <thead>
             <tr>
-              <td class="col-number">{{ line.line_number }}</td>
-              <td>{{ line.item_name }}</td>
-              <td class="col-unit">{{ line.unit }}</td>
-              <td class="col-quantity">{{ line.quantity }}</td>
+              <th class="col-number">№</th>
+              <th>Наименование ТМЦ</th>
+              <th class="col-unit">Ед. изм</th>
+              <th class="col-quantity">Кол-во</th>
             </tr>
-          {% empty %}
-            <tr>
-              <td class="col-number">—</td>
-              <td>Нет строк для печати</td>
-              <td class="col-unit">—</td>
-              <td class="col-quantity">0</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {% for line in page.lines %}
+              <tr>
+                <td class="col-number">{{ line.line_number }}</td>
+                <td>{{ line.item_name }}</td>
+                <td class="col-unit">{{ line.unit }}</td>
+                <td class="col-quantity">{{ line.quantity }}</td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td class="col-number">—</td>
+                <td>Нет строк для печати</td>
+                <td class="col-unit">—</td>
+                <td class="col-quantity">0</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
 
       <div class="signature-block">
         Кладовщик: <span class="signature-placeholder">{{ signature_placeholder }}</span>

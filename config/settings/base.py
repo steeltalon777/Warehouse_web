@@ -43,7 +43,7 @@ DOCUMENT_SHIPPER_REQUISITES = os.getenv(
     "Забайкальский край, Карымский район, пгт. Курорт-Дарасун, "
     "мкр. Северный, д.11, база Угдан",
 ).strip()
-DOCUMENT_RENDERER_VERSION = os.getenv("DOCUMENT_RENDERER_VERSION", "waybill-pdf-v1").strip()
+DOCUMENT_RENDERER_VERSION = os.getenv("DOCUMENT_RENDERER_VERSION", "waybill-pdf-v2").strip()
 
 # Django auth in this project is a technical admin/staff layer.
 # Warehouse domain users/roles/sites are owned by SyncServer.
@@ -93,6 +93,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "apps.common.context_processors.shell_context",
                 "apps.common.context_processors.sync_identity_context",
+                "apps.common.context_processors.branding",
             ],
         },
     },
@@ -219,6 +220,20 @@ FRONTEND_BUILD_DIR = os.getenv(
     "FRONTEND_BUILD_DIR",
     str(BASE_DIR.parent / "Warehouse_frontend" / "dist" / "warehouse-frontend" / "browser"),
 ).strip()
+
+# -------------------------------------------------------------------
+# Product branding (Quartermaster)
+# -------------------------------------------------------------------
+# Per ADR-0015: the product is presented to users as "Quartermaster".
+# Technical component names (SyncServer, Warehouse_web, ...) are unchanged.
+APP_PRODUCT_NAME = os.environ.get("APP_PRODUCT_NAME", "Quartermaster")
+APP_PRODUCT_VERSION = os.environ.get("APP_PRODUCT_VERSION", "3.1")
+APP_PRODUCT_TAGLINE = os.environ.get(
+    "APP_PRODUCT_TAGLINE", "Система складского и имущественного учёта"
+)
+APP_BRAND_LOGO = os.environ.get("APP_BRAND_LOGO", "img/logo.svg")
+APP_BRAND_FAVICON = os.environ.get("APP_BRAND_FAVICON", "img/favicon.ico")
+APP_BRAND_PRIMARY_COLOR = os.environ.get("APP_BRAND_PRIMARY_COLOR", "#1a365d")
 
 # -------------------------------------------------------------------
 # Structured logging (structlog)

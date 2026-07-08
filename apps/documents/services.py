@@ -31,7 +31,12 @@ CACHE_TTL = 3600  # 1 hour
 logger = structlog.get_logger()
 
 SIGNATURE_PLACEHOLDER = "_________________/__________________"
-DEFAULT_RENDERER_VERSION = "waybill-pdf-v1"
+DEFAULT_RENDERER_VERSION = "waybill-pdf-v2"
+
+# Waybill geometry constants (TZ-V3.1I rev. 2 / I2.4).
+# A4 portrait: 210x297mm, @page margin 16mm top + 14mm bottom -> 267mm inner height.
+SIGNATURE_BLOCK_HEIGHT_MM = 37.0
+SINGLE_ROW_SIGNATURE_HEIGHT_MM = 4.0
 
 
 class DocumentPdfRenderError(RuntimeError):
@@ -127,11 +132,11 @@ def build_waybill_context(document: dict[str, Any]) -> dict[str, Any]:
     title = f"Накладная № {operation_display_number}"
 
     lines = [_normalize_line(line, index) for index, line in enumerate(payload.get("lines") or [], start=1)]
-    pages = paginate_waybill_lines(lines)
 
     operation_type = _text(operation.get("type") or payload.get("operation_type")).upper()
 
     extra_signatures = _build_extra_signatures(operation_type)
+    pages = paginate_waybill_lines(lines, extra_signatures_count=len(extra_signatures))
 
     return {
         "document_id": document.get("id"),
@@ -197,19 +202,43 @@ def _build_extra_signatures(operation_type: str) -> list[dict[str, Any]]:
 def paginate_waybill_lines(
     lines: list[dict[str, Any]],
     *,
-    first_page_max_rows: int = 24,
-    continuation_max_rows: int = 30,
-    estimated_row_height_mm: float = 7.0,
-    available_height_first_page_mm: float = 170.0,
-    available_height_continuation_mm: float = 210.0,
+    first_page_max_rows: int = 22,
+    continuation_max_rows: int = 26,
+    estimated_row_height_mm: float = 8.5,
+    available_height_continuation_mm: float = 223.0,
+    chars_per_row: int = 52,
+    extra_row_height_ratio: float = 0.85,
+    extra_signatures_count: int = 0,
 ) -> list[dict[str, Any]]:
     """
     Paginate waybill lines dynamically based on content height.
 
-    Each line contributes estimated_row_height_mm plus extra for multi-line names.
-    Returns page dicts matching the template format:
-    {page_number, lines, is_first, total_pages, is_last}
+    Константы выведены из геометрии A4 portrait с @page margin 16/14/14mm
+    и CSS-блоков <h1> (16pt + 10mm margin), .header-lines (3 строки + 8mm),
+    <thead> (10mm). row_height подобран по DejaVu Sans 11pt с padding 2.4mm.
+    chars_per_row подобран по ширине колонки "Наименование ТМЦ" (119mm).
+
+    Для 1й страницы доступная высота пересчитывается динамически с учётом
+    extra-подписей:
+        reserve_signature_mm = SINGLE_ROW_SIGNATURE_HEIGHT_MM if extra_signatures_count == 0
+                               else SIGNATURE_BLOCK_HEIGHT_MM
+        available_height_first_page_mm = 267 - 78 - reserve_signature_mm
+
+    hard-cap: если `len(current) >= first_page_max_rows` (или `continuation_max_rows`),
+    страница закрывается принудительно, даже если по высоте ещё есть запас —
+    это страховка от pathological-кейсов (warning #6).
+
+    Returns: list[dict[str, Any]] со структурой:
+        {"page_number": int, "lines": list[dict], "is_first": bool,
+         "is_last": bool, "total_pages": int}
     """
+    reserve_signature_mm = (
+        SIGNATURE_BLOCK_HEIGHT_MM if extra_signatures_count > 0 else SINGLE_ROW_SIGNATURE_HEIGHT_MM
+    )
+    header_overhead_mm = 16.4 + 22 + 10
+    a4_inner_height_mm = 267.0
+    available_height_first_page_mm = (a4_inner_height_mm - 30) - header_overhead_mm - reserve_signature_mm
+
     pages: list[dict[str, Any]] = []
     current: list[dict[str, Any]] = []
     current_height = 0.0
@@ -224,11 +253,25 @@ def paginate_waybill_lines(
 
     for line in lines:
         name = str(line.get("item_name") or "")
-        # Estimate line height: base + 1 extra row per ~60 chars
-        extra_lines = len(name) // 60
-        line_height = estimated_row_height_mm + (extra_lines * estimated_row_height_mm * 0.6)
+        extra_lines = len(name) // chars_per_row
+        line_height = estimated_row_height_mm + (
+            extra_lines * estimated_row_height_mm * extra_row_height_ratio
+        )
 
-        max_height = available_height_first_page_mm if page_index == 0 else available_height_continuation_mm
+        max_rows = first_page_max_rows if page_index == 0 else continuation_max_rows
+        max_height = (
+            available_height_first_page_mm if page_index == 0 else available_height_continuation_mm
+        )
+
+        # Hard cap (warning #6): close the page if it is already at the row limit.
+        if (page_index == 0 and len(current) >= first_page_max_rows) or (
+            page_index > 0 and len(current) >= continuation_max_rows
+        ):
+            flush()
+            max_rows = first_page_max_rows if page_index == 0 else continuation_max_rows
+            max_height = (
+                available_height_first_page_mm if page_index == 0 else available_height_continuation_mm
+            )
 
         if current_height + line_height > max_height and current:
             flush()
