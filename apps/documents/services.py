@@ -33,7 +33,7 @@ logger = structlog.get_logger()
 SIGNATURE_PLACEHOLDER = "_________________/__________________"
 DEFAULT_RENDERER_VERSION = "waybill-pdf-v3"
 
-# Waybill geometry constants (TZ-V3.1I rev. 4, plan B).
+# Waybill geometry constants (TZ-V3.1I rev. 5, plan B).
 # A4 portrait: 210x297mm, @page margin 16mm top + 14mm bottom -> 267mm inner height.
 # Exact-rows pagination: page budgets are computed in mm and converted to row counts
 # with `int(available // ROW_HEIGHT_MM)`. WeasyPrint respects the cap because the
@@ -42,7 +42,11 @@ A4_INNER_HEIGHT_MM = 267.0
 ROW_HEIGHT_MM = 8.5
 THEAD_HEIGHT_MM = 10.0
 SHORT_TITLE_HEIGHT_MM = 12.0
-FULL_TITLE_HEIGHT_MM = 50.0
+# rev. 5: calibrated against real WeasyPrint rendering (08.07.2026).
+# Original 50mm underestimated: real full title (h1 16pt + 6mm margin +
+# 3 lines of requisites × 11pt × 1.4 + bottom margin) = 60mm. Confirmed by
+# storekeeper: page 1 holds 22 rows, not 23.
+FULL_TITLE_HEIGHT_MM = 60.0
 SIG_STOREKEEPER_MM = 6.0
 SIG_BLOCK_HEIGHT_MM = 14.0
 SIG_BLOCK_DRIVER_MM = 6.0
@@ -261,7 +265,7 @@ def paginate_waybill_lines(
     operation_type: str = "RECEIVE",
 ) -> list[dict[str, Any]]:
     """
-    Paginate waybill lines with EXACT row counts per page (TZ-V3.1I rev. 4, plan B).
+    Paginate waybill lines with EXACT row counts per page (TZ-V3.1I rev. 5, plan B).
 
     Each page is rendered as a self-contained <section class="page"> with a
     fixed amount of vertical overhead. The remainder is divided by
@@ -335,7 +339,11 @@ def paginate_waybill_lines(
             "layout": "first",
         }]
 
-    # Multi-page: first + zero or more middles + last.
+    # Multi-page: first + zero or more FULL middle pages + last (sparse allowed).
+    # rev. 5: middle pages are always full (middle_max rows); only the last page
+    # may be sparse (1..middle_max-1 rows). When the remainder after full middles
+    # is 0, we absorb the last middle into the last page (which may slightly
+    # exceed last_max visually — acceptable for the rare edge case).
     remaining_after_first = total - first_max
     if remaining_after_first <= last_max:
         pages_data = [
@@ -343,26 +351,26 @@ def paginate_waybill_lines(
             {"lines": lines[first_max:], "layout": "last"},
         ]
     else:
-        remaining_after_last = remaining_after_first - last_max
-        n_middle = (remaining_after_last + middle_max - 1) // middle_max
+        n_full_middle = remaining_after_first // middle_max
+        last_size = remaining_after_first - n_full_middle * middle_max
+        if last_size == 0:
+            n_full_middle -= 1
+            last_size = middle_max
+
         middles: list[dict[str, Any]] = []
         i = first_max
-        for _ in range(n_middle - 1):
+        for _ in range(n_full_middle):
             middles.append({
                 "lines": lines[i:i + middle_max],
                 "layout": "middle",
             })
             i += middle_max
-        last_middle_size = min(middle_max, remaining_after_last - (i - first_max))
-        if last_middle_size > 0:
-            middles.append({
-                "lines": lines[i:i + last_middle_size],
-                "layout": "middle",
-            })
-            i += last_middle_size
-        pages_data = [{"lines": lines[:first_max], "layout": "first"}] + middles + [
-            {"lines": lines[i:], "layout": "last"}
-        ]
+
+        pages_data = (
+            [{"lines": lines[:first_max], "layout": "first"}]
+            + middles
+            + [{"lines": lines[i:], "layout": "last"}]
+        )
 
     total_pages = len(pages_data)
     result: list[dict[str, Any]] = []

@@ -212,12 +212,15 @@ class DocumentPdfRendererTests(TestCase):
             is_first=True, is_last=False, extra_signatures_count=0, has_driver=False
         )
         self.assertEqual(first_move, first_receive)
+        # rev. 5: first_max=22 (was 23; FULL_TITLE bumped 50mm -> 60mm).
+        self.assertEqual(first_move, 22)
+        self.assertEqual(first_receive, 22)
 
     def test_pagination_exact_rows_hard_cap(self) -> None:
-        """first_max=23, middle_max=28, last_max≤28 — hard cap по row count."""
+        """rev. 5: first_max=22, middle_max=28, last_max≤28 — hard cap по row count."""
         lines = _short_lines(50)
         pages = paginate_waybill_lines(lines)
-        self.assertLessEqual(len(pages[0]["lines"]), 23)
+        self.assertLessEqual(len(pages[0]["lines"]), 22)
         for page in pages[1:-1]:
             self.assertLessEqual(len(page["lines"]), 28)
         self.assertLessEqual(len(pages[-1]["lines"]), 28)
@@ -259,12 +262,12 @@ class DocumentPdfRendererTests(TestCase):
         self.assertTrue(pages[0]["is_last"])
 
     def test_paginate_waybill_lines_exact_rows(self) -> None:
-        """Exact max rows для first/middle/last по operation_type."""
+        """Exact max rows для first/middle/last по operation_type (rev. 5: first=22)."""
         cases = [
-            ("RECEIVE", 23, 28, 28),
-            ("ISSUE", 23, 28, 26),
-            ("WRITE_OFF", 23, 28, 26),
-            ("MOVE", 23, 28, 22),
+            ("RECEIVE", 22, 28, 28),
+            ("ISSUE", 22, 28, 26),
+            ("WRITE_OFF", 22, 28, 26),
+            ("MOVE", 22, 28, 22),
         ]
         for op, expected_first, expected_middle, expected_last in cases:
             with self.subTest(operation_type=op):
@@ -279,12 +282,65 @@ class DocumentPdfRendererTests(TestCase):
                 self.assertLessEqual(len(pages[-1]["lines"]), expected_last)
 
     def test_paginate_waybill_lines_middle_pages_have_short_title(self) -> None:
-        """75 lines RECEIVE → 3 страницы: first / middle / last."""
+        """75 lines RECEIVE → 3 страницы: first(22) / middle(28 FULL) / last(25)."""
         pages = paginate_waybill_lines(_short_lines(75), operation_type="RECEIVE")
         self.assertEqual(len(pages), 3)
         self.assertEqual(pages[0]["layout"], "first")
         self.assertEqual(pages[1]["layout"], "middle")
         self.assertEqual(pages[2]["layout"], "last")
+        # rev. 5: middle is always full (28 rows), last is sparse.
+        self.assertEqual(len(pages[0]["lines"]), 22)
+        self.assertEqual(len(pages[1]["lines"]), 28)
+        self.assertEqual(len(pages[2]["lines"]), 25)
+
+    def test_pagination_full_middle_pages(self) -> None:
+        """rev. 5: middle pages should always be full (28 rows) when they exist.
+
+        80 lines MOVE → first(22) + middle(28) + middle(28) + last(2) = 4 pages.
+        Last is sparse (2 rows); middles are both full (28 rows).
+        """
+        from apps.documents.services import paginate_waybill_lines
+
+        lines = [
+            {"line_number": i, "item_name": f"TMC {i}", "unit_symbol": "шт", "quantity": 1}
+            for i in range(1, 81)
+        ]
+        pages = paginate_waybill_lines(lines, operation_type="MOVE")
+        self.assertEqual(len(pages), 4)
+        self.assertEqual(len(pages[0]["lines"]), 22)  # first
+        self.assertEqual(len(pages[1]["lines"]), 28)  # middle (FULL)
+        self.assertEqual(len(pages[2]["lines"]), 28)  # middle (FULL)
+        self.assertEqual(len(pages[3]["lines"]), 2)   # last (sparse)
+        # Layouts
+        self.assertEqual(pages[0]["layout"], "first")
+        self.assertEqual(pages[1]["layout"], "middle")
+        self.assertEqual(pages[2]["layout"], "middle")
+        self.assertEqual(pages[3]["layout"], "last")
+        # Total
+        self.assertEqual(sum(len(p["lines"]) for p in pages), 80)
+
+    def test_pagination_edge_50_lines_move(self) -> None:
+        """rev. 5: 50 lines MOVE — tight edge case for MOVE pagination.
+
+        first_max=22, middle_max=28, last_max=22. After first page, 28 rows remain,
+        which exactly fills one middle page (28), leaving 0 for the last.
+        Algorithm absorbs the middle into the last → first(22) + last(28) = 2 pages.
+        Last exceeds last_max=22 by 6mm; acceptable per rev. 5 design.
+        """
+        from apps.documents.services import paginate_waybill_lines
+
+        lines = [
+            {"line_number": i, "item_name": f"TMC {i}", "unit_symbol": "шт", "quantity": 1}
+            for i in range(1, 51)
+        ]
+        pages = paginate_waybill_lines(lines, operation_type="MOVE")
+        # Chosen behavior: absorb into last → 2 pages.
+        self.assertEqual(len(pages), 2)
+        self.assertEqual(pages[0]["layout"], "first")
+        self.assertEqual(pages[1]["layout"], "last")
+        self.assertEqual(len(pages[0]["lines"]), 22)
+        self.assertEqual(len(pages[1]["lines"]), 28)
+        self.assertEqual(sum(len(p["lines"]) for p in pages), 50)
 
     def test_paginate_waybill_lines_single_page_layout(self) -> None:
         """10 lines → 1 страница layout='first' (is_first=True, is_last=True)."""
@@ -361,7 +417,7 @@ class DocumentPdfRendererTests(TestCase):
         self.assertGreater(sig_pos, table_pos)
 
     def test_pagination_constants_match_exact_rows(self) -> None:
-        """Константы exact-rows укладываются в A4 portrait @page."""
+        """Константы exact-rows укладываются в A4 portrait @page (rev. 5)."""
         from apps.documents.services import (
             A4_INNER_HEIGHT_MM,
             FULL_TITLE_HEIGHT_MM,
@@ -380,12 +436,14 @@ class DocumentPdfRendererTests(TestCase):
         self.assertEqual(SIG_STOREKEEPER_MM, 6.0)
         self.assertEqual(SIG_BLOCK_HEIGHT_MM, 14.0)
         self.assertEqual(SIG_BLOCK_DRIVER_MM, 6.0)
-        # first_max: (267 - 50 - 10 - 6) // 8.5 = 23
+        # rev. 5: FULL_TITLE_HEIGHT_MM bumped 50 -> 60 after real WeasyPrint calibration.
+        self.assertEqual(FULL_TITLE_HEIGHT_MM, 60.0)
+        # first_max: (267 - 60 - 10 - 6) // 8.5 = 22
         self.assertEqual(
             _max_rows_for_page(
                 is_first=True, is_last=False, extra_signatures_count=0, has_driver=False
             ),
-            23,
+            22,
         )
         # middle_max: (267 - 12 - 10 - 6) // 8.5 = 28
         self.assertEqual(
