@@ -18,34 +18,33 @@
       color: #111827;
     }
 
-    .page {
-      display: flex;
-      flex-direction: column;
-      min-height: calc(297mm - 16mm - 14mm);
+    .page + .page {
+      page-break-before: always;
     }
-    .page + .page { page-break-before: always; }
 
-    .page > h1 { flex: 0 0 auto; }
-    .page > .header-lines { flex: 0 0 auto; }
+    .page {
+      page-break-inside: avoid;
+    }
 
     h1 {
-      margin: 0 0 10mm;
+      margin: 0 0 6mm;
       text-align: center;
       font-size: 16pt;
       font-weight: 700;
-      page-break-after: avoid;
-      break-after: avoid;
+    }
+
+    .waybill-header--short h1 {
+      margin: 0 0 4mm;
+      font-size: 14pt;
     }
 
     .header-lines {
-      margin-bottom: 8mm;
-      line-height: 1.45;
-      page-break-after: avoid;
-      break-after: avoid;
+      margin-bottom: 6mm;
+      line-height: 1.4;
     }
 
     .header-line {
-      margin: 0 0 2mm;
+      margin: 0 0 1.5mm;
     }
 
     .label {
@@ -56,13 +55,12 @@
       width: 100%;
       border-collapse: collapse;
       table-layout: fixed;
-      margin-top: 4mm;
     }
 
     th,
     td {
       border: 1px solid #111827;
-      padding: 2.4mm 2mm;
+      padding: 2mm 2mm;
       vertical-align: top;
     }
 
@@ -76,31 +74,32 @@
     .col-unit { width: 24mm; text-align: center; }
     .col-quantity { width: 28mm; text-align: right; }
 
-    .signature-block {
-      margin-top: 10mm;
-      font-size: 11pt;
+    .waybill-table tr {
       page-break-inside: avoid;
-      break-inside: avoid;
-      flex: 0 0 auto;
+    }
+    .waybill-table thead {
+      display: table-header-group;
     }
 
-    .signature-block.extra {
-      margin-top: 6mm;
+    .signature-block {
+      margin-top: 8mm;
+      page-break-inside: avoid;
+    }
+
+    .sig-line {
+      margin: 0 0 3mm;
+      display: flex;
+      gap: 8mm;
+      flex-wrap: wrap;
     }
 
     .sig-label {
       font-weight: 700;
-      margin: 0 0 2mm;
+      min-width: 100px;
     }
 
-    .sig-row {
-      margin: 0;
-      display: flex;
-      gap: 12mm;
-      flex-wrap: wrap;
-    }
-
-    .sig-field {
+    .sig-placeholder {
+      letter-spacing: 0.2pt;
       white-space: nowrap;
     }
 
@@ -109,101 +108,100 @@
       font-size: 9pt;
     }
 
-    .sig-placeholder {
-      letter-spacing: 0.2pt;
+    .sig-extra {
+      margin-top: 4mm;
+      page-break-inside: avoid;
     }
 
-    .signature-placeholder {
-      white-space: nowrap;
-      letter-spacing: 0.2pt;
+    .sig-extra p {
+      margin: 0 0 2mm;
     }
 
     .sheet-counter {
-      margin-top: 7mm;
+      margin-top: 4mm;
       text-align: right;
       font-size: 9pt;
       color: #4b5563;
-    }
-
-    .waybill-table-wrap {
-      flex: 1 1 auto;
-      min-height: 0;
-    }
-
-    .waybill-table tr {
-        page-break-inside: avoid;
-        break-inside: avoid;
-    }
-    .waybill-table thead {
-        display: table-header-group;
     }
   </style>
 </head>
 <body>
   {% for page in pages %}
-    <section class="page">
-      <h1>{{ title }}</h1>
-
+    <section class="page page--{{ page.layout }}">
       {% if page.is_first %}
-        <div class="header-lines">
-          <p class="header-line"><span class="label">Грузоотправитель:</span> {{ shipper_requisites }}</p>
-          <p class="header-line"><span class="label">Грузополучатель:</span> {{ consignee_label }}</p>
-          <p class="header-line"><span class="label">Основание:</span> {{ basis_label }}</p>
-        </div>
+        <header class="waybill-header waybill-header--full">
+          <h1>{{ title }}</h1>
+          <div class="header-lines">
+            <p class="header-line"><span class="label">Грузоотправитель:</span> {{ shipper_requisites }}</p>
+            <p class="header-line"><span class="label">Грузополучатель:</span> {{ consignee_label }}</p>
+            <p class="header-line"><span class="label">Основание:</span> {{ basis_label }}</p>
+          </div>
+        </header>
+      {% else %}
+        <header class="waybill-header waybill-header--short">
+          <h1>{{ title }}</h1>
+        </header>
       {% endif %}
 
-      <div class="waybill-table-wrap">
-        <table class="waybill-table">
-          <thead>
+      <table class="waybill-table">
+        <thead>
+          <tr>
+            <th class="col-number">№</th>
+            <th>Наименование ТМЦ</th>
+            <th class="col-unit">Ед. изм</th>
+            <th class="col-quantity">Кол-во</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for line in page.lines %}
             <tr>
-              <th class="col-number">№</th>
-              <th>Наименование ТМЦ</th>
-              <th class="col-unit">Ед. изм</th>
-              <th class="col-quantity">Кол-во</th>
+              <td class="col-number">{{ line.line_number }}</td>
+              <td>{{ line.item_name }}</td>
+              <td class="col-unit">{{ line.unit }}</td>
+              <td class="col-quantity">{{ line.quantity }}</td>
             </tr>
-          </thead>
-          <tbody>
-            {% for line in page.lines %}
-              <tr>
-                <td class="col-number">{{ line.line_number }}</td>
-                <td>{{ line.item_name }}</td>
-                <td class="col-unit">{{ line.unit }}</td>
-                <td class="col-quantity">{{ line.quantity }}</td>
-              </tr>
-            {% empty %}
-              <tr>
-                <td class="col-number">—</td>
-                <td>Нет строк для печати</td>
-                <td class="col-unit">—</td>
-                <td class="col-quantity">0</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="signature-block">
-        Кладовщик: <span class="signature-placeholder">{{ signature_placeholder }}</span>
-      </div>
+          {% empty %}
+            <tr>
+              <td class="col-number">—</td>
+              <td>Нет строк для печати</td>
+              <td class="col-unit">—</td>
+              <td class="col-quantity">0</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
 
       {% if page.is_last and extra_signatures %}
-        {% for sig in extra_signatures %}
-          <div class="signature-block extra">
-            <p class="sig-label">{{ sig.label }}:</p>
-            {% if sig.driver_signature %}
-              <p class="sig-row"><span class="sig-placeholder">{{ signature_placeholder }}</span></p>
-            {% else %}
-              <p class="sig-row">
-                <span class="sig-field">
-                  <span class="sig-hint">({{ sig.position_label }})</span> <span class="sig-placeholder">_________________</span>
-                </span>
-                <span class="sig-field">
-                  <span class="sig-hint">({{ sig.signature_label }})</span> <span class="sig-placeholder">_________________/__________________</span>
-                </span>
-              </p>
-            {% endif %}
-          </div>
-        {% endfor %}
+        <div class="signature-block signature-block--full">
+          <p class="sig-line">
+            <span class="sig-label">Кладовщик:</span>
+            <span class="sig-placeholder">{{ signature_placeholder }}</span>
+          </p>
+          {% for sig in extra_signatures %}
+            <div class="sig-extra">
+              <p class="sig-label">{{ sig.label }}:</p>
+              {% if sig.driver_signature %}
+                <p class="sig-line">
+                  <span class="sig-placeholder">{{ signature_placeholder }}</span>
+                </p>
+              {% else %}
+                <p class="sig-line">
+                  <span class="sig-hint">({{ sig.position_label }})</span>
+                  <span class="sig-placeholder">_________________</span>
+                  <span class="sig-hint">({{ sig.signature_label }})</span>
+                  <span class="sig-placeholder">_________________/__________________</span>
+                </p>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="signature-block signature-block--short">
+          <p class="sig-line">
+            <span class="sig-label">Кладовщик:</span>
+            <span class="sig-placeholder">{{ signature_placeholder }}</span>
+          </p>
+        </div>
       {% endif %}
 
       {% if total_pages > 1 %}

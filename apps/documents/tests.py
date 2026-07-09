@@ -7,6 +7,7 @@ from django.test import TestCase, override_settings
 
 from apps.documents.models import RenderedDocumentArtifact
 from apps.documents.services import (
+    _max_rows_for_page,
     build_waybill_context,
     paginate_waybill_lines,
     render_document_html,
@@ -54,6 +55,13 @@ def _document(
     }
 
 
+def _short_lines(n: int) -> list[dict]:
+    return [
+        {"line_number": i, "item_name": f"ТМЦ {i}", "unit_symbol": "шт", "quantity": 1}
+        for i in range(1, n + 1)
+    ]
+
+
 class DocumentPdfRendererTests(TestCase):
     def setUp(self) -> None:
         self.media_dir = tempfile.TemporaryDirectory()
@@ -87,40 +95,45 @@ class DocumentPdfRendererTests(TestCase):
         self.assertTrue(context["pages"][0]["is_first"])
         self.assertTrue(context["pages"][0]["is_last"])
         self.assertEqual(context["extra_signatures"], [])  # RECEIVE
+        self.assertEqual(context["pages"][0]["layout"], "first")
 
     def test_multipage_context_has_signature_per_page(self) -> None:
-        lines = [
-            {
-                "line_number": index,
-                "item_name": f"Длинное наименование ТМЦ {index} " * 4,
-                "unit_symbol": "шт",
-                "quantity": index,
-            }
-            for index in range(1, 75)
-        ]
-
+        """75 lines RECEIVE → 3 pages (first / middle / last); Кладовщик на каждой странице."""
+        lines = _short_lines(75)
         context = build_waybill_context(_document(lines))
         html = render_document_html(_document(lines))
 
-        self.assertGreater(len(context["pages"]), 1)
+        self.assertEqual(len(context["pages"]), 3)
         self.assertEqual(html.count("Кладовщик:"), len(context["pages"]))
-        # First page: not last
+        # First page: is_first, layout=first, not last
         self.assertTrue(context["pages"][0]["is_first"])
         self.assertFalse(context["pages"][0]["is_last"])
-        # Last page: is last
+        self.assertEqual(context["pages"][0]["layout"], "first")
+        # Middle page: neither first nor last
+        self.assertFalse(context["pages"][1]["is_first"])
+        self.assertFalse(context["pages"][1]["is_last"])
+        self.assertEqual(context["pages"][1]["layout"], "middle")
+        # Last page: is_last, layout=last
         self.assertTrue(context["pages"][-1]["is_last"])
+        self.assertFalse(context["pages"][-1]["is_first"])
+        self.assertEqual(context["pages"][-1]["layout"], "last")
 
     def test_move_has_extra_signatures(self) -> None:
+        """MOVE (rev. 4): 4 блока — Операцию разрешил, Водитель, Начальник базы, Груз принял."""
         context = build_waybill_context(_document(operation_type="MOVE"))
         sigs = context["extra_signatures"]
-        self.assertEqual(len(sigs), 2)
+        self.assertEqual(len(sigs), 4)
         self.assertEqual(sigs[0]["label"], "Операцию разрешил")
         self.assertEqual(sigs[1]["label"], "Водитель")
         self.assertTrue(sigs[1].get("driver_signature"))
+        self.assertEqual(sigs[2]["label"], "Начальник базы")
+        self.assertEqual(sigs[3]["label"], "Груз принял")
 
         html = render_document_html(_document(operation_type="MOVE"))
         self.assertIn("Операцию разрешил", html)
         self.assertIn("Водитель", html)
+        self.assertIn("Начальник базы", html)
+        self.assertIn("Груз принял", html)
         self.assertIn("(должность)", html)
         self.assertIn("(фио/подпись)", html)
 
@@ -149,22 +162,17 @@ class DocumentPdfRendererTests(TestCase):
                 self.assertNotIn("Водитель", html)
 
     def test_extra_signatures_only_on_last_page(self) -> None:
-        """On multi-page MOVE documents, extra signatures only appear once — on the last page."""
-        lines = [
-            {
-                "line_number": index,
-                "item_name": f"ТМЦ {index} " * 8,
-                "unit_symbol": "шт",
-                "quantity": index,
-            }
-            for index in range(1, 100)
-        ]
+        """MOVE (rev. 4): 4 экстра-подписи появляются только на последней странице."""
+        lines = _short_lines(100)
         html = render_document_html(_document(lines, operation_type="MOVE"))
-        # Extra signatures should appear exactly once (last page)
+        context = build_waybill_context(_document(lines, operation_type="MOVE"))
+
+        # Extra signatures должны появиться ровно один раз (на последней странице).
         self.assertEqual(html.count("Операцию разрешил:"), 1)
         self.assertEqual(html.count("Водитель:"), 1)
-        # Storekeeper appears on every page
-        context = build_waybill_context(_document(lines, operation_type="MOVE"))
+        self.assertEqual(html.count("Начальник базы:"), 1)
+        self.assertEqual(html.count("Груз принял:"), 1)
+        # Кладовщик появляется на каждой странице.
         self.assertEqual(html.count("Кладовщик:"), len(context["pages"]))
 
     def test_pdf_render_is_cached_by_payload_identity(self) -> None:
@@ -184,48 +192,38 @@ class DocumentPdfRendererTests(TestCase):
         self.assertEqual(artifact.size_bytes, len(pdf_bytes))
 
     # ------------------------------------------------------------------
-    # TZ-V3.1I rev. 2 — I4 unit tests (pagination + CSS hardening)
+    # TZ-V3.1I rev. 4 — plan B: exact-rows pagination
     # ------------------------------------------------------------------
 
     def test_pagination_first_page_reserves_signature_height(self) -> None:
-        """MOVE (2 extra signatures) → smaller first-page budget; RECEIVE (0 extras) → larger."""
-        from apps.documents.services import (
-            SINGLE_ROW_SIGNATURE_HEIGHT_MM,
-            SIGNATURE_BLOCK_HEIGHT_MM,
-            paginate_waybill_lines,
-        )
+        """MOVE (driver) уменьшает last_max; RECEIVE (0 extras) — больше."""
+        # 20 коротких строк: RECEIVE → 1 страница, MOVE → возможно больше.
+        lines = _short_lines(20)
+        pages_move = paginate_waybill_lines(lines, operation_type="MOVE")
+        pages_receive = paginate_waybill_lines(lines, operation_type="RECEIVE")
 
-        # 20 коротких строк → 1 страница для RECEIVE, возможно 2 для MOVE.
-        lines = [
-            {"line_number": i, "item_name": f"ТМЦ {i}", "unit_symbol": "шт", "quantity": i}
-            for i in range(1, 21)
-        ]
-        pages_move = paginate_waybill_lines(lines, extra_signatures_count=2)
-        pages_receive = paginate_waybill_lines(lines, extra_signatures_count=0)
-
-        # MOVE budget уже → возможно больше страниц.
         self.assertGreaterEqual(len(pages_move), len(pages_receive))
-        # Sanity-check that constants really differ.
-        self.assertGreater(SIGNATURE_BLOCK_HEIGHT_MM, SINGLE_ROW_SIGNATURE_HEIGHT_MM)
+        # MOVE first_max == RECEIVE first_max (signatures не учитываются на first page
+        # в плане B — только thead+title+short storekeeper). Зато last_max у MOVE меньше.
+        first_move = _max_rows_for_page(
+            is_first=True, is_last=False, extra_signatures_count=3, has_driver=True
+        )
+        first_receive = _max_rows_for_page(
+            is_first=True, is_last=False, extra_signatures_count=0, has_driver=False
+        )
+        self.assertEqual(first_move, first_receive)
 
-    def test_pagination_hard_cap(self) -> None:
-        """first_page_max_rows=22, continuation_max_rows=26 — hard cap."""
-        from apps.documents.services import paginate_waybill_lines
-
-        # 50 коротких строк: первая страница <= 22, continuation <= 26.
-        lines = [
-            {"line_number": i, "item_name": f"A{i}", "unit_symbol": "шт", "quantity": 1}
-            for i in range(1, 51)
-        ]
+    def test_pagination_exact_rows_hard_cap(self) -> None:
+        """first_max=23, middle_max=28, last_max≤28 — hard cap по row count."""
+        lines = _short_lines(50)
         pages = paginate_waybill_lines(lines)
-        self.assertLessEqual(len(pages[0]["lines"]), 22)
+        self.assertLessEqual(len(pages[0]["lines"]), 23)
         for page in pages[1:-1]:
-            self.assertLessEqual(len(page["lines"]), 26)
+            self.assertLessEqual(len(page["lines"]), 28)
+        self.assertLessEqual(len(pages[-1]["lines"]), 28)
 
     def test_pagination_handles_long_names(self) -> None:
-        """50 строк × 200 символов → пагинация не падает, нет «висящих» страниц."""
-        from apps.documents.services import paginate_waybill_lines
-
+        """50 строк × длинные имена → пагинация не падает, всё учтено."""
         long_name = "Длинное наименование ТМЦ " * 10
         lines = [
             {"line_number": i, "item_name": long_name, "unit_symbol": "шт", "quantity": 1}
@@ -238,68 +236,184 @@ class DocumentPdfRendererTests(TestCase):
 
     def test_pagination_extremely_long_operation(self) -> None:
         """200 строк → ≥ 6 страниц, общая сумма == 200."""
-        from apps.documents.services import paginate_waybill_lines
-
-        lines = [
-            {"line_number": i, "item_name": f"ТМЦ {i}", "unit_symbol": "шт", "quantity": 1}
-            for i in range(1, 201)
-        ]
+        lines = _short_lines(200)
         pages = paginate_waybill_lines(lines)
         total = sum(len(p["lines"]) for p in pages)
         self.assertEqual(total, 200)
         self.assertGreaterEqual(len(pages), 6)
 
     def test_pagination_single_line(self) -> None:
-        from apps.documents.services import paginate_waybill_lines
-
         pages = paginate_waybill_lines(
             [{"line_number": 1, "item_name": "Одна", "unit_symbol": "шт", "quantity": 1}]
         )
         self.assertEqual(len(pages), 1)
         self.assertEqual(pages[0]["lines"][0]["line_number"], 1)
+        self.assertEqual(pages[0]["layout"], "first")
 
     def test_pagination_empty(self) -> None:
-        from apps.documents.services import paginate_waybill_lines
-
         pages = paginate_waybill_lines([])
         self.assertEqual(len(pages), 1)
         self.assertEqual(pages[0]["lines"], [])
+        self.assertEqual(pages[0]["layout"], "first")
+        self.assertTrue(pages[0]["is_first"])
+        self.assertTrue(pages[0]["is_last"])
 
-    def test_waybill_html_has_page_break_after_avoid_on_h1(self) -> None:
+    def test_paginate_waybill_lines_exact_rows(self) -> None:
+        """Exact max rows для first/middle/last по operation_type."""
+        cases = [
+            ("RECEIVE", 23, 28, 28),
+            ("ISSUE", 23, 28, 26),
+            ("WRITE_OFF", 23, 28, 26),
+            ("MOVE", 23, 28, 22),
+        ]
+        for op, expected_first, expected_middle, expected_last in cases:
+            with self.subTest(operation_type=op):
+                pages = paginate_waybill_lines(_short_lines(500), operation_type=op)
+                # Первая страница — first_max
+                self.assertLessEqual(len(pages[0]["lines"]), expected_first)
+                # Middle страницы — middle_max
+                middle_pages = [p for p in pages if p["layout"] == "middle"]
+                for page in middle_pages:
+                    self.assertLessEqual(len(page["lines"]), expected_middle)
+                # Последняя страница — last_max
+                self.assertLessEqual(len(pages[-1]["lines"]), expected_last)
+
+    def test_paginate_waybill_lines_middle_pages_have_short_title(self) -> None:
+        """75 lines RECEIVE → 3 страницы: first / middle / last."""
+        pages = paginate_waybill_lines(_short_lines(75), operation_type="RECEIVE")
+        self.assertEqual(len(pages), 3)
+        self.assertEqual(pages[0]["layout"], "first")
+        self.assertEqual(pages[1]["layout"], "middle")
+        self.assertEqual(pages[2]["layout"], "last")
+
+    def test_paginate_waybill_lines_single_page_layout(self) -> None:
+        """10 lines → 1 страница layout='first' (is_first=True, is_last=True)."""
+        pages = paginate_waybill_lines(_short_lines(10))
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(pages[0]["layout"], "first")
+        self.assertTrue(pages[0]["is_first"])
+        self.assertTrue(pages[0]["is_last"])
+
+    def test_paginate_waybill_lines_move_has_4_extra_signatures(self) -> None:
+        """MOVE → 4 экстра-блока (3 standard + 1 driver)."""
+        from apps.documents.services import _build_extra_signatures
+
+        sigs = _build_extra_signatures("MOVE")
+        self.assertEqual(len(sigs), 4)
+        labels = [s["label"] for s in sigs]
+        self.assertEqual(
+            labels, ["Операцию разрешил", "Водитель", "Начальник базы", "Груз принял"]
+        )
+        driver_blocks = [s for s in sigs if s.get("driver_signature")]
+        self.assertEqual(len(driver_blocks), 1)
+        self.assertEqual(driver_blocks[0]["label"], "Водитель")
+
+    def test_paginate_waybill_lines_eighteen_rows_single_page(self) -> None:
+        """Screenshot bug fix: 18 строк → 1 страница, Кладовщик внутри."""
+        pages = paginate_waybill_lines(_short_lines(18))
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(pages[0]["layout"], "first")
+        self.assertEqual(len(pages[0]["lines"]), 18)
+
+    def test_waybill_html_first_page_has_full_title(self) -> None:
+        """Page 1 содержит Грузоотправитель + Грузополучатель + Основание."""
+        lines = _short_lines(75)
+        html = render_document_html(_document(lines))
+        # Full title блок отображается один раз (на первой странице)
+        self.assertEqual(html.count("Грузоотправитель:"), 1)
+        self.assertEqual(html.count("Грузополучатель:"), 1)
+        self.assertEqual(html.count("Основание:"), 1)
+        # "Накладная № X" присутствует на всех страницах (заголовок)
+        self.assertIn("Накладная № 1/0121/030626", html)
+
+    def test_waybill_html_middle_page_has_short_title(self) -> None:
+        """Page 2+ НЕ содержит реквизиты, только короткий заголовок."""
+        lines = _short_lines(75)
+        html = render_document_html(_document(lines))
+        # Грузоотправитель/получатель/основание — только на page 1.
+        self.assertEqual(html.count("Грузоотправитель:"), 1)
+        # Заголовок "Накладная" — на каждой странице, в <h1>.
+        self.assertGreaterEqual(html.count("Накладная"), 2)
+
+    def test_waybill_html_last_page_has_full_signature(self) -> None:
+        """Last page содержит все экстра-подписи операции."""
+        lines = _short_lines(75)
+        # MOVE: 4 экстра-подписи на последней странице.
+        html = render_document_html(_document(lines, operation_type="MOVE"))
+        self.assertIn("Операцию разрешил:", html)
+        self.assertIn("Водитель:", html)
+        self.assertIn("Начальник базы:", html)
+        self.assertIn("Груз принял:", html)
+
+    def test_waybill_html_no_flexbox_minheight(self) -> None:
+        """План B: min-height пиннинг на .page отсутствует."""
         html = render_document_html(_document())
-        self.assertIn("page-break-after: avoid", html)
-        self.assertIn("break-after: avoid", html)
+        self.assertNotIn("min-height: calc(297mm", html)
+        self.assertNotIn("flex: 1 1 auto", html)
 
-    def test_waybill_html_uses_flexbox_for_signature_at_bottom(self) -> None:
+    def test_waybill_html_signature_is_last_in_page(self) -> None:
+        """План B: signature-block идёт ПОСЛЕ table внутри .page."""
         html = render_document_html(_document())
-        self.assertIn("display: flex", html)
-        self.assertIn("min-height: calc(297mm", html)
-        self.assertIn("flex: 1 1 auto", html)  # waybill-table-wrap
+        # Найти позиции первого вхождения table и signature-block.
+        table_pos = html.find("waybill-table")
+        sig_pos = html.find("signature-block")
+        self.assertGreater(table_pos, 0)
+        self.assertGreater(sig_pos, table_pos)
 
-    def test_pagination_constants_match_flex_geometry(self) -> None:
-        """rev. 2 (warning #4): константы пагинатора + flex-блоки должны укладываться в A4."""
-        SIGNATURE_BLOCK_HEIGHT_MM = 37.0
-        SINGLE_ROW_SIGNATURE_HEIGHT_MM = 4.0
-        PAGE_MARGIN_MM = 30.0
-        HEADER_OVERHEAD_MM = PAGE_MARGIN_MM + 16.4 + 22 + 10
-        CONTINUATION_OVERHEAD_MM = PAGE_MARGIN_MM + 10 + 4
-        A4_INNER_HEIGHT_MM = 267.0
+    def test_pagination_constants_match_exact_rows(self) -> None:
+        """Константы exact-rows укладываются в A4 portrait @page."""
+        from apps.documents.services import (
+            A4_INNER_HEIGHT_MM,
+            FULL_TITLE_HEIGHT_MM,
+            ROW_HEIGHT_MM,
+            SHORT_TITLE_HEIGHT_MM,
+            SIG_BLOCK_DRIVER_MM,
+            SIG_BLOCK_HEIGHT_MM,
+            SIG_STOREKEEPER_MM,
+            THEAD_HEIGHT_MM,
+        )
 
-        move_budget = A4_INNER_HEIGHT_MM - HEADER_OVERHEAD_MM - SIGNATURE_BLOCK_HEIGHT_MM
-        self.assertLessEqual(
-            move_budget,
-            152 + 1,
-            f"MOVE 1-page budget {move_budget}mm должно быть ≤ 153mm (target 152)",
+        # sanity: базовая геометрия
+        self.assertEqual(A4_INNER_HEIGHT_MM, 267.0)
+        self.assertEqual(ROW_HEIGHT_MM, 8.5)
+        self.assertEqual(THEAD_HEIGHT_MM, 10.0)
+        self.assertEqual(SIG_STOREKEEPER_MM, 6.0)
+        self.assertEqual(SIG_BLOCK_HEIGHT_MM, 14.0)
+        self.assertEqual(SIG_BLOCK_DRIVER_MM, 6.0)
+        # first_max: (267 - 50 - 10 - 6) // 8.5 = 23
+        self.assertEqual(
+            _max_rows_for_page(
+                is_first=True, is_last=False, extra_signatures_count=0, has_driver=False
+            ),
+            23,
         )
-        receive_budget = A4_INNER_HEIGHT_MM - HEADER_OVERHEAD_MM - SINGLE_ROW_SIGNATURE_HEIGHT_MM
-        self.assertLessEqual(
-            receive_budget,
-            189 + 1,
-            f"RECEIVE 1-page budget {receive_budget}mm должно быть ≤ 190mm (target 189)",
+        # middle_max: (267 - 12 - 10 - 6) // 8.5 = 28
+        self.assertEqual(
+            _max_rows_for_page(
+                is_first=False, is_last=False, extra_signatures_count=0, has_driver=False
+            ),
+            28,
         )
-        cont_budget = A4_INNER_HEIGHT_MM - CONTINUATION_OVERHEAD_MM
-        self.assertLessEqual(
-            cont_budget,
-            223 + 1,
-            f"continuation budget {cont_budget}mm должно быть ≤ 224mm (target 223)",
+        # last_max MOVE (driver + 3 extras): 22
+        self.assertEqual(
+            _max_rows_for_page(
+                is_first=False, is_last=True, extra_signatures_count=3, has_driver=True
+            ),
+            22,
         )
+        # last_max RECEIVE (0 extras): 28
+        self.assertEqual(
+            _max_rows_for_page(
+                is_first=False, is_last=True, extra_signatures_count=0, has_driver=False
+            ),
+            28,
+        )
+        # last_max ISSUE (1 extra): 26
+        self.assertEqual(
+            _max_rows_for_page(
+                is_first=False, is_last=True, extra_signatures_count=1, has_driver=False
+            ),
+            26,
+        )
+        # title constants
+        self.assertLess(SHORT_TITLE_HEIGHT_MM, FULL_TITLE_HEIGHT_MM)

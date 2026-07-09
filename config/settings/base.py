@@ -43,7 +43,7 @@ DOCUMENT_SHIPPER_REQUISITES = os.getenv(
     "Забайкальский край, Карымский район, пгт. Курорт-Дарасун, "
     "мкр. Северный, д.11, база Угдан",
 ).strip()
-DOCUMENT_RENDERER_VERSION = os.getenv("DOCUMENT_RENDERER_VERSION", "waybill-pdf-v2").strip()
+DOCUMENT_RENDERER_VERSION = os.getenv("DOCUMENT_RENDERER_VERSION", "waybill-pdf-v3").strip()
 
 # Django auth in this project is a technical admin/staff layer.
 # Warehouse domain users/roles/sites are owned by SyncServer.

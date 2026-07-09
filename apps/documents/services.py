@@ -31,10 +31,23 @@ CACHE_TTL = 3600  # 1 hour
 logger = structlog.get_logger()
 
 SIGNATURE_PLACEHOLDER = "_________________/__________________"
-DEFAULT_RENDERER_VERSION = "waybill-pdf-v2"
+DEFAULT_RENDERER_VERSION = "waybill-pdf-v3"
 
-# Waybill geometry constants (TZ-V3.1I rev. 2 / I2.4).
+# Waybill geometry constants (TZ-V3.1I rev. 4, plan B).
 # A4 portrait: 210x297mm, @page margin 16mm top + 14mm bottom -> 267mm inner height.
+# Exact-rows pagination: page budgets are computed in mm and converted to row counts
+# with `int(available // ROW_HEIGHT_MM)`. WeasyPrint respects the cap because the
+# template closes the page section after exactly N <tr> elements.
+A4_INNER_HEIGHT_MM = 267.0
+ROW_HEIGHT_MM = 8.5
+THEAD_HEIGHT_MM = 10.0
+SHORT_TITLE_HEIGHT_MM = 12.0
+FULL_TITLE_HEIGHT_MM = 50.0
+SIG_STOREKEEPER_MM = 6.0
+SIG_BLOCK_HEIGHT_MM = 14.0
+SIG_BLOCK_DRIVER_MM = 6.0
+
+# Legacy aliases kept for backward compatibility with rev. 2 imports/tests.
 SIGNATURE_BLOCK_HEIGHT_MM = 37.0
 SINGLE_ROW_SIGNATURE_HEIGHT_MM = 4.0
 
@@ -136,7 +149,7 @@ def build_waybill_context(document: dict[str, Any]) -> dict[str, Any]:
     operation_type = _text(operation.get("type") or payload.get("operation_type")).upper()
 
     extra_signatures = _build_extra_signatures(operation_type)
-    pages = paginate_waybill_lines(lines, extra_signatures_count=len(extra_signatures))
+    pages = paginate_waybill_lines(lines, operation_type=operation_type)
 
     return {
         "document_id": document.get("id"),
@@ -161,7 +174,7 @@ def _build_extra_signatures(operation_type: str) -> list[dict[str, Any]]:
     """
     op = operation_type.upper()
 
-    # MOVE: operation approved + driver
+    # MOVE (rev. 4): 4 блока — Операцию разрешил, Водитель, Начальник базы, Груз принял.
     if op == "MOVE":
         return [
             {
@@ -172,6 +185,16 @@ def _build_extra_signatures(operation_type: str) -> list[dict[str, Any]]:
             {
                 "label": "Водитель",
                 "driver_signature": True,
+            },
+            {
+                "label": "Начальник базы",
+                "position_label": "должность",
+                "signature_label": "фио/подпись",
+            },
+            {
+                "label": "Груз принял",
+                "position_label": "должность",
+                "signature_label": "фио/подпись",
             },
         ]
 
@@ -199,94 +222,160 @@ def _build_extra_signatures(operation_type: str) -> list[dict[str, Any]]:
     return []
 
 
+def _max_rows_for_page(
+    *,
+    is_first: bool,
+    is_last: bool,
+    extra_signatures_count: int,
+    has_driver: bool,
+) -> int:
+    """Compute the exact row cap for a single page based on layout type.
+
+    Each page is rendered as a self-contained <section class="page"> with
+    a fixed amount of vertical overhead (title + thead + signature block).
+    The remainder is divided by ROW_HEIGHT_MM to give the row cap. The
+    template closes the page section after exactly this many <tr> elements,
+    so WeasyPrint cannot overflow into an orphan signature page.
+    """
+    if is_first:
+        overhead = FULL_TITLE_HEIGHT_MM + THEAD_HEIGHT_MM + SIG_STOREKEEPER_MM
+    else:
+        overhead = SHORT_TITLE_HEIGHT_MM + THEAD_HEIGHT_MM + SIG_STOREKEEPER_MM
+        if is_last:
+            # Last page replaces the short "Кладовщик: ____" with the full
+            # signature form: Кладовщик + (extra standard blocks) + optional driver.
+            overhead -= SIG_STOREKEEPER_MM
+            if has_driver:
+                # MOVE: Операцию разрешил + Водитель + Начальник базы + Груз принял
+                # 3 standard blocks + 1 driver block.
+                overhead += SIG_STOREKEEPER_MM + 3 * SIG_BLOCK_HEIGHT_MM + SIG_BLOCK_DRIVER_MM
+            else:
+                overhead += SIG_STOREKEEPER_MM + extra_signatures_count * SIG_BLOCK_HEIGHT_MM
+    available = A4_INNER_HEIGHT_MM - overhead
+    return max(1, int(available // ROW_HEIGHT_MM))
+
+
 def paginate_waybill_lines(
     lines: list[dict[str, Any]],
     *,
-    first_page_max_rows: int = 22,
-    continuation_max_rows: int = 26,
-    estimated_row_height_mm: float = 8.5,
-    available_height_continuation_mm: float = 223.0,
-    chars_per_row: int = 52,
-    extra_row_height_ratio: float = 0.85,
-    extra_signatures_count: int = 0,
+    operation_type: str = "RECEIVE",
 ) -> list[dict[str, Any]]:
     """
-    Paginate waybill lines dynamically based on content height.
+    Paginate waybill lines with EXACT row counts per page (TZ-V3.1I rev. 4, plan B).
 
-    Константы выведены из геометрии A4 portrait с @page margin 16/14/14mm
-    и CSS-блоков <h1> (16pt + 10mm margin), .header-lines (3 строки + 8mm),
-    <thead> (10mm). row_height подобран по DejaVu Sans 11pt с padding 2.4mm.
-    chars_per_row подобран по ширине колонки "Наименование ТМЦ" (119mm).
+    Each page is rendered as a self-contained <section class="page"> with a
+    fixed amount of vertical overhead. The remainder is divided by
+    ROW_HEIGHT_MM to give the row cap, and the template closes the page
+    section after exactly that many <tr> elements. There is no flexbox
+    min-height pinning: the page section is sized by its content, and the
+    row cap prevents overflow into an orphan signature page.
 
-    Для 1й страницы доступная высота пересчитывается динамически с учётом
-    extra-подписей:
-        reserve_signature_mm = SINGLE_ROW_SIGNATURE_HEIGHT_MM if extra_signatures_count == 0
-                               else SIGNATURE_BLOCK_HEIGHT_MM
-        available_height_first_page_mm = 267 - 78 - reserve_signature_mm
-
-    hard-cap: если `len(current) >= first_page_max_rows` (или `continuation_max_rows`),
-    страница закрывается принудительно, даже если по высоте ещё есть запас —
-    это страховка от pathological-кейсов (warning #6).
+    Layout is selected per page:
+        - "first"   → full title (Накладная + Грузоотправитель + Грузополучатель
+                      + Основание) + table + short Кладовщик
+        - "middle"  → short title (Накладная № X) + table + short Кладовщик
+        - "last"    → short title + table + full signature form
+                      (Кладовщик + extra blocks per operation type)
 
     Returns: list[dict[str, Any]] со структурой:
         {"page_number": int, "lines": list[dict], "is_first": bool,
-         "is_last": bool, "total_pages": int}
+         "is_last": bool, "total_pages": int, "layout": "first"|"middle"|"last"}
     """
-    reserve_signature_mm = (
-        SIGNATURE_BLOCK_HEIGHT_MM if extra_signatures_count > 0 else SINGLE_ROW_SIGNATURE_HEIGHT_MM
+    op = (operation_type or "RECEIVE").upper()
+    has_driver = op == "MOVE"
+
+    if op == "MOVE":
+        extra_sigs = 3  # Операцию разрешил + Начальник базы + Груз принял
+    elif op in ("ISSUE", "ISSUE_RETURN", "EXPENSE"):
+        extra_sigs = 1
+    elif op == "WRITE_OFF":
+        extra_sigs = 1
+    else:  # RECEIVE, ADJUSTMENT, CORRECTION
+        extra_sigs = 0
+
+    first_max = _max_rows_for_page(
+        is_first=True,
+        is_last=False,
+        extra_signatures_count=extra_sigs,
+        has_driver=has_driver,
     )
-    header_overhead_mm = 16.4 + 22 + 10
-    a4_inner_height_mm = 267.0
-    available_height_first_page_mm = (a4_inner_height_mm - 30) - header_overhead_mm - reserve_signature_mm
+    middle_max = _max_rows_for_page(
+        is_first=False,
+        is_last=False,
+        extra_signatures_count=0,
+        has_driver=False,
+    )
+    last_max = _max_rows_for_page(
+        is_first=False,
+        is_last=True,
+        extra_signatures_count=extra_sigs,
+        has_driver=has_driver,
+    )
 
-    pages: list[dict[str, Any]] = []
-    current: list[dict[str, Any]] = []
-    current_height = 0.0
-    page_index = 0
+    if not lines:
+        return [{
+            "page_number": 1,
+            "lines": [],
+            "is_first": True,
+            "is_last": True,
+            "total_pages": 1,
+            "layout": "first",
+        }]
 
-    def flush() -> None:
-        nonlocal current, current_height, page_index
-        pages.append({"page_number": len(pages) + 1, "lines": current, "is_first": len(pages) == 0})
-        current = []
-        current_height = 0.0
-        page_index += 1
+    total = len(lines)
 
-    for line in lines:
-        name = str(line.get("item_name") or "")
-        extra_lines = len(name) // chars_per_row
-        line_height = estimated_row_height_mm + (
-            extra_lines * estimated_row_height_mm * extra_row_height_ratio
-        )
+    # Single-page document: everything fits on the first layout.
+    if total <= first_max:
+        return [{
+            "page_number": 1,
+            "lines": lines,
+            "is_first": True,
+            "is_last": True,
+            "total_pages": 1,
+            "layout": "first",
+        }]
 
-        max_rows = first_page_max_rows if page_index == 0 else continuation_max_rows
-        max_height = (
-            available_height_first_page_mm if page_index == 0 else available_height_continuation_mm
-        )
+    # Multi-page: first + zero or more middles + last.
+    remaining_after_first = total - first_max
+    if remaining_after_first <= last_max:
+        pages_data = [
+            {"lines": lines[:first_max], "layout": "first"},
+            {"lines": lines[first_max:], "layout": "last"},
+        ]
+    else:
+        remaining_after_last = remaining_after_first - last_max
+        n_middle = (remaining_after_last + middle_max - 1) // middle_max
+        middles: list[dict[str, Any]] = []
+        i = first_max
+        for _ in range(n_middle - 1):
+            middles.append({
+                "lines": lines[i:i + middle_max],
+                "layout": "middle",
+            })
+            i += middle_max
+        last_middle_size = min(middle_max, remaining_after_last - (i - first_max))
+        if last_middle_size > 0:
+            middles.append({
+                "lines": lines[i:i + last_middle_size],
+                "layout": "middle",
+            })
+            i += last_middle_size
+        pages_data = [{"lines": lines[:first_max], "layout": "first"}] + middles + [
+            {"lines": lines[i:], "layout": "last"}
+        ]
 
-        # Hard cap (warning #6): close the page if it is already at the row limit.
-        if (page_index == 0 and len(current) >= first_page_max_rows) or (
-            page_index > 0 and len(current) >= continuation_max_rows
-        ):
-            flush()
-            max_rows = first_page_max_rows if page_index == 0 else continuation_max_rows
-            max_height = (
-                available_height_first_page_mm if page_index == 0 else available_height_continuation_mm
-            )
-
-        if current_height + line_height > max_height and current:
-            flush()
-
-        current.append(line)
-        current_height += line_height
-
-    if current or not pages:
-        flush()
-
-    total_pages = len(pages)
-    for page in pages:
-        page["total_pages"] = total_pages
-        page["is_last"] = (page["page_number"] == total_pages)
-    return pages
+    total_pages = len(pages_data)
+    result: list[dict[str, Any]] = []
+    for idx, page in enumerate(pages_data):
+        result.append({
+            "page_number": idx + 1,
+            "lines": page["lines"],
+            "is_first": idx == 0,
+            "is_last": idx == total_pages - 1,
+            "total_pages": total_pages,
+            "layout": page["layout"],
+        })
+    return result
 
 
 def build_document_pdf_filename(document: dict[str, Any]) -> str:
