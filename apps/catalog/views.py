@@ -1217,7 +1217,23 @@ class _AngularSpaServeMixin:
         })
 
 
-class NomenclatureSPAView(LoginRequiredMixin, _AngularSpaServeMixin, View):
+class _CatalogSpaAccessMixin:
+    def dispatch(self, request, *args, **kwargs):
+        if not can_use_client(request.user):
+            return HttpResponseForbidden("Нет доступа")
+        return super().dispatch(request, *args, **kwargs)
+
+
+class _NomenclatureSpaAccessMixin:
+    def dispatch(self, request, *args, **kwargs):
+        if not can_use_client(request.user):
+            return HttpResponseForbidden("Нет доступа")
+        if not can_manage_catalog(request.user):
+            return redirect("/catalog/")
+        return super().dispatch(request, *args, **kwargs)
+
+
+class NomenclatureSPAView(LoginRequiredMixin, _NomenclatureSpaAccessMixin, _AngularSpaServeMixin, View):
     """Serves the Angular SPA for /nomenclature/.
 
     File requests (js, css, etc.) are served from the build directory.
@@ -1295,7 +1311,7 @@ class IssuedAssetsSPAView(LoginRequiredMixin, _AngularSpaServeMixin, View):
         return self._render_spa(request)
 
 
-class CatalogSPAView(LoginRequiredMixin, _AngularSpaServeMixin, View):
+class CatalogSPAView(LoginRequiredMixin, _CatalogSpaAccessMixin, _AngularSpaServeMixin, View):
     """Serves the Angular SPA for /catalog/.
 
     Static file requests are handled by AngularStaticFilesView at root level.

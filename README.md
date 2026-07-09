@@ -1,5 +1,7 @@
 # Warehouse_web
 
+Этот компонент Quartermaster: Django web/BFF клиент.
+
 Warehouse_web is a Django server-rendered web client for SyncServer. SyncServer owns warehouse domain data and business rules. Django provides the web UI, session handling, admin workflows, and HTTP integration.
 
 ## Project Overview

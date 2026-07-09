@@ -14,7 +14,8 @@ from braces.views import LoginRequiredMixin
 from django.http import HttpRequest, JsonResponse
 from django.views import View
 
-from .helpers import _build_client, json_error, sync_api_error
+from .helpers import _build_client, _ok, _handle_sync_error, sync_api_error, json_error
+from apps.sync_client.exceptions import SyncServerAPIError
 
 logger = structlog.get_logger()
 
@@ -23,7 +24,7 @@ class ReviewItemsListView(LoginRequiredMixin, View):
     """GET /bff/review-items — list review-required items."""
 
     def get(self, request: HttpRequest) -> JsonResponse:
-        api = ReviewItemsAPI(SyncServerClient(request=request))
+        api = ReviewItemsAPI(_build_client(request))
         try:
             page = int(request.GET.get("page", 1))
             page_size = int(request.GET.get("page_size", 50))
@@ -36,10 +37,9 @@ class ReviewItemsListView(LoginRequiredMixin, View):
             }
             filters = {k: v for k, v in filters.items() if v is not None}
             data = api.list_review_items_page(filters)
-            return JsonResponse(data)
-        except Exception as exc:
-            logger.error("review_items_list_error", exc_info=True)
-            return json_error(str(exc))
+            return _ok(data)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
 
 
 class ReviewItemDetailView(LoginRequiredMixin, View):
@@ -48,29 +48,27 @@ class ReviewItemDetailView(LoginRequiredMixin, View):
     """
 
     def get(self, request: HttpRequest, item_id: int) -> JsonResponse:
-        api = ReviewItemsAPI(SyncServerClient(request=request))
+        api = ReviewItemsAPI(_build_client(request))
         try:
             data = api.get_review_item(item_id)
-            return JsonResponse(data)
-        except Exception as exc:
-            logger.error("review_item_detail_get_error", exc_info=True)
-            return json_error(str(exc))
+            return _ok(data)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
 
     def delete(self, request: HttpRequest, item_id: int) -> JsonResponse:
-        api = ReviewItemsAPI(SyncServerClient(request=request))
+        api = ReviewItemsAPI(_build_client(request))
         try:
             data = api.delete_review_item(item_id)
-            return JsonResponse(data)
-        except Exception as exc:
-            logger.error("review_item_detail_delete_error", exc_info=True)
-            return json_error(str(exc))
+            return _ok(data)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
 
 
 class ReviewItemOperationsView(LoginRequiredMixin, View):
     """GET /bff/review-items/<id>/operations — list operations for review item."""
 
     def get(self, request: HttpRequest, item_id: int) -> JsonResponse:
-        api = ReviewItemsAPI(SyncServerClient(request=request))
+        api = ReviewItemsAPI(_build_client(request))
         try:
             page = int(request.GET.get("page", 1))
             page_size = int(request.GET.get("page_size", 50))
@@ -78,39 +76,36 @@ class ReviewItemOperationsView(LoginRequiredMixin, View):
                 item_id,
                 filters={"page": page, "page_size": page_size},
             )
-            return JsonResponse(data)
-        except Exception as exc:
-            logger.error("review_item_operations_error", exc_info=True)
-            return json_error(str(exc))
+            return _ok(data)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
 
 
 class ReviewItemConfirmView(LoginRequiredMixin, View):
     """POST /bff/review-items/<id>/confirm — confirm review item."""
 
     def post(self, request: HttpRequest, item_id: int) -> JsonResponse:
-        api = ReviewItemsAPI(SyncServerClient(request=request))
+        api = ReviewItemsAPI(_build_client(request))
         try:
             from json import loads
 
             payload = loads(request.body)
             data = api.confirm_review_item(item_id, payload)
-            return JsonResponse(data)
-        except Exception as exc:
-            logger.error("review_item_confirm_error", exc_info=True)
-            return json_error(str(exc))
+            return _ok(data)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
 
 
 class ReviewItemMergeView(LoginRequiredMixin, View):
     """POST /bff/review-items/<id>/merge — merge review item into catalog item."""
 
     def post(self, request: HttpRequest, item_id: int) -> JsonResponse:
-        api = ReviewItemsAPI(SyncServerClient(request=request))
+        api = ReviewItemsAPI(_build_client(request))
         try:
             from json import loads
 
             payload = loads(request.body)
             data = api.merge_review_item(item_id, payload)
-            return JsonResponse(data)
-        except Exception as exc:
-            logger.error("review_item_merge_error", exc_info=True)
-            return json_error(str(exc))
+            return _ok(data)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)

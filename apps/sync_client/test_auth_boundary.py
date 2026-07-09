@@ -16,6 +16,7 @@ from django.urls import reverse
 
 from apps.sync_client.client import SyncServerClient
 from apps.sync_client.exceptions import SyncAuthError
+from apps.users.models import Role, SyncUserBinding
 from apps.sync_client.token_resolver import (
     ResolvedSyncIdentity,
     SyncIdentityNotBoundError,
@@ -287,9 +288,19 @@ class NomenclatureSPAViewAuthTests(TestCase):
             f"Expected redirect to login, got {response['Location']}",
         )
 
-    def test_authenticated_user_gets_spa(self):
-        User.objects.create_user(username="spa_user", password="testpass123")
+    def test_non_manager_authenticated_user_is_redirected_to_catalog(self):
+        user = User.objects.create_user(username="spa_user", password="testpass123")
+        SyncUserBinding.objects.create(user=user, sync_role=Role.OBSERVER)
         self.client.login(username="spa_user", password="testpass123")
+
+        response = self.client.get("/nomenclature/")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/catalog/")
+
+    def test_catalog_manager_authenticated_user_gets_spa(self):
+        user = User.objects.create_user(username="spa_manager", password="testpass123")
+        SyncUserBinding.objects.create(user=user, sync_role=Role.CHIEF_STOREKEEPER)
+        self.client.login(username="spa_manager", password="testpass123")
 
         response = self.client.get("/nomenclature/")
         self.assertNotIn(response.status_code, (301, 302))

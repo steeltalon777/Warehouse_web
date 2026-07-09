@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from apps.users.models import Role, UserProfile
+from apps.users.models import Role, SyncUserBinding, UserProfile
 
 
 class BffApiRoutesSmokeTests(TestCase):
@@ -361,10 +361,11 @@ class BffApiCatalogBatchTests(TestCase):
         self.chief = user_model.objects.create_user(
             username="chief_user",
             password="pass12345",
-            is_superuser=True,
-            is_staff=True,
+            is_superuser=False,
+            is_staff=False,
             is_active=True,
         )
+        SyncUserBinding.objects.create(user=self.chief, sync_role=Role.CHIEF_STOREKEEPER)
         self.root = user_model.objects.create_user(
             username="root_user",
             password="pass12345",
@@ -386,7 +387,10 @@ class BffApiCatalogBatchTests(TestCase):
 
     def test_batch_non_chief_returns_403(self) -> None:
         self.client.force_login(self.plain_user)
-        response = self.client.post("/bff/api/v1/catalog/admin/batch", data="{}", content_type="application/json")
+        with patch("apps.bff_api.catalog_views._catalog") as catalog:
+            response = self.client.post("/bff/api/v1/catalog/admin/batch", data="{}", content_type="application/json")
+
+        catalog.assert_not_called()
         self.assertEqual(response.status_code, 403)
         body = response.json()
         self.assertFalse(body["ok"])
@@ -467,6 +471,332 @@ class BffApiCatalogBatchTests(TestCase):
         body = response.json()
         self.assertFalse(body["ok"])
         self.assertEqual(body["error"]["code"], "conflict")
+
+
+class BffApiCatalogAdminPermissionTests(TestCase):
+    def setUp(self) -> None:
+        user_model = get_user_model()
+        self.plain_user = user_model.objects.create_user(
+            username="catalog_plain_user",
+            password="pass12345",
+            is_superuser=False,
+            is_staff=False,
+            is_active=True,
+        )
+        self.binding_chief = user_model.objects.create_user(
+            username="catalog_binding_chief",
+            password="pass12345",
+            is_superuser=False,
+            is_staff=False,
+            is_active=True,
+        )
+        SyncUserBinding.objects.create(user=self.binding_chief, sync_role=Role.CHIEF_STOREKEEPER)
+
+        self.profile_chief = user_model.objects.create_user(
+            username="catalog_profile_chief",
+            password="pass12345",
+            is_superuser=False,
+            is_staff=False,
+            is_active=True,
+        )
+        UserProfile.objects.create(user=self.profile_chief, role=Role.CHIEF_STOREKEEPER)
+
+        self.root = user_model.objects.create_user(
+            username="catalog_root_user",
+            password="pass12345",
+            is_superuser=True,
+            is_staff=True,
+            is_active=True,
+        )
+
+    def _assert_create_forbidden(self, path: str) -> None:
+        self.client.force_login(self.plain_user)
+        with patch("apps.bff_api.catalog_views._catalog") as catalog:
+            response = self.client.post(
+                path,
+                data=json.dumps({"name": "Blocked"}),
+                content_type="application/json",
+            )
+
+        catalog.assert_not_called()
+        self.assertEqual(response.status_code, 403)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "forbidden")
+
+    def _assert_mutation_forbidden(self, method: str, path: str, payload: dict | None = None) -> None:
+        self.client.force_login(self.plain_user)
+        request = getattr(self.client, method)
+        kwargs = {}
+        if payload is not None:
+            kwargs = {"data": json.dumps(payload), "content_type": "application/json"}
+
+        with patch("apps.bff_api.catalog_views._catalog") as catalog:
+            response = request(path, **kwargs)
+
+        catalog.assert_not_called()
+        self.assertEqual(response.status_code, 403)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "forbidden")
+
+    def _assert_mutation_allowed(
+        self,
+        *,
+        user,
+        method: str,
+        path: str,
+        catalog_method: str,
+        payload: dict | None = None,
+        return_value=None,
+        expected_call_args: tuple = (),
+    ) -> None:
+        mock_api = Mock()
+        getattr(mock_api, catalog_method).return_value = return_value
+
+        self.client.force_login(user)
+        request = getattr(self.client, method)
+        kwargs = {}
+        if payload is not None:
+            kwargs = {"data": json.dumps(payload), "content_type": "application/json"}
+
+        with patch("apps.bff_api.catalog_views._catalog", return_value=mock_api):
+            response = request(path, **kwargs)
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        if return_value is None:
+            self.assertEqual(body["data"], {"deleted": True})
+        else:
+            self.assertEqual(body["data"], return_value)
+        getattr(mock_api, catalog_method).assert_called_once_with(*expected_call_args)
+
+    def test_admin_items_create_non_manager_returns_403(self) -> None:
+        self._assert_create_forbidden("/bff/api/v1/catalog/admin/items")
+
+    def test_admin_categories_create_non_manager_returns_403(self) -> None:
+        self._assert_create_forbidden("/bff/api/v1/catalog/admin/categories")
+
+    def test_admin_units_create_non_manager_returns_403(self) -> None:
+        self._assert_create_forbidden("/bff/api/v1/catalog/admin/units")
+
+    def test_admin_items_create_sync_binding_chief_allowed(self) -> None:
+        mock_api = Mock()
+        mock_api.create_item.return_value = {"id": "i1", "name": "New Item"}
+
+        self.client.force_login(self.binding_chief)
+        with patch("apps.bff_api.catalog_views._catalog", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/catalog/admin/items",
+                data=json.dumps({"name": "New Item"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        mock_api.create_item.assert_called_once_with({"name": "New Item"})
+
+    def test_admin_categories_create_profile_chief_allowed(self) -> None:
+        mock_api = Mock()
+        mock_api.create_category.return_value = {"id": "c1", "name": "New Category"}
+
+        self.client.force_login(self.profile_chief)
+        with patch("apps.bff_api.catalog_views._catalog", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/catalog/admin/categories",
+                data=json.dumps({"name": "New Category"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        mock_api.create_category.assert_called_once_with({"name": "New Category"})
+
+    def test_admin_units_create_root_allowed(self) -> None:
+        mock_api = Mock()
+        mock_api.create_unit.return_value = {"id": "u1", "name": "New Unit"}
+
+        self.client.force_login(self.root)
+        with patch("apps.bff_api.catalog_views._catalog", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/catalog/admin/units",
+                data=json.dumps({"name": "New Unit"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        mock_api.create_unit.assert_called_once_with({"name": "New Unit"})
+
+    def test_admin_bulk_mutations_non_manager_return_403(self) -> None:
+        for path in (
+            "/bff/api/v1/catalog/admin/units/bulk",
+            "/bff/api/v1/catalog/admin/categories/bulk",
+        ):
+            with self.subTest(path=path):
+                self._assert_mutation_forbidden(method="post", path=path, payload={"items": [{"name": "Blocked"}]})
+
+    def test_admin_bulk_mutations_allow_chief_and_root(self) -> None:
+        cases = (
+            (
+                self.binding_chief,
+                "/bff/api/v1/catalog/admin/units/bulk",
+                "bulk_create_units",
+                {"items": [{"name": "Unit 1"}]},
+                {"created": [{"id": "u1"}]},
+                ({"items": [{"name": "Unit 1"}]},),
+            ),
+            (
+                self.root,
+                "/bff/api/v1/catalog/admin/categories/bulk",
+                "bulk_create_categories",
+                {"items": [{"name": "Category 1"}]},
+                {"created": [{"id": "c1"}]},
+                ({"items": [{"name": "Category 1"}]},),
+            ),
+        )
+
+        for user, path, catalog_method, payload, return_value, expected_call_args in cases:
+            with self.subTest(path=path, user=user.username):
+                self._assert_mutation_allowed(
+                    user=user,
+                    method="post",
+                    path=path,
+                    catalog_method=catalog_method,
+                    payload=payload,
+                    return_value=return_value,
+                    expected_call_args=expected_call_args,
+                )
+
+    def test_admin_item_detail_mutations_non_manager_return_403(self) -> None:
+        self._assert_mutation_forbidden(
+            method="patch",
+            path="/bff/api/v1/catalog/admin/items/item-1",
+            payload={"name": "Blocked item"},
+        )
+        self._assert_mutation_forbidden(method="delete", path="/bff/api/v1/catalog/admin/items/item-1")
+
+    def test_admin_item_detail_mutations_allow_chief_and_root(self) -> None:
+        cases = (
+            (
+                self.binding_chief,
+                "patch",
+                "/bff/api/v1/catalog/admin/items/item-1",
+                "update_item",
+                {"name": "Updated item"},
+                {"id": "item-1", "name": "Updated item"},
+                ("item-1", {"name": "Updated item"}),
+            ),
+            (
+                self.root,
+                "delete",
+                "/bff/api/v1/catalog/admin/items/item-1",
+                "delete_item",
+                None,
+                None,
+                ("item-1",),
+            ),
+        )
+
+        for user, method, path, catalog_method, payload, return_value, expected_call_args in cases:
+            with self.subTest(path=path, method=method, user=user.username):
+                self._assert_mutation_allowed(
+                    user=user,
+                    method=method,
+                    path=path,
+                    catalog_method=catalog_method,
+                    payload=payload,
+                    return_value=return_value,
+                    expected_call_args=expected_call_args,
+                )
+
+    def test_admin_category_detail_mutations_non_manager_return_403(self) -> None:
+        self._assert_mutation_forbidden(
+            method="patch",
+            path="/bff/api/v1/catalog/admin/categories/category-1",
+            payload={"name": "Blocked category"},
+        )
+        self._assert_mutation_forbidden(method="delete", path="/bff/api/v1/catalog/admin/categories/category-1")
+
+    def test_admin_category_detail_mutations_allow_chief_and_root(self) -> None:
+        cases = (
+            (
+                self.profile_chief,
+                "patch",
+                "/bff/api/v1/catalog/admin/categories/category-1",
+                "update_category",
+                {"name": "Updated category"},
+                {"id": "category-1", "name": "Updated category"},
+                ("category-1", {"name": "Updated category"}),
+            ),
+            (
+                self.root,
+                "delete",
+                "/bff/api/v1/catalog/admin/categories/category-1",
+                "delete_category",
+                None,
+                None,
+                ("category-1",),
+            ),
+        )
+
+        for user, method, path, catalog_method, payload, return_value, expected_call_args in cases:
+            with self.subTest(path=path, method=method, user=user.username):
+                self._assert_mutation_allowed(
+                    user=user,
+                    method=method,
+                    path=path,
+                    catalog_method=catalog_method,
+                    payload=payload,
+                    return_value=return_value,
+                    expected_call_args=expected_call_args,
+                )
+
+    def test_admin_unit_detail_mutations_non_manager_return_403(self) -> None:
+        self._assert_mutation_forbidden(
+            method="patch",
+            path="/bff/api/v1/catalog/admin/units/unit-1",
+            payload={"name": "Blocked unit"},
+        )
+        self._assert_mutation_forbidden(method="delete", path="/bff/api/v1/catalog/admin/units/unit-1")
+
+    def test_admin_unit_detail_mutations_allow_chief_and_root(self) -> None:
+        cases = (
+            (
+                self.binding_chief,
+                "patch",
+                "/bff/api/v1/catalog/admin/units/unit-1",
+                "update_unit",
+                {"name": "Updated unit"},
+                {"id": "unit-1", "name": "Updated unit"},
+                ("unit-1", {"name": "Updated unit"}),
+            ),
+            (
+                self.root,
+                "delete",
+                "/bff/api/v1/catalog/admin/units/unit-1",
+                "delete_unit",
+                None,
+                None,
+                ("unit-1",),
+            ),
+        )
+
+        for user, method, path, catalog_method, payload, return_value, expected_call_args in cases:
+            with self.subTest(path=path, method=method, user=user.username):
+                self._assert_mutation_allowed(
+                    user=user,
+                    method=method,
+                    path=path,
+                    catalog_method=catalog_method,
+                    payload=payload,
+                    return_value=return_value,
+                    expected_call_args=expected_call_args,
+                )
 
 
 class BffApiPublicEndpointsTests(TestCase):

@@ -72,7 +72,7 @@ class ReviewItemsAPI:
         """
         filters = filters or {}
         params = self._build_filter_params(filters)
-        data = self.client.get("/api/v1/review-items", params=params)
+        data = self.client.get("/review-items", params=params)
         return data.get("items", [])
 
     def list_review_items_page(self, filters: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -95,7 +95,7 @@ class ReviewItemsAPI:
         """
         filters = filters or {}
         params = self._build_filter_params(filters)
-        return self.client.get("/api/v1/review-items", params=params)
+        return self.client.get("/review-items", params=params)
 
     def get_review_item(self, item_id: int) -> dict[str, Any]:
         """
@@ -110,7 +110,7 @@ class ReviewItemsAPI:
         Raises:
             SyncServerAPIError: On API error or item not found
         """
-        return self.client.get(f"/api/v1/review-items/{item_id}")
+        return self.client.get(f"/review-items/{item_id}")
 
     def list_review_item_operations(self, item_id: int, filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """
@@ -125,7 +125,7 @@ class ReviewItemsAPI:
         """
         filters = filters or {}
         params = self._build_filter_params(filters)
-        return self.client.get(f"/api/v1/review-items/{item_id}/operations", params=params)
+        return self.client.get(f"/review-items/{item_id}/operations", params=params)
 
     def confirm_review_item(self, item_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         """
@@ -147,7 +147,7 @@ class ReviewItemsAPI:
         Raises:
             SyncServerAPIError: On validation error
         """
-        return self.client.post(f"/api/v1/review-items/{item_id}/confirm", json=payload)
+        return self.client.post(f"/review-items/{item_id}/confirm", json=payload)
 
     def merge_review_item(self, item_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         """
@@ -165,7 +165,7 @@ class ReviewItemsAPI:
         Raises:
             SyncServerAPIError: On validation/conflict error
         """
-        return self.client.post(f"/api/v1/review-items/{item_id}/merge", json=payload)
+        return self.client.post(f"/review-items/{item_id}/merge", json=payload)
 
     def delete_review_item(self, item_id: int) -> dict[str, Any]:
         """
@@ -180,7 +180,7 @@ class ReviewItemsAPI:
         Raises:
             SyncServerAPIError: On conflict (has balances/usage)
         """
-        return self.client.delete(f"/api/v1/review-items/{item_id}")
+        return self.client.delete(f"/review-items/{item_id}")
 
     @staticmethod
     def _build_filter_params(filters: dict[str, Any]) -> dict[str, str]:

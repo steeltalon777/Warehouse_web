@@ -36,14 +36,14 @@
             Каталог
         </a>
         {% if user|can_manage_catalog %}
-        <a href="{% url 'nomenclature:spa_home' %}" class="{% if namespace == 'nomenclature' and url_name == 'spa_home' %}sidebar-link-active{% endif %}">
+        <a href="{% url 'nomenclature:spa_home' %}" class="{% if '/nomenclature/' in path and '/nomenclature/ssr/' not in path %}sidebar-link-active{% endif %}">
             Номенклатура
         </a>
         {% endif %}
-        <details class="sidebar-details">
-            <summary class="sidebar-nested-title">SSR / Legacy</summary>
+        <details class="sidebar-details"{% if '/catalog/ssr/' in path or '/nomenclature/ssr/' in path %} open{% endif %}>
+            <summary class="sidebar-nested-title{% if '/catalog/ssr/' in path or '/nomenclature/ssr/' in path %} sidebar-link-active{% endif %}">SSR / Legacy fallback</summary>
             <div class="sidebar-nested-nav">
-                <a href="/catalog/ssr/" class="{% if '/catalog/ssr/' in path %}sidebar-link-active{% endif %}">Каталог SSR legacy</a>
+                <a href="/catalog/ssr/" class="{% if '/catalog/ssr/' in path %}sidebar-link-active{% endif %}">Каталог SSR legacy fallback</a>
                 {% if user|can_manage_catalog %}
                 <a href="{% url 'nomenclature:tree' %}" class="{% if url_name == 'tree' %}sidebar-link-active{% endif %}">Дерево SSR</a>
                 <a href="{% url 'nomenclature:item_list' %}" class="{% if url_name == 'item_list' %}sidebar-link-active{% endif %}">ТМЦ SSR</a>

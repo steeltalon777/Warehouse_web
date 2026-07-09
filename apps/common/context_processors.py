@@ -35,3 +35,14 @@ def sync_identity_context(request):
         "sync_role_label": None,
         "has_sync_identity": False,
     }
+
+
+def branding(request):
+    return {
+        "APP_PRODUCT_NAME": settings.APP_PRODUCT_NAME,
+        "APP_PRODUCT_VERSION": settings.APP_PRODUCT_VERSION,
+        "APP_PRODUCT_TAGLINE": settings.APP_PRODUCT_TAGLINE,
+        "APP_BRAND_LOGO": settings.APP_BRAND_LOGO,
+        "APP_BRAND_FAVICON": settings.APP_BRAND_FAVICON,
+        "APP_BRAND_PRIMARY_COLOR": settings.APP_BRAND_PRIMARY_COLOR,
+    }

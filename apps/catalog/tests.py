@@ -16,6 +16,7 @@ from apps.catalog_cache.services import CatalogCacheSyncStats
 from apps.common.templatetags.permission_tags import can_manage_catalog_filter
 from apps.sync_client.catalog_api import CatalogAPI
 from apps.sync_client.issue_objects_api import IssueObjectsAPI
+from apps.users.models import Role, SyncUserBinding
 
 
 class NomenclatureHomeViewTests(TestCase):
@@ -545,19 +546,33 @@ class NomenclatureSPAAuthTests(TestCase):
         # Django redirects to LOGIN_URL with ?next= appended
         self.assertIn("/login/", response["Location"])
 
-    def test_authenticated_user_gets_spa_shell(self) -> None:
-        """Authenticated GET /nomenclature/ returns 200 (SPA index.html served)."""
+    def test_non_manager_authenticated_user_is_redirected_to_catalog(self) -> None:
+        """Non-manager direct GET /nomenclature/ is safely redirected to readonly catalog."""
         user = get_user_model().objects.create_user(
             username="spa_user",
             password="secret123",
             is_active=True,
         )
+        SyncUserBinding.objects.create(user=user, sync_role=Role.OBSERVER)
         self.client.force_login(user)
 
         response = self.client.get(reverse("nomenclature:spa_home"))
 
-        # 200 if the Angular build dist exists, 404 if it does not — both
-        # are acceptable; the important thing is no redirect to login.
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/catalog/")
+
+    def test_catalog_manager_authenticated_user_gets_spa_shell(self) -> None:
+        """Chief/root users still receive the SPA shell on /nomenclature/."""
+        user = get_user_model().objects.create_user(
+            username="spa_manager",
+            password="secret123",
+            is_active=True,
+        )
+        SyncUserBinding.objects.create(user=user, sync_role=Role.CHIEF_STOREKEEPER)
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("nomenclature:spa_home"))
+
         self.assertIn(response.status_code, (200, 404))
 
 
