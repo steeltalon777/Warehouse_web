@@ -70,7 +70,16 @@ class RenderedDocumentResult:
 def render_document_pdf(document: dict[str, Any], *, force: bool = False) -> RenderedDocumentResult:
     """Render PDF through Django and cache in Django cache (not disk)."""
     identity = _cache_identity(document)
-    cache_key = f"{CACHE_KEY_PREFIX}{identity['document_id']}:{identity['payload_hash']}"
+    # rev. 6 (hotfix 09.07.2026): cache_key MUST include renderer_version.
+    # Without it, bumping DOCUMENT_RENDERER_VERSION does not invalidate the cache,
+    # and old waybills keep returning stale PDFs. Confirmed by storekeeper bug
+    # (operation 11673bc0-..., нажал "сформировать накладную", получил PDF v1).
+    # template_version included too so template changes also bust the cache.
+    cache_key = (
+        f"{CACHE_KEY_PREFIX}"
+        f"{identity['document_id']}:{identity['payload_hash']}"
+        f":{identity['renderer_version']}:{identity['template_version']}"
+    )
 
     # Check Django cache
     if not force:

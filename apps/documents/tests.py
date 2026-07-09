@@ -191,6 +191,55 @@ class DocumentPdfRendererTests(TestCase):
         self.assertEqual(artifact.status, RenderedDocumentArtifact.Status.READY)
         self.assertEqual(artifact.size_bytes, len(pdf_bytes))
 
+    def test_cache_invalidated_by_renderer_version_bump(self) -> None:
+        """rev. 6 hotfix (09.07.2026): cache_key MUST include renderer_version.
+        Otherwise bumping DOCUMENT_RENDERER_VERSION does not invalidate the
+        cache, and old waybills keep returning stale PDFs. Confirmed by
+        storekeeper bug: operation 11673bc0-... returned PDF v1 after v3 deploy.
+        """
+        from apps.documents.services import CACHE_KEY_PREFIX
+        pdf_v1 = b"%PDF-1.4\n% v1 pdf\n"
+        pdf_v2 = b"%PDF-1.4\n% v2 pdf\n"
+
+        # First render with default renderer version (v3 in base.py)
+        with patch("apps.documents.services._render_html_to_pdf_bytes", return_value=pdf_v1) as renderer:
+            first = render_document_pdf(_document())
+        self.assertFalse(first.cache_hit)
+        self.assertEqual(renderer.call_count, 1)
+
+        # Second render with same payload → cache hit (same renderer version)
+        with patch("apps.documents.services._render_html_to_pdf_bytes", return_value=pdf_v1) as renderer:
+            second = render_document_pdf(_document())
+        self.assertTrue(second.cache_hit)
+        self.assertEqual(renderer.call_count, 0)  # 0 calls in 2nd patch — cache hit, no re-render
+
+        # Third render with BUMPED renderer version → must re-render
+        with patch("apps.documents.services._render_html_to_pdf_bytes", return_value=pdf_v2) as renderer, \
+             override_settings(DOCUMENT_RENDERER_VERSION="waybill-pdf-v99-test"):
+            third = render_document_pdf(_document())
+        self.assertFalse(third.cache_hit, "cache_hit must be False when renderer_version changes")
+        self.assertEqual(third.pdf_bytes, pdf_v2)
+        self.assertEqual(renderer.call_count, 1, "renderer must be called again on renderer_version bump")
+
+    def test_cache_invalidated_by_template_version_change(self) -> None:
+        """rev. 6 hotfix: cache_key includes template_version too."""
+        from apps.documents.services import CACHE_KEY_PREFIX
+        pdf_v1 = b"%PDF-1.4\n% old template\n"
+        pdf_v2 = b"%PDF-1.4\n% new template\n"
+
+        with patch("apps.documents.services._render_html_to_pdf_bytes", return_value=pdf_v1) as renderer:
+            first = render_document_pdf(_document())
+        self.assertFalse(first.cache_hit)
+        self.assertEqual(renderer.call_count, 1)
+        # Mutate template_version in the document (simulates template bump)
+        doc = _document()
+        doc["template_version"] = "1.1"
+        with patch("apps.documents.services._render_html_to_pdf_bytes", return_value=pdf_v2) as renderer:
+            second = render_document_pdf(doc)
+        self.assertFalse(second.cache_hit, "template_version change must bust cache")
+        self.assertEqual(second.pdf_bytes, pdf_v2)
+        self.assertEqual(renderer.call_count, 1)  # 1 call in 2nd patch — cache miss, re-rendered
+
     # ------------------------------------------------------------------
     # TZ-V3.1I rev. 4 — plan B: exact-rows pagination
     # ------------------------------------------------------------------
