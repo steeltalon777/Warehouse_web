@@ -33,27 +33,33 @@ logger = structlog.get_logger()
 SIGNATURE_PLACEHOLDER = "_________________/__________________"
 DEFAULT_RENDERER_VERSION = "waybill-pdf-v3"
 
-# Waybill geometry constants (TZ-V3.1I rev. 5, plan B).
-# A4 portrait: 210x297mm, @page margin 16mm top + 14mm bottom -> 267mm inner height.
-# Exact-rows pagination: page budgets are computed in mm and converted to row counts
-# with `int(available // ROW_HEIGHT_MM)`. WeasyPrint respects the cap because the
-# template closes the page section after exactly N <tr> elements.
-A4_INNER_HEIGHT_MM = 267.0
-ROW_HEIGHT_MM = 8.5
-THEAD_HEIGHT_MM = 10.0
-SHORT_TITLE_HEIGHT_MM = 12.0
-# rev. 5: calibrated against real WeasyPrint rendering (08.07.2026).
-# Original 50mm underestimated: real full title (h1 16pt + 6mm margin +
-# 3 lines of requisites × 11pt × 1.4 + bottom margin) = 60mm. Confirmed by
-# storekeeper: page 1 holds 22 rows, not 23.
-FULL_TITLE_HEIGHT_MM = 60.0
-SIG_STOREKEEPER_MM = 6.0
-SIG_BLOCK_HEIGHT_MM = 14.0
-SIG_BLOCK_DRIVER_MM = 6.0
-
-# Legacy aliases kept for backward compatibility with rev. 2 imports/tests.
-SIGNATURE_BLOCK_HEIGHT_MM = 37.0
-SINGLE_ROW_SIGNATURE_HEIGHT_MM = 4.0
+# Content-aware waybill capacities (TZ-V3.1I rev. 7).
+# A unit is one visual item-name line. 22/28 are the calibrated first/middle
+# baseline capacities for a one-line name. Last-page capacities reserve its
+# full signature form and sheet counter, then leave one visual-row safety unit.
+NAME_CHARS_PER_VISUAL_LINE = 40
+FIRST_PAGE_UNITS = 22
+MIDDLE_PAGE_UNITS = 28
+LAST_PAGE_UNITS = {
+    # Real WeasyPrint calibration with the four-block MOVE form leaves 19
+    # units; 20 can already push the static signature/counter to page three.
+    "MOVE": 19,
+    "ISSUE": 25,
+    "ISSUE_RETURN": 25,
+    "EXPENSE": 25,
+    "WRITE_OFF": 25,
+    "DEFAULT": 26,
+}
+# A single page combines the full first-page header with the last-page form.
+# These values include the same one-unit safety reserve as LAST_PAGE_UNITS.
+SINGLE_PAGE_UNITS = {
+    "MOVE": 15,
+    "ISSUE": 19,
+    "ISSUE_RETURN": 19,
+    "EXPENSE": 19,
+    "WRITE_OFF": 19,
+    "DEFAULT": 21,
+}
 
 
 class DocumentPdfRenderError(RuntimeError):
@@ -235,37 +241,41 @@ def _build_extra_signatures(operation_type: str) -> list[dict[str, Any]]:
     return []
 
 
-def _max_rows_for_page(
-    *,
-    is_first: bool,
-    is_last: bool,
-    extra_signatures_count: int,
-    has_driver: bool,
-) -> int:
-    """Compute the exact row cap for a single page based on layout type.
+def _estimated_line_units(line: dict[str, Any]) -> int:
+    """Estimate visual item-name lines using conservative word wrapping."""
+    words = re.findall(r"\S+", _text(line.get("item_name")))
+    if not words:
+        return 1
 
-    Each page is rendered as a self-contained <section class="page"> with
-    a fixed amount of vertical overhead (title + thead + signature block).
-    The remainder is divided by ROW_HEIGHT_MM to give the row cap. The
-    template closes the page section after exactly this many <tr> elements,
-    so WeasyPrint cannot overflow into an orphan signature page.
-    """
-    if is_first:
-        overhead = FULL_TITLE_HEIGHT_MM + THEAD_HEIGHT_MM + SIG_STOREKEEPER_MM
-    else:
-        overhead = SHORT_TITLE_HEIGHT_MM + THEAD_HEIGHT_MM + SIG_STOREKEEPER_MM
-        if is_last:
-            # Last page replaces the short "Кладовщик: ____" with the full
-            # signature form: Кладовщик + (extra standard blocks) + optional driver.
-            overhead -= SIG_STOREKEEPER_MM
-            if has_driver:
-                # MOVE: Операцию разрешил + Водитель + Начальник базы + Груз принял
-                # 3 standard blocks + 1 driver block.
-                overhead += SIG_STOREKEEPER_MM + 3 * SIG_BLOCK_HEIGHT_MM + SIG_BLOCK_DRIVER_MM
+    visual_lines = 1
+    current_length = 0
+    for word in words:
+        # CSS may split an overlong SKU anywhere; model it as 40-character chunks.
+        chunks = [word[index:index + NAME_CHARS_PER_VISUAL_LINE]
+                  for index in range(0, len(word), NAME_CHARS_PER_VISUAL_LINE)]
+        for chunk in chunks:
+            chunk_length = len(chunk)
+            separator = 1 if current_length else 0
+            if current_length + separator + chunk_length <= NAME_CHARS_PER_VISUAL_LINE:
+                current_length += separator + chunk_length
             else:
-                overhead += SIG_STOREKEEPER_MM + extra_signatures_count * SIG_BLOCK_HEIGHT_MM
-    available = A4_INNER_HEIGHT_MM - overhead
-    return max(1, int(available // ROW_HEIGHT_MM))
+                visual_lines += 1
+                current_length = chunk_length
+    return visual_lines
+
+
+def _page_unit_capacity(*, layout: str, operation_type: str) -> int:
+    """Return the safe visual-row budget for a rendered page layout."""
+    op = (operation_type or "RECEIVE").upper()
+    if layout == "first":
+        return FIRST_PAGE_UNITS
+    if layout == "middle":
+        return MIDDLE_PAGE_UNITS
+    if layout == "last":
+        return LAST_PAGE_UNITS.get(op, LAST_PAGE_UNITS["DEFAULT"])
+    if layout == "single":
+        return SINGLE_PAGE_UNITS.get(op, SINGLE_PAGE_UNITS["DEFAULT"])
+    raise ValueError(f"Unknown waybill page layout: {layout}")
 
 
 def paginate_waybill_lines(
@@ -274,14 +284,12 @@ def paginate_waybill_lines(
     operation_type: str = "RECEIVE",
 ) -> list[dict[str, Any]]:
     """
-    Paginate waybill lines with EXACT row counts per page (TZ-V3.1I rev. 5, plan B).
+    Paginate waybill lines by visual row units (TZ-V3.1I rev. 7, plan B).
 
     Each page is rendered as a self-contained <section class="page"> with a
-    fixed amount of vertical overhead. The remainder is divided by
-    ROW_HEIGHT_MM to give the row cap, and the template closes the page
-    section after exactly that many <tr> elements. There is no flexbox
-    min-height pinning: the page section is sized by its content, and the
-    row cap prevents overflow into an orphan signature page.
+    fixed amount of vertical overhead. Item names consume one unit per
+    estimated visual line, preventing wrapped names from pushing signatures
+    onto an orphan physical page.
 
     Layout is selected per page:
         - "first"   → full title (Накладная + Грузоотправитель + Грузополучатель
@@ -295,35 +303,6 @@ def paginate_waybill_lines(
          "is_last": bool, "total_pages": int, "layout": "first"|"middle"|"last"}
     """
     op = (operation_type or "RECEIVE").upper()
-    has_driver = op == "MOVE"
-
-    if op == "MOVE":
-        extra_sigs = 3  # Операцию разрешил + Начальник базы + Груз принял
-    elif op in ("ISSUE", "ISSUE_RETURN", "EXPENSE"):
-        extra_sigs = 1
-    elif op == "WRITE_OFF":
-        extra_sigs = 1
-    else:  # RECEIVE, ADJUSTMENT, CORRECTION
-        extra_sigs = 0
-
-    first_max = _max_rows_for_page(
-        is_first=True,
-        is_last=False,
-        extra_signatures_count=extra_sigs,
-        has_driver=has_driver,
-    )
-    middle_max = _max_rows_for_page(
-        is_first=False,
-        is_last=False,
-        extra_signatures_count=0,
-        has_driver=False,
-    )
-    last_max = _max_rows_for_page(
-        is_first=False,
-        is_last=True,
-        extra_signatures_count=extra_sigs,
-        has_driver=has_driver,
-    )
 
     if not lines:
         return [{
@@ -335,10 +314,19 @@ def paginate_waybill_lines(
             "layout": "first",
         }]
 
-    total = len(lines)
+    line_units = [_estimated_line_units(line) for line in lines]
+    if len(lines) == 1 and line_units[0] > _page_unit_capacity(layout="single", operation_type=op):
+        raise DocumentPdfRenderError("Waybill line is too tall for the single-page layout.")
+    largest_line = max(line_units)
+    max_capacity = max(
+        _page_unit_capacity(layout=layout, operation_type=op)
+        for layout in ("first", "middle", "last", "single")
+    )
+    if largest_line > max_capacity:
+        raise DocumentPdfRenderError("Waybill line is too tall to fit on one page.")
 
-    # Single-page document: everything fits on the first layout.
-    if total <= first_max:
+    single_capacity = _page_unit_capacity(layout="single", operation_type=op)
+    if sum(line_units) <= single_capacity:
         return [{
             "page_number": 1,
             "lines": lines,
@@ -348,38 +336,44 @@ def paginate_waybill_lines(
             "layout": "first",
         }]
 
-    # Multi-page: first + zero or more FULL middle pages + last (sparse allowed).
-    # rev. 5: middle pages are always full (middle_max rows); only the last page
-    # may be sparse (1..middle_max-1 rows). When the remainder after full middles
-    # is 0, we absorb the last middle into the last page (which may slightly
-    # exceed last_max visually — acceptable for the rare edge case).
-    remaining_after_first = total - first_max
-    if remaining_after_first <= last_max:
-        pages_data = [
-            {"lines": lines[:first_max], "layout": "first"},
-            {"lines": lines[first_max:], "layout": "last"},
-        ]
-    else:
-        n_full_middle = remaining_after_first // middle_max
-        last_size = remaining_after_first - n_full_middle * middle_max
-        if last_size == 0:
-            n_full_middle -= 1
-            last_size = middle_max
+    def take_prefix(end: int, capacity: int) -> int:
+        used = 0
+        index = 0
+        while index < end and used + line_units[index] <= capacity:
+            used += line_units[index]
+            index += 1
+        return index
 
-        middles: list[dict[str, Any]] = []
-        i = first_max
-        for _ in range(n_full_middle):
-            middles.append({
-                "lines": lines[i:i + middle_max],
-                "layout": "middle",
-            })
-            i += middle_max
+    # Reserve the full last-page form first, while keeping at least one line
+    # for the required full-header first page. Sparse middle pages are safer
+    # than overflowing a last page and creating an orphan signature sheet.
+    last_start = len(lines)
+    last_used = 0
+    last_capacity = _page_unit_capacity(layout="last", operation_type=op)
+    while last_start > 1 and last_used + line_units[last_start - 1] <= last_capacity:
+        last_start -= 1
+        last_used += line_units[last_start]
+    if last_used == 0:
+        raise DocumentPdfRenderError("Waybill line is too tall for the last-page layout.")
 
-        pages_data = (
-            [{"lines": lines[:first_max], "layout": "first"}]
-            + middles
-            + [{"lines": lines[i:], "layout": "last"}]
-        )
+    first_end = take_prefix(last_start, _page_unit_capacity(layout="first", operation_type=op))
+    if first_end == 0:
+        raise DocumentPdfRenderError("Waybill line is too tall for the first-page layout.")
+
+    pages_data: list[dict[str, Any]] = [{"lines": lines[:first_end], "layout": "first"}]
+    middle_start = first_end
+    middle_capacity = _page_unit_capacity(layout="middle", operation_type=op)
+    while middle_start < last_start:
+        middle_end = middle_start
+        used = 0
+        while middle_end < last_start and used + line_units[middle_end] <= middle_capacity:
+            used += line_units[middle_end]
+            middle_end += 1
+        if middle_end == middle_start:
+            raise DocumentPdfRenderError("Waybill line is too tall for the middle-page layout.")
+        pages_data.append({"lines": lines[middle_start:middle_end], "layout": "middle"})
+        middle_start = middle_end
+    pages_data.append({"lines": lines[last_start:], "layout": "last"})
 
     total_pages = len(pages_data)
     result: list[dict[str, Any]] = []
