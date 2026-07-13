@@ -32,6 +32,11 @@ logger = structlog.get_logger()
 
 SIGNATURE_PLACEHOLDER = "_________________/__________________"
 DEFAULT_RENDERER_VERSION = "waybill-pdf-v3"
+# Cache namespace for the printable layout itself.  This must be bumped with
+# every incompatible HTML/CSS pagination layout change, even if deployment
+# settings still provide the same DOCUMENT_RENDERER_VERSION.  rev. 7 changed
+# pagination from logical-row counts to content-aware visual units.
+WAYBILL_LAYOUT_CACHE_VERSION = "layout-v7"
 
 # Content-aware waybill capacities (TZ-V3.1I rev. 7).
 # A unit is one visual item-name line. 22/28 are the calibrated first/middle
@@ -80,11 +85,13 @@ def render_document_pdf(document: dict[str, Any], *, force: bool = False) -> Ren
     # Without it, bumping DOCUMENT_RENDERER_VERSION does not invalidate the cache,
     # and old waybills keep returning stale PDFs. Confirmed by storekeeper bug
     # (operation 11673bc0-..., нажал "сформировать накладную", получил PDF v1).
-    # template_version included too so template changes also bust the cache.
+    # template_version and layout namespace are included too so template/CSS
+    # pagination changes also bust the cache.
     cache_key = (
         f"{CACHE_KEY_PREFIX}"
         f"{identity['document_id']}:{identity['payload_hash']}"
         f":{identity['renderer_version']}:{identity['template_version']}"
+        f":{WAYBILL_LAYOUT_CACHE_VERSION}"
     )
 
     # Check Django cache

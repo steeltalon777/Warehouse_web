@@ -241,6 +241,18 @@ class DocumentPdfRendererTests(TestCase):
         self.assertEqual(second.pdf_bytes, pdf_v2)
         self.assertEqual(renderer.call_count, 1)  # 1 call in 2nd patch — cache miss, re-rendered
 
+    def test_cache_key_contains_current_layout_namespace(self) -> None:
+        """rev. 7 content-aware layout must not reuse v5/v6 cached PDFs."""
+        from apps.documents.services import WAYBILL_LAYOUT_CACHE_VERSION, _cache_identity
+
+        identity = _cache_identity(_document())
+        cache_key = (
+            f"waybill_pdf:{identity['document_id']}:{identity['payload_hash']}"
+            f":{identity['renderer_version']}:{identity['template_version']}"
+            f":{WAYBILL_LAYOUT_CACHE_VERSION}"
+        )
+        self.assertTrue(cache_key.endswith(":layout-v7"))
+
     # ------------------------------------------------------------------
     # TZ-V3.1I rev. 7 — content-aware physical-row pagination
     # ------------------------------------------------------------------
