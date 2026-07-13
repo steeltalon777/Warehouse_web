@@ -36,7 +36,7 @@ DEFAULT_RENDERER_VERSION = "waybill-pdf-v3"
 # every incompatible HTML/CSS pagination layout change, even if deployment
 # settings still provide the same DOCUMENT_RENDERER_VERSION.  rev. 7 changed
 # pagination from logical-row counts to content-aware visual units.
-WAYBILL_LAYOUT_CACHE_VERSION = "layout-v7"
+WAYBILL_LAYOUT_CACHE_VERSION = "layout-v7.1"
 
 # Content-aware waybill capacities (TZ-V3.1I rev. 7).
 # A unit is one visual item-name line. 22/28 are the calibrated first/middle

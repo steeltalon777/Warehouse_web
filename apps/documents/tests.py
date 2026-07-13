@@ -251,7 +251,7 @@ class DocumentPdfRendererTests(TestCase):
             f":{identity['renderer_version']}:{identity['template_version']}"
             f":{WAYBILL_LAYOUT_CACHE_VERSION}"
         )
-        self.assertTrue(cache_key.endswith(":layout-v7"))
+        self.assertTrue(cache_key.endswith(":layout-v7.1"))
 
     # ------------------------------------------------------------------
     # TZ-V3.1I rev. 7 — content-aware physical-row pagination
