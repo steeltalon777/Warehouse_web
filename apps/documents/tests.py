@@ -288,9 +288,24 @@ class DocumentPdfRendererTests(TestCase):
         pages = paginate_waybill_lines(lines, operation_type="MOVE")
 
         self.assertEqual(len(pages), 2)
-        self.assertLess(len(pages[0]["lines"]), 22)
+        self.assertEqual(len(pages[0]["lines"]), 21)
+        self.assertEqual(len(pages[1]["lines"]), 1)
         self.assertEqual([line["line_number"] for page in pages for line in page["lines"]], list(range(1, 23)))
         self._assert_capacity_and_order(lines, "MOVE")
+
+    def test_first_page_packs_prefix_before_reserving_last(self) -> None:
+        lines = _short_lines(22)
+        lines[12]["item_name"] = "Насос центробежный многоступенчатый промышленный для чистой воды"
+        lines[21]["item_name"] = "Комплект монтажный соединительный усиленный для трубопровода"
+
+        pages = paginate_waybill_lines(lines, operation_type="RECEIVE")
+
+        self.assertEqual([len(page["lines"]) for page in pages], [21, 1])
+        self.assertEqual(
+            [line["line_number"] for page in pages for line in page["lines"]],
+            list(range(1, 23)),
+        )
+        self._assert_capacity_and_order(lines, "RECEIVE")
 
     def test_weasyprint_regression_pages_match_logical_pages(self) -> None:
         try:

@@ -351,21 +351,23 @@ def paginate_waybill_lines(
             index += 1
         return index
 
-    # Reserve the full last-page form first, while keeping at least one line
-    # for the required full-header first page. Sparse middle pages are safer
-    # than overflowing a last page and creating an orphan signature sheet.
+    # Fill the full-header first page before reserving the final form. Keep one
+    # line for the required last-page layout; otherwise a multi-page document
+    # could incorrectly turn into a first-page-only layout.
+    first_end = take_prefix(len(lines) - 1, _page_unit_capacity(layout="first", operation_type=op))
+    if first_end == 0:
+        raise DocumentPdfRenderError("Waybill line is too tall for the first-page layout.")
+
+    # Reserve the full last-page form only from the remaining tail. It must
+    # never consume a line already assigned to the first page.
     last_start = len(lines)
     last_used = 0
     last_capacity = _page_unit_capacity(layout="last", operation_type=op)
-    while last_start > 1 and last_used + line_units[last_start - 1] <= last_capacity:
+    while last_start > first_end and last_used + line_units[last_start - 1] <= last_capacity:
         last_start -= 1
         last_used += line_units[last_start]
     if last_used == 0:
         raise DocumentPdfRenderError("Waybill line is too tall for the last-page layout.")
-
-    first_end = take_prefix(last_start, _page_unit_capacity(layout="first", operation_type=op))
-    if first_end == 0:
-        raise DocumentPdfRenderError("Waybill line is too tall for the first-page layout.")
 
     pages_data: list[dict[str, Any]] = [{"lines": lines[:first_end], "layout": "first"}]
     middle_start = first_end
