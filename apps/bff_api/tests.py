@@ -756,6 +756,31 @@ class BffApiCatalogAdminPermissionTests(TestCase):
                     expected_call_args=expected_call_args,
                 )
 
+    def test_root_binding_non_superuser_returns_403(self) -> None:
+        """Non-superuser with binding role 'root' gets 403 on admin endpoints."""
+        root_binding_user = get_user_model().objects.create_user(
+            username="root_binding_user",
+            password="pass12345",
+            is_superuser=False,
+            is_staff=False,
+            is_active=True,
+        )
+        SyncUserBinding.objects.create(user=root_binding_user, sync_role=Role.ROOT)
+
+        self.client.force_login(root_binding_user)
+        with patch("apps.bff_api.catalog_views._catalog") as catalog:
+            response = self.client.post(
+                "/bff/api/v1/catalog/admin/items",
+                data=json.dumps({"name": "Should fail"}),
+                content_type="application/json",
+            )
+
+        catalog.assert_not_called()
+        self.assertEqual(response.status_code, 403)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "forbidden")
+
     def test_admin_unit_detail_mutations_non_manager_return_403(self) -> None:
         self._assert_mutation_forbidden(
             method="patch",
@@ -1138,7 +1163,11 @@ class BffApiOperationsInlineItemTests(TestCase):
         with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
             response = self.client.post(
                 "/bff/api/v1/operations",
-                data=json.dumps({"type": "receipt", "lines": []}),
+                data=json.dumps({
+                    "type": "receipt",
+                    "lines": [],
+                    "client_request_id": "550e8400-e29b-41d4-a716-446655440000",
+                }),
                 content_type="application/json",
             )
 
@@ -1197,7 +1226,10 @@ class BffApiOperationsInlineItemTests(TestCase):
         with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
             response = self.client.post(
                 "/bff/api/v1/operations",
-                data=json.dumps({"lines": [{"temporary_item": {"name": "Test"}}]}),
+                data=json.dumps({
+                    "lines": [{"temporary_item": {"name": "Test"}}],
+                    "client_request_id": "550e8400-e29b-41d4-a716-446655440000",
+                }),
                 content_type="application/json",
             )
 

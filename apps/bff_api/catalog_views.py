@@ -16,7 +16,13 @@ from apps.bff_api.helpers import (
     _require_chief_or_root,
 )
 from apps.catalog_cache.services import CatalogCacheSyncService, CatalogLookupService
+from apps.catalog_cache.write_through import (
+    apply_category_write_through,
+    apply_item_write_through,
+    apply_unit_write_through,
+)
 from apps.catalog.services import CatalogService
+from apps.bff_api.catalog_resolver import resolve_items
 from apps.sync_client.balances_api import BalancesAPI
 from apps.sync_client.catalog_api import CatalogAPI
 from apps.sync_client.client import SyncServerClient
@@ -27,6 +33,34 @@ logger = structlog.get_logger()
 
 def _catalog(request):
     return CatalogAPI(_build_client(request))
+
+
+def _fetch_unit_symbol(api: CatalogAPI, unit_id: str | int) -> str | None:
+    """Best-effort fetch of unit symbol before update for write-through rename detection."""
+    try:
+        data = api.get_unit(unit_id)
+    except Exception:
+        logger.warning("catalog_cache_unit_lookup_failed", unit_id=unit_id, exc_info=True)
+        return None
+    if isinstance(data, dict):
+        symbol = data.get("symbol")
+        if symbol:
+            return str(symbol)
+    return None
+
+
+def _fetch_category_name(api: CatalogAPI, category_id: str | int) -> str | None:
+    """Best-effort fetch of category name before update for write-through rename detection."""
+    try:
+        data = api.get_category(category_id)
+    except Exception:
+        logger.warning("catalog_cache_category_lookup_failed", category_id=category_id, exc_info=True)
+        return None
+    if isinstance(data, dict):
+        name = data.get("name")
+        if name:
+            return str(name)
+    return None
 
 
 # ── Primary Read (cursor-based, sync-optimized) ───────────────
@@ -258,7 +292,18 @@ class AdminUnitDetailView(LoginRequiredMixin, View):
         try:
             api = _catalog(request)
             payload = json.loads(request.body) if request.body else {}
+            previous_symbol = _fetch_unit_symbol(api, unit_id)
             data = api.update_unit(unit_id, payload)
+            try:
+                apply_unit_write_through(
+                    service=CatalogCacheSyncService(),
+                    response=data or {},
+                    operation="update",
+                    previous_symbol=previous_symbol,
+                    target_unit_id=unit_id,
+                )
+            except Exception:
+                logger.warning("catalog_cache_unit_write_through_failed", unit_id=unit_id, exc_info=True)
             return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
@@ -271,6 +316,15 @@ class AdminUnitDetailView(LoginRequiredMixin, View):
         try:
             api = _catalog(request)
             api.delete_unit(unit_id)
+            try:
+                apply_unit_write_through(
+                    service=CatalogCacheSyncService(),
+                    response={"id": unit_id},
+                    operation="delete",
+                    target_unit_id=unit_id,
+                )
+            except Exception:
+                logger.warning("catalog_cache_unit_invalidated_failed", unit_id=unit_id, exc_info=True)
             return _ok({"deleted": True})
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
@@ -341,7 +395,22 @@ class AdminCategoryDetailView(LoginRequiredMixin, View):
         try:
             api = _catalog(request)
             payload = json.loads(request.body) if request.body else {}
+            previous_name = _fetch_category_name(api, category_id)
             data = api.update_category(category_id, payload)
+            try:
+                apply_category_write_through(
+                    service=CatalogCacheSyncService(),
+                    response=data or {},
+                    operation="update",
+                    previous_name=previous_name,
+                    target_category_id=category_id,
+                )
+            except Exception:
+                logger.warning(
+                    "catalog_cache_category_write_through_failed",
+                    category_id=category_id,
+                    exc_info=True,
+                )
             return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
@@ -354,6 +423,19 @@ class AdminCategoryDetailView(LoginRequiredMixin, View):
         try:
             api = _catalog(request)
             api.delete_category(category_id)
+            try:
+                apply_category_write_through(
+                    service=CatalogCacheSyncService(),
+                    response={"id": category_id},
+                    operation="delete",
+                    target_category_id=category_id,
+                )
+            except Exception:
+                logger.warning(
+                    "catalog_cache_category_invalidated_failed",
+                    category_id=category_id,
+                    exc_info=True,
+                )
             return _ok({"deleted": True})
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
@@ -383,8 +465,19 @@ class AdminItemsListView(LoginRequiredMixin, View):
             return _error("Access denied", "forbidden", 403)
         try:
             api = _catalog(request)
+            client = _build_client(request)
             payload = json.loads(request.body) if request.body else {}
             data = api.create_item(payload)
+            try:
+                apply_item_write_through(
+                    service=CatalogCacheSyncService(client=client),
+                    client=client,
+                    response=data or {},
+                    operation="create",
+                    target_item_id=(data or {}).get("id") if isinstance(data, dict) else None,
+                )
+            except Exception:
+                logger.warning("catalog_cache_item_write_through_failed", exc_info=True)
             return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
@@ -408,8 +501,24 @@ class AdminItemDetailView(LoginRequiredMixin, View):
             return _error("Access denied", "forbidden", 403)
         try:
             api = _catalog(request)
+            client = _build_client(request)
             payload = json.loads(request.body) if request.body else {}
             data = api.update_item(item_id, payload)
+            try:
+                is_deactivate = isinstance(payload, dict) and payload.get("is_active") is False
+                apply_item_write_through(
+                    service=CatalogCacheSyncService(client=client),
+                    client=client,
+                    response=data or {},
+                    operation="deactivate" if is_deactivate else "update",
+                    target_item_id=item_id,
+                )
+            except Exception:
+                logger.warning(
+                    "catalog_cache_item_write_through_failed",
+                    item_id=item_id,
+                    exc_info=True,
+                )
             return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
@@ -422,6 +531,19 @@ class AdminItemDetailView(LoginRequiredMixin, View):
         try:
             api = _catalog(request)
             api.delete_item(item_id)
+            try:
+                apply_item_write_through(
+                    service=CatalogCacheSyncService(),
+                    response={"id": item_id},
+                    operation="delete",
+                    target_item_id=item_id,
+                )
+            except Exception:
+                logger.warning(
+                    "catalog_cache_item_delete_failed",
+                    item_id=item_id,
+                    exc_info=True,
+                )
             return _ok({"deleted": True})
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
@@ -461,9 +583,27 @@ class CatalogCachedItemSearchView(LoginRequiredMixin, View):
         except (TypeError, ValueError):
             limit = 20
 
+        consistency = (request.GET.get("consistency") or "fast").lower().strip()
+        if consistency not in {"fast", "authoritative"}:
+            consistency = "fast"
+
         source_site_id = request.GET.get("source_site_id") or ""
         include_balance = request.GET.get("include_balance", "").lower() in ("true", "1")
 
+        if consistency == "authoritative":
+            # TZ C4: authoritative MUST reach SyncServer; never silently degrade to cache.
+            try:
+                remote_items = self._search_remote_items(request, query, limit=limit)
+            except SyncServerAPIError as exc:
+                return _handle_sync_error(exc)
+            if remote_items:
+                self._warm_catalog_cache(request, remote_items)
+            results = self._enrich_with_balances(
+                request, remote_items, source_site_id,
+            ) if include_balance and source_site_id else remote_items
+            return _ok({"results": results, "consistency": consistency, "source": "remote"})
+
+        # Default fast mode: cache-first, remote fallback, warm.
         try:
             cached_items = self._search_local_cache(query, limit=limit)
         except DatabaseError:
@@ -472,7 +612,7 @@ class CatalogCachedItemSearchView(LoginRequiredMixin, View):
 
         if len(cached_items) >= limit:
             results = self._enrich_with_balances(request, cached_items, source_site_id) if include_balance and source_site_id else cached_items
-            return _ok({"results": results})
+            return _ok({"results": results, "consistency": consistency, "source": "cache"})
 
         try:
             remote_items = self._search_remote_items(request, query, limit=limit)
@@ -486,7 +626,7 @@ class CatalogCachedItemSearchView(LoginRequiredMixin, View):
         merged = self._merge_items(cached_items, remote_items, limit=limit)
         if include_balance and source_site_id:
             merged = self._enrich_with_balances(request, merged, source_site_id)
-        return _ok({"results": merged})
+        return _ok({"results": merged, "consistency": consistency, "source": "merged"})
 
     def _search_local_cache(self, query: str, *, limit: int) -> list[dict[str, Any]]:
         lookup = CatalogLookupService()
@@ -669,6 +809,41 @@ class CatalogCachedCategorySearchView(LoginRequiredMixin, View):
         return _ok({"results": results})
 
 
+class CatalogItemsResolveView(LoginRequiredMixin, View):
+    """BFF resolver endpoint (TZ §4.3 / C4).
+
+    POST /bff/api/v1/catalog/read/items/resolve — body: ``{"item_ids": [...]}``.
+
+    Forwards to the authoritative SyncServer resolver using the caller's
+    SyncServer identity; browsers never see SyncServer tokens.
+    """
+
+    def post(self, request):
+        try:
+            payload = json.loads(request.body) if request.body else {}
+        except json.JSONDecodeError:
+            return _error("Invalid JSON body", "validation_error", 400)
+
+        item_ids = payload.get("item_ids") if isinstance(payload, dict) else None
+        if not isinstance(item_ids, list) or not item_ids:
+            return _error("item_ids list required", "validation_error", 400)
+
+        # Cap request size defensively; SyncServer will perform its own sanity check.
+        if len(item_ids) > 500:
+            return _error(
+                "Too many item_ids in one resolve request (limit 500).",
+                "validation_error",
+                400,
+            )
+
+        client = _build_client(request)
+        try:
+            results = resolve_items(client, item_ids)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
+        return _ok({"results": results})
+
+
 # ── Admin Merge ─────────────────────────────────────────────────────
 
 
@@ -678,8 +853,24 @@ class AdminItemMergeView(LoginRequiredMixin, View):
             return _error("Access denied", "forbidden", 403)
         try:
             payload = json.loads(request.body)
-            api = CatalogAPI(_build_client(request))
+            client = _build_client(request)
+            api = CatalogAPI(client)
             data = api.merge_items(payload)
+            target_id = (data or {}).get("target_id") or (data or {}).get("id")
+            source_ids = []
+            if isinstance(data, dict):
+                source_ids = list(data.get("merged_source_ids") or [])
+            try:
+                apply_item_write_through(
+                    service=CatalogCacheSyncService(),
+                    client=client,
+                    response=data or {},
+                    operation="merge",
+                    target_item_id=target_id,
+                    source_item_ids=source_ids,
+                )
+            except Exception:
+                logger.warning("catalog_cache_item_merge_write_through_failed", exc_info=True)
             return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
@@ -693,6 +884,20 @@ class AdminCategoryMergeView(LoginRequiredMixin, View):
             payload = json.loads(request.body)
             api = CatalogAPI(_build_client(request))
             data = api.merge_categories(payload)
+            target_id = (data or {}).get("target_id") or (data or {}).get("id")
+            source_ids = []
+            if isinstance(data, dict):
+                source_ids = list(data.get("merged_source_ids") or [])
+            try:
+                apply_category_write_through(
+                    service=CatalogCacheSyncService(),
+                    response=data or {},
+                    operation="merge",
+                    target_category_id=target_id,
+                    source_category_ids=source_ids,
+                )
+            except Exception:
+                logger.warning("catalog_cache_category_merge_write_through_failed", exc_info=True)
             return _ok(data)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)

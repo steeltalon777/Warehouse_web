@@ -42,10 +42,21 @@ class Command(BaseCommand):
         service = CatalogCacheSyncService()
         stats = service.sync_items(page_size=page_size, max_pages=max_pages)
 
-        self.stdout.write(
-            self.style.SUCCESS(
-                "Catalog cache sync completed: "
-                f"pages={stats.pages}, fetched={stats.fetched}, upserted={stats.upserted}, "
-                f"skipped={stats.skipped}, total_count={stats.total_count}"
+        if stats.complete:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    "Catalog cache sync completed: "
+                    f"pages={stats.pages}, fetched={stats.fetched}, upserted={stats.upserted}, "
+                    f"deactivated={stats.deactivated}, skipped={stats.skipped}, "
+                    f"total_count={stats.total_count}, duration_ms={stats.duration_ms}"
+                )
             )
-        )
+        else:
+            self.stdout.write(
+                self.style.WARNING(
+                    "Catalog cache sync INCOMPLETE: "
+                    f"pages={stats.pages}, fetched={stats.fetched}, "
+                    f"reason={stats.aborted_reason or 'unknown'}, "
+                    f"duration_ms={stats.duration_ms}. No rows deactivated."
+                )
+            )

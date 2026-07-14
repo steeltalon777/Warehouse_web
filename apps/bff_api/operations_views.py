@@ -1,6 +1,11 @@
 import json
+import re
+import uuid
+
+import structlog
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import JsonResponse
 from django.views import View
 
 from apps.bff_api.helpers import (
@@ -15,12 +20,37 @@ from apps.bff_api.operations_enricher import (
     _get_user_labels,
     enrich_operation,
 )
-from apps.sync_client.exceptions import SyncServerAPIError
+from apps.sync_client.exceptions import (
+    SyncBackendUnavailable,
+    SyncServerAPIError,
+)
 from apps.sync_client.operations_api import OperationsAPI
+
+logger = structlog.get_logger()
+
+# Warehouse 3.2 client signals we require ``expected_version`` / ``client_request_id``.
+# Legacy prefixes (e.g. ``legacy-``, ``dev-``) are still acceptable for rollout
+# compatibility but UUIDs are the preferred shape.
+CLIENT_VERSION_HEADER = "X-Warehouse-Client"
+NEW_CLIENT_VERSION = "3.2"
+CLIENT_REQUEST_ID_MAX_LENGTH = 100
+UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 def _ops(request):
     return OperationsAPI(_build_client(request))
+
+
+def _is_new_client(request) -> bool:
+    """True when the caller is the Warehouse 3.2 web client (or Angular SPA).
+
+    The header is set by the Angular shell. Legacy callers without the header
+    keep the permissive behaviour for the duration of the rollout.
+    """
+    version = (request.META.get("HTTP_X_WAREHOUSE_CLIENT") or "").strip()
+    return version.startswith(NEW_CLIENT_VERSION)
 
 
 def _enrich_list(request, data):
@@ -40,6 +70,93 @@ def _enrich_detail(request, operation):
     sites_index = _get_sites_index(request)
     user_labels = _get_user_labels(request, {operation.get("created_by_user_id")})
     return enrich_operation(operation, sites_index, user_labels)
+
+
+def _current_request_id(request) -> str:
+    """Best-effort X-Request-Id retrieval — used when mapping write timeouts."""
+    return (request.META.get("HTTP_X_REQUEST_ID") or "").strip()
+
+
+def _operation_outcome_unknown(exc: SyncBackendUnavailable, request) -> JsonResponse:
+    """Translate write-timeout / connection failures into the distinct
+    ``operation_outcome_unknown`` envelope so Angular can show retry-safe UI
+    without pretending the operation succeeded.
+    """
+    payload = exc.payload if isinstance(exc.payload, dict) else {}
+    body: dict = {
+        "code": "operation_outcome_unknown",
+        "message": str(exc) or "Operation outcome is unknown after a write timeout.",
+        "retry_safe": True,
+    }
+    request_id = _current_request_id(request)
+    if request_id:
+        body["request_id"] = request_id
+    elif payload.get("request_id"):
+        body["request_id"] = payload["request_id"]
+    return JsonResponse({"ok": False, "error": body}, status=504)
+
+
+def _validate_client_request_id(payload: dict, *, request) -> JsonResponse | None:
+    """Enforce TZ C5 contract: create operations MUST carry a non-empty
+    client_request_id (≤ 100 chars). UUIDs and prefixed legacy keys are
+    accepted.
+    """
+    raw = payload.get("client_request_id") if isinstance(payload, dict) else None
+    if not raw or not isinstance(raw, str):
+        return _error(
+            "client_request_id is required and must be a non-empty string.",
+            "validation_error",
+            400,
+        )
+    value = raw.strip()
+    if not value:
+        return _error(
+            "client_request_id is required and must be a non-empty string.",
+            "validation_error",
+            400,
+        )
+    if len(value) > CLIENT_REQUEST_ID_MAX_LENGTH:
+        return _error(
+            f"client_request_id must be <= {CLIENT_REQUEST_ID_MAX_LENGTH} chars.",
+            "validation_error",
+            400,
+        )
+    # BFF only enforces non-empty + length. Stricter format constraints
+    # (UUID preferred for Angular 3.2, legacy- / dev- prefixes accepted for
+    # rollout compatibility) are the client's responsibility and validated
+    # server-side by SyncServer.
+    return None
+
+
+def _validate_expected_version(payload: dict, *, request) -> JsonResponse | None:
+    """Enforce TZ C5 contract: Warehouse 3.2 PATCH / submit must include
+    ``expected_version``. Legacy callers without the X-Warehouse-Client header
+    are permitted to omit it for backward compatibility during rollout.
+    """
+    if not _is_new_client(request):
+        return None
+    raw = payload.get("expected_version") if isinstance(payload, dict) else None
+    if raw is None:
+        return _error(
+            "expected_version is required for Warehouse 3.2 clients.",
+            "validation_error",
+            400,
+        )
+    try:
+        version = int(raw)
+    except (TypeError, ValueError):
+        return _error(
+            "expected_version must be an integer.",
+            "validation_error",
+            400,
+        )
+    if version < 1:
+        return _error(
+            "expected_version must be a positive integer.",
+            "validation_error",
+            400,
+        )
+    return None
 
 
 class OperationsListView(LoginRequiredMixin, View):
@@ -75,14 +192,25 @@ class OperationsListView(LoginRequiredMixin, View):
         if not _require_storekeeper(request.user):
             return _error("Access denied", "forbidden", 403)
         try:
-            api = _ops(request)
             payload = json.loads(request.body) if request.body else {}
-            data = api.create_operation(payload)
-            return _ok(data)
-        except SyncServerAPIError as exc:
-            return _handle_sync_error(exc)
         except json.JSONDecodeError:
             return _error("Invalid JSON body", "validation_error", 400)
+
+        if not isinstance(payload, dict):
+            return _error("JSON object body required", "validation_error", 400)
+
+        id_error = _validate_client_request_id(payload, request=request)
+        if id_error is not None:
+            return id_error
+
+        try:
+            api = _ops(request)
+            data = api.create_operation(payload)
+            return _ok(data)
+        except SyncBackendUnavailable as exc:
+            return _operation_outcome_unknown(exc, request)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
 
 
 class OperationDetailView(LoginRequiredMixin, View):
@@ -93,6 +221,8 @@ class OperationDetailView(LoginRequiredMixin, View):
             api = _ops(request)
             api.delete_operation(operation_id)
             return _ok({"deleted": True})
+        except SyncBackendUnavailable as exc:
+            return _operation_outcome_unknown(exc, request)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
 
@@ -108,14 +238,25 @@ class OperationDetailView(LoginRequiredMixin, View):
         if not _require_storekeeper(request.user):
             return _error("Access denied", "forbidden", 403)
         try:
-            api = _ops(request)
             payload = json.loads(request.body) if request.body else {}
-            data = api.update_operation(operation_id, payload)
-            return _ok(data)
-        except SyncServerAPIError as exc:
-            return _handle_sync_error(exc)
         except json.JSONDecodeError:
             return _error("Invalid JSON body", "validation_error", 400)
+
+        if not isinstance(payload, dict):
+            return _error("JSON object body required", "validation_error", 400)
+
+        version_error = _validate_expected_version(payload, request=request)
+        if version_error is not None:
+            return version_error
+
+        try:
+            api = _ops(request)
+            data = api.update_operation(operation_id, payload)
+            return _ok(data)
+        except SyncBackendUnavailable as exc:
+            return _operation_outcome_unknown(exc, request)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
 
 
 class OperationEffectiveAtView(LoginRequiredMixin, View):
@@ -123,17 +264,20 @@ class OperationEffectiveAtView(LoginRequiredMixin, View):
         if not _require_storekeeper(request.user):
             return _error("Access denied", "forbidden", 403)
         try:
-            api = _ops(request)
             payload = json.loads(request.body) if request.body else {}
+        except json.JSONDecodeError:
+            return _error("Invalid JSON body", "validation_error", 400)
+        try:
+            api = _ops(request)
             data = api.client.patch(
                 f"/operations/{operation_id}/effective-at",
                 json=payload,
             )
             return _ok(data)
+        except SyncBackendUnavailable as exc:
+            return _operation_outcome_unknown(exc, request)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
-        except json.JSONDecodeError:
-            return _error("Invalid JSON body", "validation_error", 400)
 
 
 class OperationSubmitView(LoginRequiredMixin, View):
@@ -141,14 +285,24 @@ class OperationSubmitView(LoginRequiredMixin, View):
         if not _require_storekeeper(request.user):
             return _error("Access denied", "forbidden", 403)
         try:
-            api = _ops(request)
             payload = json.loads(request.body) if request.body else {"submit": True}
-            data = api.submit_operation(operation_id, payload=payload)
-            return _ok(data)
-        except SyncServerAPIError as exc:
-            return _handle_sync_error(exc)
         except json.JSONDecodeError:
             return _error("Invalid JSON body", "validation_error", 400)
+
+        if not isinstance(payload, dict):
+            payload = {"submit": True}
+
+        if _is_new_client(request) and "expected_version" not in payload:
+            payload = {**payload, "expected_version": payload.get("expected_version")}
+
+        try:
+            api = _ops(request)
+            data = api.submit_operation(operation_id, payload=payload)
+            return _ok(data)
+        except SyncBackendUnavailable as exc:
+            return _operation_outcome_unknown(exc, request)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
 
 
 class OperationCancelView(LoginRequiredMixin, View):
@@ -156,14 +310,19 @@ class OperationCancelView(LoginRequiredMixin, View):
         if not _require_storekeeper(request.user):
             return _error("Access denied", "forbidden", 403)
         try:
-            api = _ops(request)
             payload = json.loads(request.body) if request.body else {"cancel": True}
-            data = api.cancel_operation(operation_id, payload=payload)
-            return _ok(data)
-        except SyncServerAPIError as exc:
-            return _handle_sync_error(exc)
         except json.JSONDecodeError:
             return _error("Invalid JSON body", "validation_error", 400)
+        if not isinstance(payload, dict):
+            payload = {"cancel": True}
+        try:
+            api = _ops(request)
+            data = api.cancel_operation(operation_id, payload=payload)
+            return _ok(data)
+        except SyncBackendUnavailable as exc:
+            return _operation_outcome_unknown(exc, request)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
 
 
 class OperationRestoreView(LoginRequiredMixin, View):
@@ -174,6 +333,8 @@ class OperationRestoreView(LoginRequiredMixin, View):
             api = _ops(request)
             data = api.restore_operation(operation_id)
             return _ok(data)
+        except SyncBackendUnavailable as exc:
+            return _operation_outcome_unknown(exc, request)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
 
@@ -183,11 +344,16 @@ class OperationAcceptLinesView(LoginRequiredMixin, View):
         if not _require_storekeeper(request.user):
             return _error("Access denied", "forbidden", 403)
         try:
-            api = _ops(request)
             payload = json.loads(request.body) if request.body else {}
-            data = api.accept_operation_lines(operation_id, payload)
-            return _ok(data)
-        except SyncServerAPIError as exc:
-            return _handle_sync_error(exc)
         except json.JSONDecodeError:
             return _error("Invalid JSON body", "validation_error", 400)
+        if not isinstance(payload, dict):
+            payload = {}
+        try:
+            api = _ops(request)
+            data = api.accept_operation_lines(operation_id, payload)
+            return _ok(data)
+        except SyncBackendUnavailable as exc:
+            return _operation_outcome_unknown(exc, request)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)

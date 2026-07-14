@@ -410,11 +410,24 @@ class CatalogCacheSyncView(CatalogManageAccessMixin, View):
         except Exception:
             messages.error(request, "Не удалось синхронизировать кэш номенклатуры.")
         else:
-            messages.success(
-                request,
-                "Кэш поиска операций обновлён: "
-                f"страниц {stats.pages}, загружено {stats.fetched}, сохранено {stats.upserted}.",
-            )
+            duration_seconds = round(stats.duration_ms / 1000.0, 2)
+            if stats.complete and not stats.aborted_reason:
+                messages.success(
+                    request,
+                    "Кэш поиска ТМЦ пересобран: "
+                    f"загружено {stats.fetched}, сохранено {stats.upserted}, "
+                    f"деактивировано {stats.deactivated}, "
+                    f"пропущено {stats.skipped}, "
+                    f"длительность {duration_seconds} с.",
+                )
+            else:
+                messages.warning(
+                    request,
+                    "Пересборка кэша поиска ТМЦ не завершилась: "
+                    f"загружено {stats.fetched}, сохранено {stats.upserted}, "
+                    f"причина: {stats.aborted_reason or 'unknown'}. "
+                    "Деактивация не выполняется, пока сканирование не завершится без ошибок.",
+                )
 
         return redirect(next_url)
 

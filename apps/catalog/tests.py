@@ -63,7 +63,7 @@ class NomenclatureTreeViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Дерево номенклатуры")
-        self.assertContains(response, "Обновить кэш поиска операций")
+        self.assertContains(response, "Пересобрать кэш поиска ТМЦ")
 
     @patch("apps.catalog.views.can_manage_catalog", return_value=True)
     @patch("apps.catalog.views.can_use_client", return_value=True)

@@ -61,6 +61,7 @@ catalog_read_patterns = [
     path("catalog/read/categories/<str:category_id>/items", catalog_views.BrowseCategoryItemsView.as_view(), name="catalog_read_category_items"),
     path("catalog/read/categories/<str:category_id>/children", catalog_views.BrowseCategoryChildrenView.as_view(), name="catalog_read_category_children"),
     path("catalog/read/categories/<str:category_id>/parent-chain", catalog_views.BrowseCategoryParentChainView.as_view(), name="catalog_read_category_parent_chain"),
+    path("catalog/read/items/resolve", catalog_views.CatalogItemsResolveView.as_view(), name="catalog_read_items_resolve"),
     # Cached search endpoints (cache-first, fallback, warm)
     path("catalog/search/items", catalog_views.CatalogCachedItemSearchView.as_view(), name="catalog_search_items"),
     path("catalog/search/categories", catalog_views.CatalogCachedCategorySearchView.as_view(), name="catalog_search_categories"),

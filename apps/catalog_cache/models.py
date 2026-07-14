@@ -10,6 +10,7 @@ class CatalogCacheItem(models.Model):
     search_text = models.TextField(blank=True, null=True)
     category_id = models.CharField(max_length=64, blank=True, null=True)
     category_name = models.CharField(max_length=255, blank=True, null=True)
+    unit_id = models.CharField(max_length=64, blank=True, null=True)
     unit_symbol = models.CharField(max_length=64, blank=True, null=True)
     is_active = models.BooleanField(default=True)
     hashtags = models.JSONField(null=True, blank=True)
@@ -22,6 +23,7 @@ class CatalogCacheItem(models.Model):
         indexes = [
             models.Index(fields=["sku"], name="catalog_cache_sku_idx"),
             models.Index(fields=["category_id"], name="catalog_cache_category_idx"),
+            models.Index(fields=["unit_id"], name="catalog_cache_unit_idx"),
             models.Index(fields=["is_active"], name="catalog_cache_active_idx"),
         ]
 

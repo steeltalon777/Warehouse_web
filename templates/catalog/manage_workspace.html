@@ -34,10 +34,10 @@
                         <p class="catalog-page-note">Второстепенные операции, не мешающие основному сценарию работы.</p>
                     </div>
                 </div>
-                <form method="post" action="{% url 'nomenclature:cache_sync' %}" data-loading-form data-loading-scope="page" data-loading-overlay-text="Синхронизация кэша номенклатуры...">
+                <form method="post" action="{% url 'nomenclature:cache_sync' %}" data-loading-form data-loading-scope="page" data-loading-overlay-text="Пересборка кэша поиска ТМЦ...">
                     {% csrf_token %}
                     <input type="hidden" name="next" value="{{ cache_sync_next_url }}">
-                    <button type="submit" class="btn btn-secondary" data-loading-text="Синхронизация...">Обновить кэш поиска операций</button>
+                    <button type="submit" class="btn btn-secondary" data-loading-text="Пересборка кэша...">Пересобрать кэш поиска ТМЦ</button>
                 </form>
                 <p class="workspace-service-note">Используйте после массовой загрузки ТМЦ, чтобы ускорить поиск в операциях.</p>
             </div>

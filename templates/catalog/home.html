@@ -10,12 +10,12 @@
         </div>
     </div>
 
-    <form method="post" action="{% url 'nomenclature:cache_sync' %}" class="catalog-actions" data-loading-form data-loading-scope="page" data-loading-overlay-text="Синхронизация кэша номенклатуры...">
+    <form method="post" action="{% url 'nomenclature:cache_sync' %}" class="catalog-actions" data-loading-form data-loading-scope="page" data-loading-overlay-text="Пересборка кэша поиска ТМЦ...">
         {% csrf_token %}
         <input type="hidden" name="next" value="{{ cache_sync_next_url }}">
-        <button type="submit" class="btn btn-secondary" data-loading-text="Синхронизация...">Обновить кэш поиска операций</button>
+        <button type="submit" class="btn btn-secondary" data-loading-text="Пересборка кэша...">Пересобрать кэш поиска ТМЦ</button>
     </form>
-    <p class="catalog-page-note">Используйте синхронизацию после массовой загрузки ТМЦ, чтобы быстрее обновить локальный кэш поиска операций.</p>
+    <p class="catalog-page-note">Используйте пересборку после массовой загрузки ТМЦ, чтобы быстрее обновить локальный кэш поиска.</p>
 
     <div class="card">
         <div class="workspace-panel-head">
