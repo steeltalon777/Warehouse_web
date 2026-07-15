@@ -241,6 +241,66 @@ class OperationCreatePayloadQuantityTests(SimpleTestCase):
                 operate_site_ids={1},
             )
 
+    def test_create_payload_catalog_with_explicit_client_request_id_keeps_it(self) -> None:
+        # §6.2.2: catalog-only operation — Angular's `client_request_id` must
+        # always be forwarded as-is, even when there are no temporary lines.
+        payload = _build_create_payload(
+            {
+                "operation_type": "RECEIVE",
+                "site_id": 1,
+                "client_request_id": "bff-pass-through-c1",
+                "items": [
+                    {
+                        "kind": "catalog",
+                        "item_id": 10,
+                        "quantity": "2.000",
+                    }
+                ],
+            },
+            operate_site_ids={1},
+        )
+
+        self.assertEqual(payload.get("client_request_id"), "bff-pass-through-c1")
+
+    def test_create_payload_catalog_without_client_request_id_stays_empty(self) -> None:
+        # §11.2 back-compat: for catalog-only operations the BFF must NOT
+        # auto-generate a fallback key — SyncServer stays optional.
+        payload = _build_create_payload(
+            {
+                "operation_type": "RECEIVE",
+                "site_id": 1,
+                "items": [
+                    {
+                        "kind": "catalog",
+                        "item_id": 10,
+                        "quantity": "2.000",
+                    }
+                ],
+            },
+            operate_site_ids={1},
+        )
+
+        self.assertNotIn("client_request_id", payload)
+
+    def test_create_payload_strips_whitespace_client_request_id(self) -> None:
+        payload = _build_create_payload(
+            {
+                "operation_type": "RECEIVE",
+                "site_id": 1,
+                "client_request_id": "   trim-me-uu  id   ",
+                "items": [
+                    {
+                        "kind": "catalog",
+                        "item_id": 10,
+                        "quantity": "2.000",
+                    }
+                ],
+            },
+            operate_site_ids={1},
+        )
+
+        self.assertEqual(payload.get("client_request_id"), "trim-me-uu  id")
+
 
 class OperationPageServiceSiteNormalizationTests(SimpleTestCase):
     def test_normalize_sites_adds_id_alias(self) -> None:

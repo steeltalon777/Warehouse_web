@@ -17,6 +17,7 @@ from .exceptions import (
     SyncServerInternalError,
     SyncValidationError,
 )
+from .redaction import sanitize_payload
 from .token_resolver import get_device_token
 from .transport import execute_with_retry, get_sync_client
 
@@ -71,10 +72,11 @@ class SyncServerRootAdminClient:
 
     def _raise_for_response(self, response: httpx.Response, *, method: str, path: str) -> None:
         payload = self._extract_payload(response)
-        message = str(payload.get("detail") or "SyncServer error")
+        sanitized = sanitize_payload(payload)
+        message = str(sanitized.get("detail") or "SyncServer error")
         kwargs = {
             "status_code": response.status_code,
-            "payload": payload,
+            "payload": sanitized,
             "method": method,
             "path": path,
         }

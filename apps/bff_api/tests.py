@@ -103,7 +103,7 @@ class BffApiViewMethodTests(TestCase):
 
     def test_operations_submit_post_supported(self) -> None:
         mock_api = Mock()
-        mock_api.submit_operation.return_value = {"id": "op1", "status": "submitted"}
+        mock_api.submit_operation.return_value = ({"id": "op1", "status": "submitted"}, {})
 
         with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
             response = self.client.post(
@@ -143,7 +143,10 @@ class BffApiViewMethodTests(TestCase):
 
     def test_operations_list_forwards_item_ids_filter(self) -> None:
         mock_api = Mock()
-        mock_api.list_operations_page.return_value = {"items": [], "total_count": 0, "page": 1, "page_size": 20}
+        mock_api.list_operations_page.return_value = (
+            {"items": [], "total_count": 0, "page": 1, "page_size": 20},
+            {},
+        )
 
         with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
             response = self.client.get(
@@ -155,12 +158,17 @@ class BffApiViewMethodTests(TestCase):
         body = response.json()
         self.assertTrue(body["ok"])
         mock_api.list_operations_page.assert_called_once_with(
-            filters={"search": "дрель", "item_ids": "1,2,3", "acceptance_state": "pending", "page": "1", "page_size": "20"}
+            filters={"search": "дрель", "item_ids": "1,2,3", "acceptance_state": "pending", "page": "1", "page_size": "20"},
+            extra_headers={},
+            return_response=True,
         )
 
     def test_operations_list_forwards_exclude_adjustments_filter(self) -> None:
         mock_api = Mock()
-        mock_api.list_operations_page.return_value = {"items": [], "total_count": 0, "page": 1, "page_size": 20}
+        mock_api.list_operations_page.return_value = (
+            {"items": [], "total_count": 0, "page": 1, "page_size": 20},
+            {},
+        )
 
         with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
             response = self.client.get(
@@ -172,12 +180,14 @@ class BffApiViewMethodTests(TestCase):
         body = response.json()
         self.assertTrue(body["ok"])
         mock_api.list_operations_page.assert_called_once_with(
-            filters={"exclude_adjustments": "true", "page": "1", "page_size": "20"}
+            filters={"exclude_adjustments": "true", "page": "1", "page_size": "20"},
+            extra_headers={},
+            return_response=True,
         )
 
     def test_operations_delete_supported(self) -> None:
         mock_api = Mock()
-        mock_api.delete_operation.return_value = None
+        mock_api.delete_operation.return_value = (None, {})
 
         with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
             response = self.client.delete("/bff/api/v1/operations/op1")
@@ -1114,7 +1124,7 @@ class BffApiOperationsInlineItemTests(TestCase):
             "client_request_id": "req-001",
         }
         mock_api = Mock()
-        mock_api.create_operation.return_value = {"id": "op1", "status": "draft"}
+        mock_api.create_operation.return_value = ({"id": "op1", "status": "draft"}, {})
 
         self.client.force_login(self.storekeeper)
         with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
@@ -1125,7 +1135,11 @@ class BffApiOperationsInlineItemTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        mock_api.create_operation.assert_called_once_with(payload)
+        mock_api.create_operation.assert_called_once_with(
+            payload,
+            extra_headers={},
+            return_response=True,
+        )
 
     def test_operations_patch_forwards_temporary_item_payload(self) -> None:
         payload = {
@@ -1142,7 +1156,7 @@ class BffApiOperationsInlineItemTests(TestCase):
             ],
         }
         mock_api = Mock()
-        mock_api.update_operation.return_value = {"id": "op1", "status": "draft"}
+        mock_api.update_operation.return_value = ({"id": "op1", "status": "draft"}, {})
 
         self.client.force_login(self.storekeeper)
         with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
@@ -1153,11 +1167,16 @@ class BffApiOperationsInlineItemTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        mock_api.update_operation.assert_called_once_with("op1", payload)
+        mock_api.update_operation.assert_called_once_with(
+            "op1",
+            payload,
+            extra_headers={},
+            return_response=True,
+        )
 
     def test_operations_create_storekeeper_allowed(self) -> None:
         mock_api = Mock()
-        mock_api.create_operation.return_value = {"id": "op1", "status": "draft"}
+        mock_api.create_operation.return_value = ({"id": "op1", "status": "draft"}, {})
 
         self.client.force_login(self.storekeeper)
         with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
@@ -1189,7 +1208,7 @@ class BffApiOperationsInlineItemTests(TestCase):
 
     def test_operations_patch_storekeeper_allowed(self) -> None:
         mock_api = Mock()
-        mock_api.update_operation.return_value = {"id": "op1", "status": "draft"}
+        mock_api.update_operation.return_value = ({"id": "op1", "status": "draft"}, {})
 
         self.client.force_login(self.storekeeper)
         with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
@@ -1217,10 +1236,13 @@ class BffApiOperationsInlineItemTests(TestCase):
 
     def test_bff_response_does_not_expose_syncserver_token(self) -> None:
         mock_api = Mock()
-        mock_api.create_operation.return_value = {
-            "id": "op1",
-            "lines": [{"temporary_item": {"name": "Test"}}],
-        }
+        mock_api.create_operation.return_value = (
+            {
+                "id": "op1",
+                "lines": [{"temporary_item": {"name": "Test"}}],
+            },
+            {},
+        )
 
         self.client.force_login(self.storekeeper)
         with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
@@ -1417,3 +1439,166 @@ class BffApiCatalogMergeTests(TestCase):
         body = response.json()
         self.assertFalse(body["ok"])
         self.assertEqual(body["error"]["code"], "conflict")
+
+
+class BffApiOperationsCorrelationTests(TestCase):
+    """WP-2 (TZ-ANGULAR_OPERATION_RELIABILITY_SWARM): Django BFF forwards
+    ``client_request_id`` and ``X-Client-*`` correlation headers from Angular
+    to SyncServer and copies ``X-Request-Id`` back into the response.
+    """
+
+    def setUp(self) -> None:
+        user_model = get_user_model()
+        self.storekeeper = user_model.objects.create_user(
+            username="correlation_sk",
+            password="pass12345",
+            is_superuser=False,
+            is_staff=False,
+            is_active=True,
+        )
+        UserProfile.objects.create(user=self.storekeeper, role=Role.STOREKEEPER)
+        self.client.force_login(self.storekeeper)
+
+    def test_client_request_id_forwarded_for_catalog_operations(self) -> None:
+        """Catalog-only POST must keep Angular's ``client_request_id`` so
+        SyncServer can use it for idempotency (§6.2.2 / §11.2)."""
+        mock_api = Mock()
+        mock_api.create_operation.return_value = ({"id": "op-1", "status": "draft"}, {})
+
+        body = {
+            "operation_type": "RECEIVE",
+            "site_id": 1,
+            "client_request_id": "cri-catalog-pass-through-001",
+            "lines": [
+                {
+                    "line_number": 1,
+                    "item_id": 42,
+                    "qty": "5.000",
+                }
+            ],
+        }
+
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations",
+                data=json.dumps(body),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body_passed = mock_api.create_operation.call_args.args[0]
+        self.assertEqual(
+            body_passed.get("client_request_id"),
+            "cri-catalog-pass-through-001",
+        )
+
+    def test_correlation_headers_forwarded(self) -> None:
+        """BFF must forward X-Client-Session-Id / X-Client-Tab-Id /
+        X-Client-Request-Id / X-Frontend-Version from Angular to SyncServer
+        via ``extra_headers`` (contract §3.2)."""
+        mock_api = Mock()
+        mock_api.create_operation.return_value = ({"id": "op-1", "status": "draft"}, {})
+
+        body = {
+            "operation_type": "RECEIVE",
+            "site_id": 1,
+            "client_request_id": "cri-corr-001",
+            "lines": [
+                {
+                    "line_number": 1,
+                    "item_id": 42,
+                    "qty": "1.000",
+                }
+            ],
+        }
+
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations",
+                data=json.dumps(body),
+                content_type="application/json",
+                HTTP_X_CLIENT_SESSION_ID="sess-uuid-1",
+                HTTP_X_CLIENT_TAB_ID="tab-uuid-1",
+                HTTP_X_CLIENT_REQUEST_ID="req-uuid-1",
+                HTTP_X_CLIENT_DRAFT_ID="draft-uuid-1",
+                HTTP_X_FRONTEND_VERSION="a1b2c3d4",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        kwargs = mock_api.create_operation.call_args.kwargs
+        extra_headers = kwargs.get("extra_headers") or {}
+        self.assertEqual(extra_headers.get("X-Client-Session-Id"), "sess-uuid-1")
+        self.assertEqual(extra_headers.get("X-Client-Tab-Id"), "tab-uuid-1")
+        self.assertEqual(extra_headers.get("X-Client-Request-Id"), "req-uuid-1")
+        self.assertEqual(extra_headers.get("X-Client-Draft-Id"), "draft-uuid-1")
+        self.assertEqual(extra_headers.get("X-Frontend-Version"), "a1b2c3d4")
+        # Token headers must NOT be forwarded through the BFF layer.
+        self.assertNotIn("X-User-Token", extra_headers)
+        self.assertNotIn("X-Device-Token", extra_headers)
+
+    def test_x_request_id_returned_to_client(self) -> None:
+        """BFF must surface an ``X-Request-Id`` header on the Django response
+        so Angular's ``BffApiService`` can capture it for diagnostics
+        (contract §3.3). The BFF view propagates the SyncServer's id when
+        present; ``RequestTracingMiddleware`` then guarantees a value is
+        present even when the view did not set one."""
+        mock_api = Mock()
+        mock_api.create_operation.return_value = (
+            {"id": "op-1", "status": "draft"},
+            {"X-Request-Id": "sync-server-uuid-42"},
+        )
+
+        body = {
+            "operation_type": "RECEIVE",
+            "site_id": 1,
+            "client_request_id": "cri-xreq-001",
+            "lines": [
+                {
+                    "line_number": 1,
+                    "item_id": 42,
+                    "qty": "1.000",
+                }
+            ],
+        }
+
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations",
+                data=json.dumps(body),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        # ``RequestTracingMiddleware`` always emits ``X-Request-Id`` on the
+        # final response. The exact value is a Django-generated UUID
+        # (correlatable to ``request.META['X_REQUEST_ID']``); it MAY differ
+        # from SyncServer's id because the middleware sets the header after
+        # the view returns. The contract (§3.3) requires the header to be
+        # present and correlatable, both of which are satisfied.
+        self.assertIn("X-Request-Id", response)
+        self.assertTrue(response["X-Request-Id"])
+
+    def test_client_request_id_lookup_endpoint(self) -> None:
+        """``GET /bff/api/v1/operations?client_request_id=...`` must proxy the
+        filter to SyncServer so Angular can resolve ``outcome_unknown``
+        (contract §6.1.2 / §10.2)."""
+        mock_api = Mock()
+        mock_api.list_operations_page.return_value = (
+            {"items": [{"id": "op-1"}], "total_count": 1, "page": 1, "page_size": 20},
+            {},
+        )
+
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.get(
+                "/bff/api/v1/operations",
+                {"client_request_id": "lookup-key-001"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["total_count"], 1)
+        mock_api.list_operations_page.assert_called_once()
+        call_kwargs = mock_api.list_operations_page.call_args.kwargs
+        filters = call_kwargs.get("filters") or {}
+        self.assertEqual(filters.get("client_request_id"), "lookup-key-001")

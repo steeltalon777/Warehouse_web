@@ -8,10 +8,19 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
+from apps.sync_client.exceptions import SyncServerAPIError
 from apps.sync_client.root_admin_client import SyncServerRootAdminClient
 from apps.users.models import Role, Site, SyncDeviceBinding, SyncStatus, SyncUserBinding
 
 User = get_user_model()
+
+
+def _sanitized_payload(payload: dict) -> dict:
+    from apps.sync_client.redaction import sanitize_payload
+
+    if not payload:
+        return payload
+    return sanitize_payload(payload)
 
 
 ROLE_SCOPE_MAP: dict[str, dict[str, bool]] = {
@@ -124,7 +133,63 @@ class UserSyncService:
         binding.sync_status = SyncStatus.SYNCED
         binding.last_sync_error = ""
         binding.last_sync_at = timezone.now()
-        binding.last_sync_payload = prepared.sync_state_response or prepared.sync_user_response
+        binding.last_sync_payload = _sanitized_payload(
+            prepared.sync_state_response or prepared.sync_user_response
+        )
+        binding.save()
+        return binding
+
+    def sync_user_to_remote(
+        self,
+        *,
+        user: User,
+        binding: SyncUserBinding,
+        full_name: str,
+        role: str,
+        site_ids: list[str],
+        default_site_id: str,
+    ) -> SyncUserBinding:
+        """Full remote sync after local commit. Idempotent — uses stable UUID."""
+        sync_id = binding.syncserver_user_id
+        if not sync_id:
+            raise ValueError("Binding has no SyncServer user ID for sync.")
+
+        sync_user_payload = {
+            "id": str(sync_id),
+            "username": user.username,
+            "email": user.email,
+            "full_name": full_name,
+            "is_active": user.is_active,
+            "is_root": False,
+            "role": role,
+            "default_site_id": self._normalize_site_id(default_site_id),
+        }
+        sync_user_response = self.client.post("/auth/sync-user", json=sync_user_payload)
+
+        scopes_payload = {"scopes": self.build_scopes(role, site_ids)}
+        self.client.put(f"/admin/users/{sync_id}/scopes", json=scopes_payload)
+
+        sync_state_response = self.client.get(f"/admin/users/{sync_id}/sync-state")
+
+        remote_user = sync_state_response.get("user") or sync_user_response.get("user") or {}
+        scopes = sync_state_response.get("scopes", [])
+
+        if not remote_user.get("user_token"):
+            raise SyncServerAPIError(
+                "SyncServer response missing user_token",
+                status_code=200,
+                payload=sync_state_response,
+            )
+
+        binding.syncserver_user_id = sync_id
+        binding.sync_user_token = str(remote_user.get("user_token", binding.sync_user_token or ""))
+        binding.sync_role = role
+        binding.default_site_id = str(remote_user.get("default_site_id", default_site_id))
+        binding.site_ids = [str(scope.get("site_id")) for scope in scopes] or site_ids
+        binding.sync_status = SyncStatus.SYNCED
+        binding.last_sync_error = ""
+        binding.last_sync_at = timezone.now()
+        binding.last_sync_payload = _sanitized_payload(sync_state_response)
         binding.save()
         return binding
 
@@ -167,7 +232,7 @@ class UserSyncService:
         binding.sync_status = SyncStatus.SYNCED
         binding.last_sync_error = ""
         binding.last_sync_at = timezone.now()
-        binding.last_sync_payload = sync_state
+        binding.last_sync_payload = _sanitized_payload(sync_state)
         binding.save()
         return binding
 
@@ -183,7 +248,7 @@ class UserSyncService:
         binding.last_sync_error = str(error)
         binding.last_sync_at = timezone.now()
         if payload is not None:
-            binding.last_sync_payload = payload
+            binding.last_sync_payload = _sanitized_payload(payload)
         binding.save(update_fields=[
             "sync_status",
             "last_sync_error",
@@ -199,7 +264,7 @@ class UserSyncService:
         binding.last_sync_error = ""
         binding.last_sync_at = timezone.now()
         binding.token_rotated_at = timezone.now()
-        binding.last_sync_payload = rotate_response
+        binding.last_sync_payload = _sanitized_payload(rotate_response)
         binding.save(update_fields=[
             "sync_user_token",
             "sync_status",
@@ -227,19 +292,42 @@ class SiteSyncService:
         response = self.client.get("/admin/sites", params={"page": 1, "page_size": 200})
         return response.get("sites", []) if isinstance(response, dict) else []
 
-    def refresh_local_cache(self) -> None:
-        remote_sites = self.list_sites()
-        seen_ids: set[str] = set()
+    def refresh_local_cache(self) -> int:
+        """Full paginated site snapshot from SyncServer.
 
-        for remote_site in remote_sites:
-            mirror = self._upsert_local_mirror(remote_site)
-            seen_ids.add(mirror.syncserver_site_id)
+        Fetches all pages up to total_count with page_size 200.
+        Validates entire snapshot BEFORE any local writes.
+        Does NOT prune sites that exist locally but not in remote response.
+        Returns number of upserted sites.
+        """
+        all_remote_sites: list[dict[str, Any]] = []
+        page = 1
+        page_size = 200
+        total_count = 0
 
-        if seen_ids:
-            Site.objects.exclude(syncserver_site_id__in=seen_ids).delete()
-            return
+        first_response = self.client.get("/admin/sites", params={"page": page, "page_size": page_size})
+        if isinstance(first_response, dict):
+            sites_page = first_response.get("sites", [])
+            total_count = first_response.get("total_count", 0)
+            all_remote_sites.extend(sites_page)
 
-        Site.objects.all().delete()
+        while len(all_remote_sites) < total_count:
+            page += 1
+            page_response = self.client.get("/admin/sites", params={"page": page, "page_size": page_size})
+            if isinstance(page_response, dict):
+                all_remote_sites.extend(page_response.get("sites", []))
+
+        for remote_site in all_remote_sites:
+            site_id = remote_site.get("site_id") or remote_site.get("id")
+            if not site_id:
+                raise ValueError(f"Remote site missing site_id: {remote_site.get('code', 'unknown')}")
+
+        count = 0
+        for remote_site in all_remote_sites:
+            self._upsert_local_mirror(remote_site)
+            count += 1
+
+        return count
 
     def create_site(self, payload: dict[str, Any]) -> Site:
         remote_site = self.client.post("/admin/sites", json=payload)
@@ -256,8 +344,6 @@ class SiteSyncService:
 
         code = str(remote_site.get("code") or "").strip()
         name = str(remote_site.get("name") or "").strip()
-        Site.objects.exclude(syncserver_site_id=syncserver_site_id).filter(code=code).delete()
-        Site.objects.exclude(syncserver_site_id=syncserver_site_id).filter(name=name).delete()
 
         defaults = {
             "code": code,
@@ -327,7 +413,7 @@ class DeviceSyncService:
         binding.sync_status = SyncStatus.SYNCED
         binding.last_sync_error = ""
         binding.last_sync_at = timezone.now()
-        binding.last_sync_payload = payload or remote_device
+        binding.last_sync_payload = _sanitized_payload(payload or remote_device)
         remote_last_seen = remote_device.get("last_seen_at")
         if remote_last_seen is not None:
             binding.last_seen_at = remote_last_seen
@@ -356,6 +442,25 @@ class DeviceSyncService:
         )
         return self.apply_remote_state(binding=binding, remote_device=remote, payload=remote)
 
+    def ensure_device_remote(
+        self,
+        *,
+        binding: SyncDeviceBinding,
+    ) -> SyncDeviceBinding:
+        """Idempotent device ensure using PUT by-code."""
+        remote = self.client.put(
+            f"/admin/devices/by-code/{binding.device_code}",
+            json={
+                "device_name": binding.device_name,
+                "site_id": None,
+                "is_active": binding.is_active,
+            },
+        )
+        self.apply_remote_state(binding=binding, remote_device=remote, payload=remote)
+        binding.sync_device_token = str(remote.get("device_token", binding.sync_device_token or ""))
+        binding.save(update_fields=["sync_device_token", "updated_at"])
+        return binding
+
     def repair_binding_from_remote(self, *, binding: SyncDeviceBinding) -> SyncDeviceBinding:
         if not binding.syncserver_device_id:
             raise ValueError("Binding has no SyncServer device id for repair.")
@@ -368,7 +473,7 @@ class DeviceSyncService:
         binding.last_sync_error = ""
         binding.last_sync_at = timezone.now()
         binding.token_rotated_at = timezone.now()
-        binding.last_sync_payload = rotate_response
+        binding.last_sync_payload = _sanitized_payload(rotate_response)
         binding.save(
             update_fields=[
                 "sync_device_token",
@@ -476,7 +581,7 @@ class DeviceSyncService:
         binding.last_sync_error = str(error)
         binding.last_sync_at = timezone.now()
         if payload is not None:
-            binding.last_sync_payload = payload
+            binding.last_sync_payload = _sanitized_payload(payload)
         binding.save(
             update_fields=[
                 "sync_status",

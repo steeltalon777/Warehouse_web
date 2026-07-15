@@ -26,6 +26,8 @@ from typing import Any, Optional
 import httpx
 from django.conf import settings
 
+from apps.sync_client.redaction import sanitize_error_body
+
 logger = structlog.get_logger()
 
 
@@ -188,12 +190,13 @@ class SyncClient:
     
     def _log_error(self, method: str, path: str, status_code: int, response_text: str) -> None:
         """Log failed request details."""
+        sanitized = sanitize_error_body(response_text)
         logger.error(
             "sync_request_failed",
             method=method,
             path=path,
             status_code=status_code,
-            response=response_text[:500],
+            response=sanitized[:500],
         )
     
     def _request(

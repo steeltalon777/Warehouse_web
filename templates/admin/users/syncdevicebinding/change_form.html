@@ -4,19 +4,20 @@
 {{ block.super }}
 {% if original and original.syncserver_device_id %}
 <li>
-    <form method="post" action="../sync/" style="display:inline;">
+    {# require_POST guard on server side — GET/HEAD → 405 #}
+    <form method="post" action="{% url 'admin:users_syncdevicebinding_sync' original.pk %}" style="display:inline;">
         {% csrf_token %}
         <button type="submit" class="button">Синхронизировать</button>
     </form>
 </li>
 <li>
-    <form method="post" action="../repair/" style="display:inline;" onsubmit="return confirm('Восстановить локальную карточку устройства по данным SyncServer?');">
+    <form method="post" action="{% url 'admin:users_syncdevicebinding_repair' original.pk %}" style="display:inline;" onsubmit="return confirm('Восстановить локальную карточку устройства по данным SyncServer?');">
         {% csrf_token %}
         <button type="submit" class="button">Восстановить из SyncServer</button>
     </form>
 </li>
 <li>
-    <form method="post" action="../rotate-token/" style="display:inline;" onsubmit="return confirm('Перегенерировать токен устройства? Старый токен станет невалидным.');">
+    <form method="post" action="{% url 'admin:users_syncdevicebinding_rotate_token' original.pk %}" style="display:inline;" onsubmit="return confirm('Перегенерировать токен устройства? Старый токен станет невалидным.');">
         {% csrf_token %}
         <button type="submit" class="button">Сбросить и перегенерировать токен</button>
     </form>

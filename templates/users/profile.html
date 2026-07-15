@@ -6,6 +6,9 @@
     {% if success %}
         <div class="alert alert-success">Данные сохранены.</div>
     {% endif %}
+    {% if sync_warning %}
+        <div class="alert alert-warning">{{ sync_warning }}</div>
+    {% endif %}
     <form method="post">
         {% csrf_token %}
         {{ form.as_p }}

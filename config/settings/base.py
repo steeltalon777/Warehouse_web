@@ -236,6 +236,11 @@ APP_BRAND_FAVICON = os.environ.get("APP_BRAND_FAVICON", "img/favicon.ico")
 APP_BRAND_PRIMARY_COLOR = os.environ.get("APP_BRAND_PRIMARY_COLOR", "#1a365d")
 
 # -------------------------------------------------------------------
+# Admin security audit thresholds
+# -------------------------------------------------------------------
+ADMIN_SYNC_PENDING_MAX_AGE_SECONDS = int(os.getenv("ADMIN_SYNC_PENDING_MAX_AGE_SECONDS", "300"))
+
+# -------------------------------------------------------------------
 # Structured logging (structlog)
 # -------------------------------------------------------------------
 from config.settings.logging_config import LOGGING  # noqa: E402

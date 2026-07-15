@@ -77,6 +77,48 @@ def _current_request_id(request) -> str:
     return (request.META.get("HTTP_X_REQUEST_ID") or "").strip()
 
 
+# Headers that the SPA / Angular shell sends per
+# `docs/contracts/OPERATION_RELIABILITY_CONTRACTS.md` §3.2 and that the BFF
+# must forward to SyncServer for log correlation. Token headers are explicitly
+# NOT in this list — Django resolution happens in ``SyncServerClient``.
+CLIENT_CORRELATION_HEADERS = (
+    "X-Client-Session-Id",
+    "X-Client-Tab-Id",
+    "X-Client-Request-Id",
+    "X-Client-Draft-Id",
+    "X-Frontend-Version",
+)
+
+
+def _collect_correlation_headers(request) -> dict[str, str]:
+    """Read browser-supplied correlation headers from ``request.headers`` and
+    return only the non-empty ones, so the BFF can forward them downstream.
+    """
+    collected: dict[str, str] = {}
+    for header in CLIENT_CORRELATION_HEADERS:
+        value = request.headers.get(header)
+        if value is None:
+            continue
+        text = value.strip() if isinstance(value, str) else str(value).strip()
+        if text:
+            collected[header] = text
+    return collected
+
+
+def _apply_sync_request_id(response: JsonResponse, sync_headers: dict[str, str], request) -> JsonResponse:
+    """Prefer ``X-Request-Id`` from SyncServer's response headers (it carries
+    the SyncServer's server-side correlation id); fall back to the per-request
+    id from ``RequestTracingMiddleware`` that already lives in
+    ``request.META['X_REQUEST_ID']``. ``RequestTracingMiddleware`` already sets
+    this header on every response, so this is best-effort: when SyncServer
+    returned one, we surface it; otherwise the middleware default survives.
+    """
+    sync_request_id = sync_headers.get("X-Request-Id") or sync_headers.get("x-request-id")
+    if sync_request_id:
+        response["X-Request-Id"] = sync_request_id
+    return response
+
+
 def _operation_outcome_unknown(exc: SyncBackendUnavailable, request) -> JsonResponse:
     """Translate write-timeout / connection failures into the distinct
     ``operation_outcome_unknown`` envelope so Angular can show retry-safe UI
@@ -170,7 +212,8 @@ class OperationsListView(LoginRequiredMixin, View):
                 "effective_after", "effective_before",
                 "created_after", "created_before",
                 "updated_after", "updated_before",
-                "search", "item_ids", "page", "page_size", "exclude_adjustments",
+                "search", "item_ids", "page", "page_size",
+                "exclude_adjustments", "client_request_id",
             ):
                 val = request.GET.get(key)
                 if val is not None:
@@ -183,8 +226,14 @@ class OperationsListView(LoginRequiredMixin, View):
                     params["created_by_user_id"] = str(sync_id)
                 else:
                     del params["created_by_user_id"]
-            data = api.list_operations_page(filters=params)
-            return _ok(_enrich_list(request, data))
+            extra_headers = _collect_correlation_headers(request)
+            data, sync_headers = api.list_operations_page(
+                filters=params,
+                extra_headers=extra_headers,
+                return_response=True,
+            )
+            response = _ok(_enrich_list(request, data))
+            return _apply_sync_request_id(response, sync_headers, request)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
 
@@ -203,10 +252,17 @@ class OperationsListView(LoginRequiredMixin, View):
         if id_error is not None:
             return id_error
 
+        extra_headers = _collect_correlation_headers(request)
+
         try:
             api = _ops(request)
-            data = api.create_operation(payload)
-            return _ok(data)
+            data, sync_headers = api.create_operation(
+                payload,
+                extra_headers=extra_headers,
+                return_response=True,
+            )
+            response = _ok(data)
+            return _apply_sync_request_id(response, sync_headers, request)
         except SyncBackendUnavailable as exc:
             return _operation_outcome_unknown(exc, request)
         except SyncServerAPIError as exc:
@@ -217,10 +273,16 @@ class OperationDetailView(LoginRequiredMixin, View):
     def delete(self, request, operation_id):
         if not _require_storekeeper(request.user):
             return _error("Access denied", "forbidden", 403)
+        extra_headers = _collect_correlation_headers(request)
         try:
             api = _ops(request)
-            api.delete_operation(operation_id)
-            return _ok({"deleted": True})
+            _, sync_headers = api.delete_operation(
+                operation_id,
+                extra_headers=extra_headers,
+                return_response=True,
+            )
+            response = _ok({"deleted": True})
+            return _apply_sync_request_id(response, sync_headers, request)
         except SyncBackendUnavailable as exc:
             return _operation_outcome_unknown(exc, request)
         except SyncServerAPIError as exc:
@@ -229,8 +291,14 @@ class OperationDetailView(LoginRequiredMixin, View):
     def get(self, request, operation_id):
         try:
             api = _ops(request)
-            data = api.get_operation(operation_id)
-            return _ok(_enrich_detail(request, data))
+            extra_headers = _collect_correlation_headers(request)
+            data, sync_headers = api.get_operation(
+                operation_id,
+                extra_headers=extra_headers,
+                return_response=True,
+            )
+            response = _ok(_enrich_detail(request, data))
+            return _apply_sync_request_id(response, sync_headers, request)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
 
@@ -249,10 +317,17 @@ class OperationDetailView(LoginRequiredMixin, View):
         if version_error is not None:
             return version_error
 
+        extra_headers = _collect_correlation_headers(request)
         try:
             api = _ops(request)
-            data = api.update_operation(operation_id, payload)
-            return _ok(data)
+            data, sync_headers = api.update_operation(
+                operation_id,
+                payload,
+                extra_headers=extra_headers,
+                return_response=True,
+            )
+            response = _ok(data)
+            return _apply_sync_request_id(response, sync_headers, request)
         except SyncBackendUnavailable as exc:
             return _operation_outcome_unknown(exc, request)
         except SyncServerAPIError as exc:
@@ -267,11 +342,13 @@ class OperationEffectiveAtView(LoginRequiredMixin, View):
             payload = json.loads(request.body) if request.body else {}
         except json.JSONDecodeError:
             return _error("Invalid JSON body", "validation_error", 400)
+        extra_headers = _collect_correlation_headers(request)
         try:
             api = _ops(request)
             data = api.client.patch(
                 f"/operations/{operation_id}/effective-at",
                 json=payload,
+                extra_headers=extra_headers,
             )
             return _ok(data)
         except SyncBackendUnavailable as exc:
@@ -295,10 +372,17 @@ class OperationSubmitView(LoginRequiredMixin, View):
         if _is_new_client(request) and "expected_version" not in payload:
             payload = {**payload, "expected_version": payload.get("expected_version")}
 
+        extra_headers = _collect_correlation_headers(request)
         try:
             api = _ops(request)
-            data = api.submit_operation(operation_id, payload=payload)
-            return _ok(data)
+            data, sync_headers = api.submit_operation(
+                operation_id,
+                payload=payload,
+                extra_headers=extra_headers,
+                return_response=True,
+            )
+            response = _ok(data)
+            return _apply_sync_request_id(response, sync_headers, request)
         except SyncBackendUnavailable as exc:
             return _operation_outcome_unknown(exc, request)
         except SyncServerAPIError as exc:
@@ -315,10 +399,17 @@ class OperationCancelView(LoginRequiredMixin, View):
             return _error("Invalid JSON body", "validation_error", 400)
         if not isinstance(payload, dict):
             payload = {"cancel": True}
+        extra_headers = _collect_correlation_headers(request)
         try:
             api = _ops(request)
-            data = api.cancel_operation(operation_id, payload=payload)
-            return _ok(data)
+            data, sync_headers = api.cancel_operation(
+                operation_id,
+                payload=payload,
+                extra_headers=extra_headers,
+                return_response=True,
+            )
+            response = _ok(data)
+            return _apply_sync_request_id(response, sync_headers, request)
         except SyncBackendUnavailable as exc:
             return _operation_outcome_unknown(exc, request)
         except SyncServerAPIError as exc:
@@ -329,10 +420,16 @@ class OperationRestoreView(LoginRequiredMixin, View):
     def post(self, request, operation_id):
         if not _require_storekeeper(request.user):
             return _error("Access denied", "forbidden", 403)
+        extra_headers = _collect_correlation_headers(request)
         try:
             api = _ops(request)
-            data = api.restore_operation(operation_id)
-            return _ok(data)
+            data, sync_headers = api.restore_operation(
+                operation_id,
+                extra_headers=extra_headers,
+                return_response=True,
+            )
+            response = _ok(data)
+            return _apply_sync_request_id(response, sync_headers, request)
         except SyncBackendUnavailable as exc:
             return _operation_outcome_unknown(exc, request)
         except SyncServerAPIError as exc:
@@ -349,10 +446,17 @@ class OperationAcceptLinesView(LoginRequiredMixin, View):
             return _error("Invalid JSON body", "validation_error", 400)
         if not isinstance(payload, dict):
             payload = {}
+        extra_headers = _collect_correlation_headers(request)
         try:
             api = _ops(request)
-            data = api.accept_operation_lines(operation_id, payload)
-            return _ok(data)
+            data, sync_headers = api.accept_operation_lines(
+                operation_id,
+                payload,
+                extra_headers=extra_headers,
+                return_response=True,
+            )
+            response = _ok(data)
+            return _apply_sync_request_id(response, sync_headers, request)
         except SyncBackendUnavailable as exc:
             return _operation_outcome_unknown(exc, request)
         except SyncServerAPIError as exc:

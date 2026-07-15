@@ -86,6 +86,41 @@ class F1PasswordPreservationTests(TestCase):
         form.save(commit=False)
         self.assertTrue(self.user.check_password("NewPass999"))
 
+    @patch("apps.users.admin.UserSyncService")
+    @patch("apps.users.admin_forms.UserSyncService")
+    def test_admin_post_preserves_password_when_empty(
+        self, mock_form_svc_cls, mock_admin_svc_cls
+    ):
+        """Полный Django Admin flow не должен менять пустой пароль на сохранении."""
+        admin_user = User.objects.create_superuser(
+            username="f1-admin",
+            password="AdminPass123",
+        )
+        mock_form_svc_cls.return_value.list_sites.return_value = [
+            {"site_id": 1, "name": "WH", "is_active": True}
+        ]
+        mock_admin_svc_cls.return_value.list_sites.return_value = [
+            {"site_id": 1, "name": "WH", "is_active": True}
+        ]
+
+        self.client.force_login(admin_user)
+        response = self.client.post(
+            reverse("admin:auth_user_change", args=[self.user.pk]),
+            {
+                "username": self.user.username,
+                "email": self.user.email,
+                "full_name": "Updated Name",
+                "sync_role": "storekeeper",
+                "site_ids": ["1"],
+                "is_active": "on",
+                "_save": "Save",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("SecretPass1"))
+
 
 # ──────────────────────────────────────────────
 # F2: Password reset URL tests
@@ -378,3 +413,52 @@ class F1CreationFormPasswordTests(TestCase):
         fields = SyncManagedUserCreationForm.base_fields
         self.assertTrue(fields["password"].required)
         self.assertTrue(fields["password_confirm"].required)
+
+
+# ──────────────────────────────────────────────
+# F1 Login regression: admin POST preserves password login
+# ──────────────────────────────────────────────
+
+
+class F1PasswordRegressionTests(TestCase):
+    """Expanded password regression: login with old password after empty-field edit."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="pw-regression",
+            password="OldPass123",
+            email="pw@test.com",
+        )
+
+    @patch("apps.users.admin.UserSyncService")
+    @patch("apps.users.admin_forms.UserSyncService")
+    def test_admin_post_preserves_password_login(self, mock_form_svc, mock_admin_svc):
+        """Full admin POST with empty password → old password still works for login."""
+        admin_user = User.objects.create_superuser(
+            username="admin-pw", password="AdminPass123",
+        )
+        mock_form_svc.return_value.list_sites.return_value = [
+            {"site_id": 1, "name": "WH", "is_active": True}
+        ]
+        mock_admin_svc.return_value.list_sites.return_value = [
+            {"site_id": 1, "name": "WH", "is_active": True}
+        ]
+        mock_admin_svc.return_value.sync_user_to_remote.return_value = None
+
+        self.client.force_login(admin_user)
+        response = self.client.post(
+            reverse("admin:auth_user_change", args=[self.user.pk]),
+            {
+                "username": self.user.username,
+                "email": self.user.email,
+                "full_name": "",
+                "sync_role": "storekeeper",
+                "site_ids": ["1"],
+                "is_active": "on",
+                "_save": "Save",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+
+        login_ok = self.client.login(username="pw-regression", password="OldPass123")
+        self.assertTrue(login_ok)

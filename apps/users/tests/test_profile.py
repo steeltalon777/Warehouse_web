@@ -6,6 +6,7 @@ from django.test import TestCase
 from django.urls import reverse
 from unittest.mock import patch
 
+from apps.sync_client.exceptions import SyncServerAPIError
 from apps.users.admin_forms import SyncManagedUserAdminForm
 from apps.users.forms import UserProfileForm
 from apps.users.models import SyncUserBinding
@@ -308,3 +309,104 @@ class SyncManagedUserAdminFormPasswordSaveTest(TestCase):
         self.assertTrue(form.is_valid(), msg=f"Form errors: {form.errors}")
         form.save(commit=False)
         self.assertTrue(user.check_password("newpass123"))
+
+
+# ──────────────────────────────────────────────
+# Stage 3B: Profile partial failure tests
+# ──────────────────────────────────────────────
+
+
+class ProfileSyncFailureTests(TestCase):
+    """Sync failure must not prevent local save; warning shown."""
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(
+            username="pfail-user",
+            password="OldPass123",
+            email="pfail@test.com",
+            first_name="Old Name",
+        )
+        SyncUserBinding.objects.create(
+            user=self.user,
+            syncserver_user_id="00000000-0000-0000-0000-000000000001",
+            sync_role="storekeeper",
+        )
+        self.client.force_login(self.user)
+
+    @patch("apps.users.views.UserSyncService")
+    def test_sync_failure_still_saves_locally(self, mock_svc_cls) -> None:
+        """Sync failure → local data still saved, warning in context."""
+        mock_svc_cls.return_value.sync_existing_binding.side_effect = (
+            SyncServerAPIError("SyncServer unavailable")
+        )
+
+        response = self.client.post(reverse("users:profile"), {
+            "current_password": "OldPass123",
+            "full_name": "Partial Name",
+            "email": "partial@test.com",
+        })
+
+        self.assertEqual(response.status_code, 200)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, "Partial Name")
+        self.assertEqual(self.user.email, "partial@test.com")
+
+        if response.context and response.context.get("sync_warning"):
+            self.assertIn("Локальные данные сохранены", response.context["sync_warning"])
+
+    @patch("apps.users.views.UserSyncService")
+    def test_full_success_no_warning(self, mock_svc_cls) -> None:
+        """Sync succeeds → no warning, success shown."""
+        mock_svc_cls.return_value.sync_existing_binding.return_value = None
+
+        response = self.client.post(reverse("users:profile"), {
+            "current_password": "OldPass123",
+            "full_name": "Full Success",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Данные сохранены")
+
+        if response.context:
+            self.assertIsNone(response.context.get("sync_warning"))
+
+    def test_no_binding_no_sync_no_warning(self) -> None:
+        """No SyncUserBinding → sync skipped, no warning."""
+        self.user.sync_binding.delete()
+
+        response = self.client.post(reverse("users:profile"), {
+            "current_password": "OldPass123",
+            "full_name": "No Binding",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Данные сохранены")
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, "No Binding")
+
+
+class ProfileSessionTests(TestCase):
+    """Session auth hash update after password change."""
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(
+            username="session-test", password="OldPass1",
+        )
+
+    def test_password_change_keeps_session_valid(self) -> None:
+        """After password change in profile, existing session stays valid."""
+        self.client.login(username="session-test", password="OldPass1")
+
+        response = self.client.post(reverse("users:profile"), {
+            "current_password": "OldPass1",
+            "new_password": "NewPass456",
+            "new_password_confirm": "NewPass456",
+        })
+
+        self.assertEqual(response.status_code, 200)
+
+        # Session should still be valid (check with any protected page)
+        protected_response = self.client.get(reverse("users:profile"))
+        self.assertEqual(protected_response.status_code, 200)

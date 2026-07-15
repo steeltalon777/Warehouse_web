@@ -204,17 +204,22 @@ def _build_create_payload(
             raise ValidationError("Укажите ФИО получателя для расходной операции.")
         payload["issued_to_name"] = issued_to_name
 
-    # Проверяем наличие временных строк для генерации client_request_id
-    has_temporary_lines = any(
-        str(item.get("kind") or "").strip().lower() == "temporary"
-        for item in raw_items
-    )
-    if has_temporary_lines:
-        # Генерируем client_request_id, если его ещё нет в черновике
-        client_request_id = draft_data.get("client_request_id")
-        if not client_request_id or not isinstance(client_request_id, str):
-            client_request_id = str(uuid.uuid4())
-        payload["client_request_id"] = client_request_id
+    # client_request_id pass-through per TZ WP-2 §6.2.2 / §11.2:
+    # - If Angular provided a non-empty string, ALWAYS forward it (catalog + temporary).
+    # - If not provided AND operation has temporary lines, fall back to server-side UUID
+    #   for back-compat with old Angular that did not send the key for temporary items.
+    # - If not provided AND no temporary lines, do NOT generate — SyncServer stays free
+    #   to dedupe by other means or to let SyncServerIdempotency pass.
+    raw_client_request_id = draft_data.get("client_request_id")
+    if isinstance(raw_client_request_id, str) and raw_client_request_id.strip():
+        payload["client_request_id"] = raw_client_request_id.strip()
+    else:
+        has_temporary_lines = any(
+            str(item.get("kind") or "").strip().lower() == "temporary"
+            for item in raw_items
+        )
+        if has_temporary_lines:
+            payload["client_request_id"] = str(uuid.uuid4())
 
     allow_negative_qty = operation_type == "ADJUSTMENT"
     line_number = 1

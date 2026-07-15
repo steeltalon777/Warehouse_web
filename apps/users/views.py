@@ -31,6 +31,7 @@ def logout_view(request: HttpRequest) -> HttpResponseRedirect:
 @login_required
 def profile_view(request: HttpRequest):
     success = False
+    sync_warning = None
     if request.method == "POST":
         form = UserProfileForm(request.user, request.POST)
         if form.is_valid():
@@ -41,21 +42,33 @@ def profile_view(request: HttpRequest):
             user.email = form.cleaned_data.get("email") or ""
             user.save()
 
-            # Sync to SyncServer (FIO/email only)
+            # Local save — always happens (see TZ §7.2)
+            local_success = True
+            sync_warning = None
+
+            # Remote sync (may fail — local data is already saved)
             try:
                 binding = getattr(user, "sync_binding", None)
                 if binding and binding.syncserver_user_id:
                     UserSyncService().sync_existing_binding(user=user, binding=binding)
             except Exception:
                 logger.exception("Failed to sync profile to SyncServer")
+                sync_warning = (
+                    "Локальные данные сохранены. "
+                    "Синхронизация с SyncServer временно недоступна."
+                )
 
-            # Re-login after password change
+            # Update session auth hash after password change
             from django.contrib.auth import update_session_auth_hash
             if form.cleaned_data.get("new_password"):
                 update_session_auth_hash(request, user)
 
-            success = True
+            success = local_success
     else:
         form = UserProfileForm(request.user)
 
-    return render(request, "users/profile.html", {"form": form, "success": success})
+    return render(request, "users/profile.html", {
+        "form": form,
+        "success": success,
+        "sync_warning": sync_warning,
+    })

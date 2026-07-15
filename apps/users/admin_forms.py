@@ -7,11 +7,25 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import UserChangeForm
 from django.core.exceptions import ValidationError
 
-from apps.sync_client.exceptions import SyncServerAPIError
 from apps.users.models import Role, Site, SyncDeviceBinding, SyncUserBinding
 from apps.users.services import DeviceSyncService, UserSyncService
 
 User = get_user_model()
+
+
+class ScrollableCheckboxSelectMultiple(forms.CheckboxSelectMultiple):
+    """CheckboxSelectMultiple with a scrollable container for the admin form."""
+
+    class Media:
+        css = {
+            "all": ("css/scrollable-checkboxes.css",),
+        }
+
+    def get_context(self, name, value, attrs):
+        context = super().get_context(name, value, attrs)
+        css_class = context["widget"]["attrs"].get("class", "")
+        context["widget"]["attrs"]["class"] = f"{css_class} scrollable-checkboxes".strip()
+        return context
 
 
 MANAGED_ROLE_CHOICES = [
@@ -41,6 +55,7 @@ class SyncManagedUserAdminForm(UserChangeForm):
         label="Склады",
         choices=[],
         required=True,
+        widget=ScrollableCheckboxSelectMultiple,
         help_text="Выберите один или несколько складов, к которым привязан пользователь.",
     )
     sync_user_token = forms.CharField(
@@ -67,6 +82,7 @@ class SyncManagedUserAdminForm(UserChangeForm):
         self.fields["password"].initial = ""
         self.fields["password_confirm"].initial = ""
         self.fields["full_name"].initial = self.instance.first_name
+        self._new_password = ""
 
         binding = self._get_binding()
         if binding:
@@ -74,12 +90,12 @@ class SyncManagedUserAdminForm(UserChangeForm):
             self.fields["site_ids"].initial = [str(s) for s in (binding.site_ids or [])]
             self.fields["sync_user_token"].initial = binding.sync_user_token
 
-        self._prepared_sync = None
+        self._desired_intent = None
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
 
-        password = cleaned_data.get("password") or ""
+        password = self._new_password
         password_confirm = cleaned_data.get("password_confirm") or ""
         if password or password_confirm:
             if password != password_confirm:
@@ -101,20 +117,19 @@ class SyncManagedUserAdminForm(UserChangeForm):
         self.instance.email = cleaned_data.get("email") or ""
         self.instance.is_active = bool(cleaned_data.get("is_active", True))
 
-        try:
-            binding = self._get_binding()
-            self._prepared_sync = self.service.prepare_sync(
-                user=self.instance,
-                full_name=cleaned_data.get("full_name") or "",
-                role=role,
-                site_ids=site_ids_list,
-                default_site_id=default_site_id,
-                syncserver_user_id=binding.syncserver_user_id if binding else None,
-            )
-        except SyncServerAPIError as exc:
-            raise ValidationError(str(exc)) from exc
+        self._desired_intent = {
+            "full_name": cleaned_data.get("full_name") or "",
+            "role": role,
+            "site_ids": site_ids_list,
+            "default_site_id": default_site_id,
+        }
 
         return cleaned_data
+
+    def clean_password(self) -> str:
+        """Preserve the stored hash when the password field is left empty."""
+        self._new_password = self.cleaned_data.get("password", "")
+        return self._new_password or self.instance.password
 
     def _get_binding(self) -> SyncUserBinding | None:
         if not self.instance.pk:
@@ -126,9 +141,8 @@ class SyncManagedUserAdminForm(UserChangeForm):
 
     def save(self, commit: bool = True):
         user = super(UserChangeForm, self).save(commit=False)
-        password = self.cleaned_data.get("password")
-        if password:
-            user.set_password(password)
+        if self._new_password:
+            user.set_password(self._new_password)
         if commit:
             user.save()
             if hasattr(self, "save_m2m"):

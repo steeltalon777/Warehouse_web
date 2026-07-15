@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import copy
+from uuid import uuid4
 
 from django.contrib import admin, messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import Group
 from django.db import transaction
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponseForbidden, HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import path, reverse
 from datetime import timedelta
@@ -37,35 +38,41 @@ class SiteAdmin(admin.ModelAdmin):
     search_fields = ("name", "code", "syncserver_site_id")
     readonly_fields = ("syncserver_site_id", "created_at", "updated_at")
     fields = ("code", "name", "description", "is_active", "syncserver_site_id", "created_at", "updated_at")
-    actions = None
+    actions = ["refresh_sites_from_syncserver"]
 
     def get_queryset(self, request: HttpRequest):
-        queryset = super().get_queryset(request)
-        if request.user.is_superuser:
-            try:
-                SiteSyncService().refresh_local_cache()
-            except Exception as exc:
-                self.message_user(
-                    request,
-                    f"Не удалось обновить список складов из SyncServer: {exc}",
-                    level=messages.warning,
-                )
-        return queryset
+        return super().get_queryset(request)
 
     def has_module_permission(self, request: HttpRequest) -> bool:
-        return request.user.is_superuser
+        return request.user.is_superuser and request.user.is_active
 
     def has_view_permission(self, request: HttpRequest, obj: Site | None = None) -> bool:
-        return request.user.is_superuser
+        return request.user.is_superuser and request.user.is_active
 
     def has_add_permission(self, request: HttpRequest) -> bool:
-        return request.user.is_superuser
+        return request.user.is_superuser and request.user.is_active
 
     def has_change_permission(self, request: HttpRequest, obj: Site | None = None) -> bool:
-        return request.user.is_superuser
+        return request.user.is_superuser and request.user.is_active
 
     def has_delete_permission(self, request: HttpRequest, obj: Site | None = None) -> bool:
         return False
+
+    @admin.action(description="Обновить склады из SyncServer")
+    def refresh_sites_from_syncserver(self, request: HttpRequest, queryset):
+        try:
+            count = SiteSyncService().refresh_local_cache()
+            self.message_user(
+                request,
+                f"Склады обновлены: {count} записей.",
+                level="success",
+            )
+        except Exception as exc:
+            self.message_user(
+                request,
+                f"Не удалось обновить склады: {exc}",
+                level="error",
+            )
 
     def save_model(self, request: HttpRequest, obj: Site, form, change: bool) -> None:
         payload = {
@@ -95,7 +102,7 @@ class SiteAdmin(admin.ModelAdmin):
 
 @admin.register(SyncUserBinding)
 class SyncUserBindingAdmin(admin.ModelAdmin):
-    actions = ("repair_selected_bindings", "mark_selected_for_repair")
+    actions = None
     list_display = (
         "user",
         "sync_role",
@@ -106,6 +113,12 @@ class SyncUserBindingAdmin(admin.ModelAdmin):
     )
     search_fields = ("user__username", "user__email", "syncserver_user_id")
     readonly_fields = (
+        "user",
+        "syncserver_user_id",
+        "sync_role",
+        "site_ids",
+        "sync_user_token",
+        "sync_status",
         "last_sync_at",
         "last_sync_error",
         "last_sync_payload_pretty",
@@ -122,10 +135,8 @@ class SyncUserBindingAdmin(admin.ModelAdmin):
                     "syncserver_user_id",
                     "sync_role",
                     "site_ids",
-                    "sync_user_token",
                     "sync_status",
                     "last_sync_error",
-                    "last_sync_payload_pretty",
                     "last_sync_at",
                     "token_rotated_at",
                     "manual_token_updated_at",
@@ -134,6 +145,21 @@ class SyncUserBindingAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+    def has_module_permission(self, request: HttpRequest) -> bool:
+        return request.user.is_superuser and request.user.is_active
+
+    def has_view_permission(self, request: HttpRequest, obj: SyncUserBinding | None = None) -> bool:
+        return request.user.is_superuser and request.user.is_active
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: SyncUserBinding | None = None) -> bool:
+        return request.user.is_superuser and request.user.is_active
+
+    def has_delete_permission(self, request: HttpRequest, obj: SyncUserBinding | None = None) -> bool:
+        return False
 
     @admin.display(description="User token")
     def masked_user_token(self, obj: SyncUserBinding) -> str:
@@ -153,34 +179,6 @@ class SyncUserBindingAdmin(admin.ModelAdmin):
             obj.manual_token_updated_by = request.user
             obj.last_sync_error = ""
         super().save_model(request, obj, form, change)
-
-    @admin.action(description="Repair selected bindings from SyncServer")
-    def repair_selected_bindings(self, request: HttpRequest, queryset):
-        service = UserSyncService()
-        repaired = 0
-        failed = 0
-
-        for binding in queryset.select_related("user"):
-            try:
-                service.repair_binding_from_remote(user=binding.user, binding=binding)
-                repaired += 1
-            except Exception as exc:
-                failed += 1
-                service.mark_failure(
-                    binding=binding,
-                    error=exc,
-                    status=SyncStatus.REPAIR_REQUIRED,
-                )
-
-        if repaired:
-            self.message_user(request, f"Исправлено binding-записей: {repaired}.", level="success")
-        if failed:
-            self.message_user(request, f"Не удалось восстановить binding-записей: {failed}.", level="error")
-
-    @admin.action(description="Mark selected bindings as repair required")
-    def mark_selected_for_repair(self, request: HttpRequest, queryset):
-        updated = queryset.update(sync_status=SyncStatus.REPAIR_REQUIRED, updated_at=timezone.now())
-        self.message_user(request, f"Помечено для ремонта binding-записей: {updated}.", level="warning")
 
 
 @admin.register(SyncDeviceBinding)
@@ -244,16 +242,16 @@ class SyncDeviceBindingAdmin(admin.ModelAdmin):
     )
 
     def has_module_permission(self, request: HttpRequest) -> bool:
-        return request.user.is_superuser
+        return request.user.is_superuser and request.user.is_active
 
     def has_view_permission(self, request: HttpRequest, obj: SyncDeviceBinding | None = None) -> bool:
-        return request.user.is_superuser
+        return request.user.is_superuser and request.user.is_active
 
     def has_add_permission(self, request: HttpRequest) -> bool:
-        return request.user.is_superuser
+        return request.user.is_superuser and request.user.is_active
 
     def has_change_permission(self, request: HttpRequest, obj: SyncDeviceBinding | None = None) -> bool:
-        return request.user.is_superuser
+        return request.user.is_superuser and request.user.is_active
 
     def has_delete_permission(self, request: HttpRequest, obj: SyncDeviceBinding | None = None) -> bool:
         return False
@@ -302,27 +300,68 @@ class SyncDeviceBindingAdmin(admin.ModelAdmin):
         return format_html('<span style="color:red;">\U0001f534 Offline</span>')
 
     def save_model(self, request, obj, form, change):
+        with transaction.atomic():
+            if change and "sync_device_token" in form.changed_data:
+                obj.sync_status = SyncStatus.MANUAL_OVERRIDE
+                obj.manual_token_updated_at = timezone.now()
+                obj.manual_token_updated_by = request.user
+                obj.last_sync_error = ""
+            else:
+                obj.sync_status = SyncStatus.PENDING
+                obj.last_sync_error = ""
+            super().save_model(request, obj, form, change)
+            binding_pk = obj.pk
+
+            transaction.on_commit(
+                lambda: self._run_device_sync(
+                    request=request,
+                    binding_pk=binding_pk,
+                    change=change,
+                )
+            )
+
+    def _run_device_sync(self, request, binding_pk, change):
+        """Remote device sync after local commit. Runs outside atomic."""
+        from apps.users.models import SyncDeviceBinding
+        from apps.users.services import DeviceSyncService
+
         service = DeviceSyncService()
         try:
-            with transaction.atomic():
-                # MANUAL_OVERRIDE следует паттерну SyncUserBindingAdmin.save_model():
-                # sync_device_token имеет disabled=True, поэтому change не поймает его
-                # из формы. Код остаётся для консистентности — если токен изменится
-                # программно или через другую форму, статус обновится корректно.
-                if change and "sync_device_token" in form.changed_data:
-                    obj.sync_status = SyncStatus.MANUAL_OVERRIDE
-                    obj.manual_token_updated_at = timezone.now()
-                    obj.manual_token_updated_by = request.user
-                    obj.last_sync_error = ""
-                super().save_model(request, obj, form, change)
-                if change:
-                    service.sync_existing_binding(binding=obj)
+            binding = SyncDeviceBinding.objects.get(pk=binding_pk)
+            if change:
+                if binding.syncserver_device_id:
+                    service.sync_existing_binding(binding=binding)
                 else:
-                    service.create_binding(binding=obj)
+                    service.ensure_device_remote(binding=binding)
+            else:
+                service.create_binding(binding=binding)
+            self.message_user(
+                request,
+                "Устройство синхронизировано с SyncServer.",
+                level="success",
+            )
+        except SyncServerAPIError as exc:
+            try:
+                binding = SyncDeviceBinding.objects.get(pk=binding_pk)
+                service.mark_failure(binding=binding, error=exc)
+            except SyncDeviceBinding.DoesNotExist:
+                pass
+            self.message_user(
+                request,
+                f"Локальные данные сохранены. Ошибка синхронизации: {exc}.",
+                level="warning",
+            )
         except Exception as exc:
-            if obj.pk:
-                service.mark_failure(binding=obj, error=exc, status=SyncStatus.REPAIR_REQUIRED)
-            raise
+            try:
+                binding = SyncDeviceBinding.objects.get(pk=binding_pk)
+                service.mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
+            except SyncDeviceBinding.DoesNotExist:
+                pass
+            self.message_user(
+                request,
+                f"Локальные данные сохранены. Не удалось синхронизировать устройство: {exc}",
+                level="error",
+            )
 
     def get_urls(self):
         urls = super().get_urls()
@@ -346,6 +385,10 @@ class SyncDeviceBindingAdmin(admin.ModelAdmin):
         return custom_urls + urls
 
     def sync_with_syncserver_view(self, request: HttpRequest, object_id: str):
+        if request.method not in ("POST",):
+            return HttpResponseNotAllowed(["POST"])
+        if not (request.user.is_superuser and request.user.is_active):
+            return HttpResponseForbidden()
         binding = get_object_or_404(SyncDeviceBinding, pk=object_id)
         try:
             DeviceSyncService().sync_existing_binding(binding=binding)
@@ -359,6 +402,10 @@ class SyncDeviceBindingAdmin(admin.ModelAdmin):
         return redirect(self._change_url(binding.pk))
 
     def rotate_token_view(self, request: HttpRequest, object_id: str):
+        if request.method not in ("POST",):
+            return HttpResponseNotAllowed(["POST"])
+        if not (request.user.is_superuser and request.user.is_active):
+            return HttpResponseForbidden()
         binding = get_object_or_404(SyncDeviceBinding, pk=object_id)
         if not binding.syncserver_device_id:
             self.message_user(request, "Нет SyncServer device id для rotate-token.", level="error")
@@ -376,6 +423,10 @@ class SyncDeviceBindingAdmin(admin.ModelAdmin):
         return redirect(self._change_url(binding.pk))
 
     def repair_from_syncserver_view(self, request: HttpRequest, object_id: str):
+        if request.method not in ("POST",):
+            return HttpResponseNotAllowed(["POST"])
+        if not (request.user.is_superuser and request.user.is_active):
+            return HttpResponseForbidden()
         binding = get_object_or_404(SyncDeviceBinding, pk=object_id)
         if not binding.syncserver_device_id:
             self.message_user(request, "Нет SyncServer binding для восстановления.", level="error")
@@ -506,6 +557,21 @@ class SyncManagedUserAdmin(BaseUserAdmin):
 
     superuser_fieldsets = BaseUserAdmin.fieldsets
 
+    def has_module_permission(self, request: HttpRequest) -> bool:
+        return request.user.is_superuser and request.user.is_active
+
+    def has_view_permission(self, request: HttpRequest, obj: User | None = None) -> bool:
+        return request.user.is_superuser and request.user.is_active
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return request.user.is_superuser and request.user.is_active
+
+    def has_change_permission(self, request: HttpRequest, obj: User | None = None) -> bool:
+        return request.user.is_superuser and request.user.is_active
+
+    def has_delete_permission(self, request: HttpRequest, obj: User | None = None) -> bool:
+        return False
+
     def get_queryset(self, request: HttpRequest):
         return super().get_queryset(request).select_related("sync_binding")
 
@@ -552,47 +618,85 @@ class SyncManagedUserAdmin(BaseUserAdmin):
             super().save_model(request, obj, form, change)
             return
 
-        prepared = getattr(form, "_prepared_sync", None)
-        if prepared is None:
-            raise RuntimeError("Sync state was not prepared before saving the user.")
+        desired = getattr(form, "_desired_intent", None)
+        if desired is None:
+            raise RuntimeError("Sync intent was not prepared before saving.")
 
         obj.email = form.cleaned_data["email"]
-        obj.first_name = form.cleaned_data.get("full_name") or ""
+        obj.first_name = desired["full_name"]
         obj.is_staff = False
         obj.is_superuser = False
 
-        service = UserSyncService()
-        binding = None
-        try:
-            with transaction.atomic():
-                obj.save()
-                binding, _ = SyncUserBinding.objects.get_or_create(user=obj)
-                site_ids_list = [str(sid) for sid in (form.cleaned_data.get("site_ids") or [])]
-                binding.sync_role = form.cleaned_data["sync_role"]
-                binding.default_site_id = site_ids_list[0] if site_ids_list else ""
-                binding.site_ids = site_ids_list
-                binding.sync_status = SyncStatus.PENDING
-                binding.last_sync_error = ""
-                binding.last_sync_at = timezone.now()
-                binding.save()
+        with transaction.atomic():
+            obj.save()
+            binding, _ = SyncUserBinding.objects.get_or_create(user=obj)
 
-                service.apply_prepared_state(
+            if not binding.syncserver_user_id:
+                binding.syncserver_user_id = uuid4()
+
+            binding.sync_role = desired["role"]
+            binding.default_site_id = desired["default_site_id"]
+            binding.site_ids = desired["site_ids"]
+            binding.sync_status = SyncStatus.PENDING
+            binding.last_sync_error = ""
+            binding.last_sync_at = timezone.now()
+            binding.save()
+
+            binding_pk = binding.pk
+
+            transaction.on_commit(
+                lambda: self._run_user_sync(
+                    request=request,
                     user=obj,
-                    binding=binding,
-                    prepared=prepared,
-                    role=form.cleaned_data["sync_role"],
-                    site_ids=site_ids_list,
-                    default_site_id=site_ids_list[0] if site_ids_list else "",
+                    binding_pk=binding_pk,
+                    desired=desired,
                 )
+            )
+
+    def _run_user_sync(self, request, user, binding_pk, desired):
+        """Remote sync after local commit. Runs outside atomic."""
+        from apps.users.models import SyncUserBinding
+        from apps.users.services import UserSyncService
+
+        service = UserSyncService()
+        try:
+            binding = SyncUserBinding.objects.get(pk=binding_pk)
+            service.sync_user_to_remote(
+                user=user,
+                binding=binding,
+                full_name=desired["full_name"],
+                role=desired["role"],
+                site_ids=desired["site_ids"],
+                default_site_id=desired["default_site_id"],
+            )
+            self.message_user(
+                request,
+                "Пользователь синхронизирован с SyncServer.",
+                level="success",
+            )
+        except SyncServerAPIError as exc:
+            try:
+                binding = SyncUserBinding.objects.get(pk=binding_pk)
+                service.mark_failure(binding=binding, error=exc)
+            except SyncUserBinding.DoesNotExist:
+                pass
+            self.message_user(
+                request,
+                f"Локальные данные сохранены. Ошибка синхронизации с SyncServer: {exc}. "
+                f"Binding помечен для ремонта.",
+                level="warning",
+            )
         except Exception as exc:
-            if binding and binding.pk:
-                service.mark_failure(
-                    binding=binding,
-                    error=exc,
-                    payload=getattr(prepared, "sync_state_response", None) or getattr(prepared, "sync_user_response", None),
-                    status=SyncStatus.REPAIR_REQUIRED,
-                )
-            raise
+            try:
+                binding = SyncUserBinding.objects.get(pk=binding_pk)
+                service.mark_failure(binding=binding, error=exc, status=SyncStatus.REPAIR_REQUIRED)
+            except SyncUserBinding.DoesNotExist:
+                pass
+            self.message_user(
+                request,
+                f"Локальные данные сохранены. Не удалось синхронизировать с SyncServer: {exc}",
+                level="error",
+            )
 
     def get_urls(self):
         urls = super().get_urls()
@@ -616,6 +720,10 @@ class SyncManagedUserAdmin(BaseUserAdmin):
         return custom_urls + urls
 
     def sync_with_syncserver_view(self, request: HttpRequest, object_id: str):
+        if request.method not in ("POST",):
+            return HttpResponseNotAllowed(["POST"])
+        if not (request.user.is_superuser and request.user.is_active):
+            return HttpResponseForbidden()
         user = get_object_or_404(User, pk=object_id)
         if user.is_superuser:
             self.message_user(
@@ -651,6 +759,10 @@ class SyncManagedUserAdmin(BaseUserAdmin):
         return redirect(self._change_url(user.pk))
 
     def rotate_token_view(self, request: HttpRequest, object_id: str):
+        if request.method not in ("POST",):
+            return HttpResponseNotAllowed(["POST"])
+        if not (request.user.is_superuser and request.user.is_active):
+            return HttpResponseForbidden()
         user = get_object_or_404(User, pk=object_id)
         if user.is_superuser:
             self.message_user(request, "Root token не ротируется через API.", level="warning")
@@ -679,6 +791,10 @@ class SyncManagedUserAdmin(BaseUserAdmin):
         return redirect(self._change_url(user.pk))
 
     def repair_from_syncserver_view(self, request: HttpRequest, object_id: str):
+        if request.method not in ("POST",):
+            return HttpResponseNotAllowed(["POST"])
+        if not (request.user.is_superuser and request.user.is_active):
+            return HttpResponseForbidden()
         user = get_object_or_404(User, pk=object_id)
         if user.is_superuser:
             self.message_user(request, "Root-пользователь не ремонтируется через SyncServer repair flow.", level="warning")
@@ -750,11 +866,17 @@ class LoginAttemptAdmin(admin.ModelAdmin):
     readonly_fields = ("user", "action", "ip_address", "user_agent", "request_id", "created_at")
     ordering = ("-created_at",)
 
+    def has_module_permission(self, request: HttpRequest) -> bool:
+        return request.user.is_superuser and request.user.is_active
+
+    def has_view_permission(self, request: HttpRequest, obj: LoginAttempt | None = None) -> bool:
+        return request.user.is_superuser and request.user.is_active
+
     def has_add_permission(self, request: HttpRequest) -> bool:
         return False
 
-    def has_change_permission(self, request: HttpRequest, obj=None) -> bool:
+    def has_change_permission(self, request: HttpRequest, obj: LoginAttempt | None = None) -> bool:
         return False
 
-    def has_delete_permission(self, request: HttpRequest, obj=None) -> bool:
-        return request.user.is_superuser
+    def has_delete_permission(self, request: HttpRequest, obj: LoginAttempt | None = None) -> bool:
+        return request.user.is_superuser and request.user.is_active

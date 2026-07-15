@@ -17,6 +17,7 @@ from .exceptions import (
     SyncServerInternalError,
     SyncValidationError,
 )
+from .redaction import sanitize_payload
 from .token_resolver import (
     SyncIdentityNotBoundError,
     get_device_token,
@@ -66,6 +67,7 @@ class SyncServerClient:
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> dict[str, str]:
         identity = resolve_sync_identity(
             request=self.request,
@@ -82,6 +84,11 @@ class SyncServerClient:
             request_id = self.request.META.get("X_REQUEST_ID")
             if request_id:
                 headers["X-Request-Id"] = request_id
+        if extra_headers:
+            for key, value in extra_headers.items():
+                if value is None:
+                    continue
+                headers[str(key)] = str(value)
         return headers
 
     def _normalize_path(self, path: str) -> str:
@@ -122,19 +129,20 @@ class SyncServerClient:
         path: str,
     ) -> None:
         payload = self._extract_payload(response)
-        message = str(payload.get("detail") or "SyncServer error")
+        sanitized = sanitize_payload(payload)
+        message = str(sanitized.get("detail") or "SyncServer error")
         status_code = response.status_code
 
         self._log_error(
             method=method,
             path=path,
             status_code=status_code,
-            payload=payload,
+            payload=sanitized,
         )
 
         kwargs = {
             "status_code": status_code,
-            "payload": payload,
+            "payload": sanitized,
             "method": method,
             "path": path,
         }
@@ -163,12 +171,15 @@ class SyncServerClient:
         acting_site_id: str | int | None = None,
         json: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
+        return_response: bool = False,
     ) -> Any:
         normalized_path = self._normalize_path(path)
         url = f"{self.base_url}{normalized_path}"
         headers = self.build_headers(
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
+            extra_headers=extra_headers,
         )
 
         _request_id = headers.get("X-Request-Id", "")
@@ -250,15 +261,19 @@ class SyncServerClient:
             )
 
         if response.status_code == 204:
-            return None
+            return None if not return_response else (None, dict(response.headers))
 
         if not response.content:
-            return None
+            return None if not return_response else (None, dict(response.headers))
 
         try:
-            return response.json()
+            payload: Any = response.json()
         except ValueError:
-            return {"detail": response.text}
+            payload = {"detail": response.text}
+
+        if return_response:
+            return payload, dict(response.headers)
+        return payload
 
     def _request_bytes(
         self,
@@ -340,6 +355,8 @@ class SyncServerClient:
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
         params: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
+        return_response: bool = False,
     ) -> Any:
         return self._request(
             "GET",
@@ -347,6 +364,8 @@ class SyncServerClient:
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
             params=params,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )
 
     def get_bytes(
@@ -375,6 +394,8 @@ class SyncServerClient:
         acting_site_id: str | int | None = None,
         json: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
+        return_response: bool = False,
     ) -> Any:
         return self._request(
             "POST",
@@ -383,6 +404,8 @@ class SyncServerClient:
             acting_site_id=acting_site_id,
             json=json,
             params=params,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )
 
     def put(
@@ -392,6 +415,8 @@ class SyncServerClient:
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
         json: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
+        return_response: bool = False,
     ) -> Any:
         return self._request(
             "PUT",
@@ -399,6 +424,8 @@ class SyncServerClient:
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
             json=json,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )
 
     def patch(
@@ -408,6 +435,8 @@ class SyncServerClient:
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
         json: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
+        return_response: bool = False,
     ) -> Any:
         return self._request(
             "PATCH",
@@ -415,6 +444,8 @@ class SyncServerClient:
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
             json=json,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )
 
     def delete(
@@ -425,6 +456,8 @@ class SyncServerClient:
         acting_site_id: str | int | None = None,
         json: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
+        return_response: bool = False,
     ) -> Any:
         return self._request(
             "DELETE",
@@ -433,4 +466,6 @@ class SyncServerClient:
             acting_site_id=acting_site_id,
             json=json,
             params=params,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )

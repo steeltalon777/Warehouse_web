@@ -4,19 +4,20 @@
 {{ block.super }}
 {% if original and not original.is_superuser and original.sync_binding %}
 <li>
-    <form method="post" action="../sync/" style="display:inline;">
+    {# require_POST guard on server side — GET/HEAD → 405 #}
+    <form method="post" action="{% url 'admin:users_user_sync' original.pk %}" style="display:inline;">
         {% csrf_token %}
         <button type="submit" class="button">Синхронизировать</button>
     </form>
 </li>
 <li>
-    <form method="post" action="../repair/" style="display:inline;" onsubmit="return confirm('Восстановить локальную карточку пользователя по данным SyncServer?');">
+    <form method="post" action="{% url 'admin:users_user_repair' original.pk %}" style="display:inline;" onsubmit="return confirm('Восстановить локальную карточку пользователя по данным SyncServer?');">
         {% csrf_token %}
         <button type="submit" class="button">Восстановить из SyncServer</button>
     </form>
 </li>
 <li>
-    <form method="post" action="../rotate-token/" style="display:inline;" onsubmit="return confirm('Перегенерировать токен пользователя? Старый токен станет невалидным.');">
+    <form method="post" action="{% url 'admin:users_user_rotate_token' original.pk %}" style="display:inline;" onsubmit="return confirm('Перегенерировать токен пользователя? Старый токен станет невалидным.');">
         {% csrf_token %}
         <button type="submit" class="button">Сбросить и перегенерировать токен</button>
     </form>

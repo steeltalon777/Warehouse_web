@@ -43,9 +43,10 @@ def has_profile(user):
 
 
 def is_root(user):
-    return user.is_superuser or (
-        user.is_authenticated and _get_role(user) == "root"
-    )
+    """Only Django superuser status determines root authorization.
+    SyncServer binding role 'root' or legacy UserProfile.role == 'root'
+    do NOT grant Django admin root privileges."""
+    return bool(user.is_authenticated and user.is_superuser and user.is_active)
 
 
 def is_chief_storekeeper(user):
