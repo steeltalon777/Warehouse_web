@@ -7,6 +7,7 @@ from apps.bff_api import (
     auth_views,
     balances_views,
     catalog_views,
+    diagnostics_views,
     documents_views,
     health_views,
     issue_objects_views,
@@ -154,6 +155,14 @@ health_patterns = [
     path("health/liveness", health_views.HealthLivenessView.as_view(), name="health_liveness"),
 ]
 
+diagnostics_patterns = [
+    path(
+        "diagnostics/ui-events/batch",
+        diagnostics_views.diagnostics_batch_view,
+        name="diagnostics_batch",
+    ),
+]
+
 urlpatterns = (
     auth_patterns
     + admin_patterns
@@ -169,6 +178,7 @@ urlpatterns = (
     + assets_patterns
     + reports_patterns
     + health_patterns
+    + diagnostics_patterns
     + [
         path("", root_views.RootView.as_view(), name="root"),
         path("db-check", root_views.DBCheckView.as_view(), name="db_check"),
