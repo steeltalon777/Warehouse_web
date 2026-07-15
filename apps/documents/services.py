@@ -510,7 +510,7 @@ def _compute_display_number(site_id: int | None, created_at: Any) -> str | None:
         dt = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
     except ValueError:
         return None
-    return f"{site_id}/{dt.strftime('%H%M')}/{dt.strftime('%d%m%y')}"
+    return f"{dt.strftime('%d%m%y')}/{dt.strftime('%H%M')}/{site_id}"
 
 
 def _safe_filename_part(value: str) -> str:

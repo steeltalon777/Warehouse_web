@@ -3,7 +3,7 @@ Operation enrichment module for BFF endpoints.
 
 Enriches raw SyncServer operation responses with display fields
 needed by the Angular frontend:
-- display_number (format: {site_id}/{HHmm}/{ddMMyy})
+- display_number (format: {ddMMyy}/{HHmm}/{site_id})
 - site_name, source_site_name, destination_site_name
 - created_by_label (FIO/username from local Django users)
 - lines_count
@@ -24,9 +24,9 @@ logger = structlog.get_logger()
 
 def _compute_display_number(site_id: int | None, created_at: str | None) -> str | None:
     """
-    Compute display operation number in format: {site_id}/{HHmm}/{ddMMyy}
+    Compute display operation number in format: {ddMMyy}/{HHmm}/{site_id}
 
-    Example: site_id=5, created_at=2026-06-02T08:38:43Z => "5/0838/020626"
+    Example: site_id=5, created_at=2026-06-02T08:38:43Z => "020626/0838/5"
     Returns None if site_id or created_at is missing or unparseable.
     """
     if site_id is None or not created_at:
@@ -34,7 +34,7 @@ def _compute_display_number(site_id: int | None, created_at: str | None) -> str 
     try:
         dt_str = created_at.replace("Z", "+00:00")
         dt = datetime.fromisoformat(dt_str)
-        return f"{site_id}/{dt.strftime('%H%M')}/{dt.strftime('%d%m%y')}"
+        return f"{dt.strftime('%d%m%y')}/{dt.strftime('%H%M')}/{site_id}"
     except (ValueError, TypeError) as exc:
         logger.warning("compute_display_number_failed", site_id=site_id, created_at=created_at, error=str(exc))
         return None
@@ -128,7 +128,7 @@ def enrich_operation(
 
     created_at = operation.get("created_at")
 
-    display_number = _compute_display_number(site_id, created_at)
+    display_number = operation.get("display_number") or _compute_display_number(site_id, created_at)
     lines = operation.get("lines", [])
     lines_count = operation.get("lines_count") or len(lines) if isinstance(lines, list) else 0
     operation_type = operation.get("operation_type", "")

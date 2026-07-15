@@ -31,14 +31,14 @@ def _document(
         "template_version": "1.0",
         "payload_hash": "a" * 64,
         "payload": {
-            "operation_display_number": "1/0121/030626",
+            "operation_display_number": "060326/0121/1",
             "consignee_label": "Base",
             "basis_label": "Приход на склад Base",
             "operation_type": operation_type,
             "operation": {
                 "id": "op-1",
                 "type": operation_type,
-                "display_number": "1/0121/030626",
+                "display_number": "060326/0121/1",
             },
             "operation_created_at": "2026-06-03T01:21:00+00:00",
             "sender": {"site_id": 1, "site_name": "Base"},
@@ -80,7 +80,7 @@ class DocumentPdfRendererTests(TestCase):
     def test_waybill_html_matches_mvp_layout(self) -> None:
         html = render_document_html(_document())
 
-        self.assertIn("Накладная № 1/0121/030626", html)
+        self.assertIn("Накладная № 060326/0121/1", html)
         self.assertIn("ООО АС «Горизонт», тестовые реквизиты", html)
         self.assertIn("Кладовщик:", html)
         self.assertIn("_________________/__________________", html)
@@ -377,7 +377,7 @@ class DocumentPdfRendererTests(TestCase):
         self.assertEqual(html.count("Грузополучатель:"), 1)
         self.assertEqual(html.count("Основание:"), 1)
         # "Накладная № X" присутствует на всех страницах (заголовок)
-        self.assertIn("Накладная № 1/0121/030626", html)
+        self.assertIn("Накладная № 060326/0121/1", html)
 
     def test_waybill_html_middle_page_has_short_title(self) -> None:
         """Page 2+ НЕ содержит реквизиты, только короткий заголовок."""
