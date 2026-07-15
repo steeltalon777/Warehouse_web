@@ -1,0 +1,19 @@
+.scrollable-checkboxes {
+    max-height: 280px;
+    overflow-y: auto;
+    border: 1px solid #ccc;
+    padding: 8px 12px;
+    border-radius: 4px;
+    background: #fff;
+}
+
+.scrollable-checkboxes label {
+    display: block;
+    padding: 3px 0;
+    margin: 0;
+    line-height: 1.6;
+}
+
+.scrollable-checkboxes input[type="checkbox"] {
+    margin-right: 6px;
+}
