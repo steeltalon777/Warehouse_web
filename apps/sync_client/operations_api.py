@@ -85,6 +85,8 @@ class OperationsAPI:
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
+        extra_headers: Optional[dict[str, str]] = None,
+        return_response: bool = False,
     ) -> list[dict[str, Any]]:
         """
         Get list of operations with optional filtering.
@@ -95,6 +97,8 @@ class OperationsAPI:
             filters: Optional filters for operations (e.g., status, item_id, site_id, type)
             acting_user_id: Optional acting user ID override
             acting_site_id: Optional acting site ID override
+            extra_headers: Optional extra headers forwarded to SyncServer.
+            return_response: When True, return a ``(payload, response_headers)`` tuple.
 
         Returns:
             list: List of operation dictionaries
@@ -123,9 +127,25 @@ class OperationsAPI:
             params=params,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )
-
         # Handle different response formats
+        if return_response:
+            data, resp_headers = response
+            if isinstance(data, dict) and "items" in data:
+                items = data["items"]
+            elif isinstance(data, dict) and "operations" in data:
+                items = data["operations"]
+            elif isinstance(data, list):
+                items = data
+            else:
+                logger.warning(
+                    "unexpected_response_format", endpoint="/operations", response_type=type(data).__name__,
+                )
+                items = []
+            return items, resp_headers
+
         if isinstance(response, dict) and "items" in response:
             return response["items"]
         elif isinstance(response, dict) and "operations" in response:
@@ -138,12 +158,15 @@ class OperationsAPI:
             )
             return []
 
+
     def list_operations_page(
         self,
         filters: Optional[dict[str, Any]] = None,
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
+        extra_headers: Optional[dict[str, str]] = None,
+        return_response: bool = False,
     ) -> dict[str, Any]:
         logger.debug(
             "fetching_operations_page", filters=filters or {},
@@ -155,29 +178,44 @@ class OperationsAPI:
             params=params,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )
 
-        if isinstance(response, dict):
-            if "operations" in response and "items" not in response:
-                response = {**response, "items": response.get("operations", [])}
-            response.setdefault("items", [])
-            response.setdefault("total_count", len(response.get("items", [])))
-            response.setdefault("page", params.get("page", 1))
-            response.setdefault("page_size", params.get("page_size", len(response.get("items", [])) or 20))
-            return response
+        if return_response:
+            data, resp_headers = response
+        else:
+            data, resp_headers = response, {}
 
-        if isinstance(response, list):
-            return {
-                "items": response,
-                "total_count": len(response),
+        if isinstance(data, dict):
+            if "operations" in data and "items" not in data:
+                data = {**data, "items": data.get("operations", [])}
+            data.setdefault("items", [])
+            data.setdefault("total_count", len(data.get("items", [])))
+            data.setdefault("page", params.get("page", 1))
+            data.setdefault("page_size", params.get("page_size", len(data.get("items", [])) or 20))
+            if return_response:
+                return data, resp_headers
+            return data
+
+        if isinstance(data, list):
+            page_dict = {
+                "items": data,
+                "total_count": len(data),
                 "page": params.get("page", 1),
-                "page_size": params.get("page_size", len(response) or 20),
+                "page_size": params.get("page_size", len(data) or 20),
             }
+            if return_response:
+                return page_dict, resp_headers
+            return page_dict
 
         logger.warning(
-            "unexpected_response_format", endpoint="/operations", response_type=type(response).__name__,
+            "unexpected_response_format", endpoint="/operations", response_type=type(data).__name__,
         )
-        return {"items": [], "total_count": 0, "page": 1, "page_size": params.get("page_size", 20)}
+        empty = {"items": [], "total_count": 0, "page": 1, "page_size": params.get("page_size", 20)}
+        if return_response:
+            return empty, resp_headers
+        return empty
 
     def get_operation(
         self,
@@ -185,6 +223,8 @@ class OperationsAPI:
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
+        extra_headers: Optional[dict[str, str]] = None,
+        return_response: bool = False,
     ) -> dict[str, Any]:
         """
         Get specific operation by ID.
@@ -195,6 +235,8 @@ class OperationsAPI:
             operation_id: Operation identifier
             acting_user_id: Optional acting user ID override
             acting_site_id: Optional acting site ID override
+            extra_headers: Optional extra headers forwarded to SyncServer.
+            return_response: When True, return a ``(payload, response_headers)`` tuple.
 
         Returns:
             dict: Operation information
@@ -208,11 +250,16 @@ class OperationsAPI:
             >>> print(operation["type"], operation["status"], operation["quantity"])
         """
         logger.debug("fetching_operation", operation_id=operation_id)
-        return self.client.get(
+        response = self.client.get(
             f"/operations/{operation_id}",
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )
+        if return_response:
+            return response
+        return response
 
     def create_operation(
         self,
@@ -220,6 +267,8 @@ class OperationsAPI:
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
+        extra_headers: Optional[dict[str, str]] = None,
+        return_response: bool = False,
     ) -> dict[str, Any]:
         """
         Create new inventory operation.
@@ -254,12 +303,17 @@ class OperationsAPI:
         logger.debug(
             "creating_operation", payload_keys=list(payload.keys()),
         )
-        return self.client.post(
+        response = self.client.post(
             "/operations",
             json=payload,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )
+        if return_response:
+            return response
+        return response
 
     def update_operation(
         self,
@@ -268,6 +322,8 @@ class OperationsAPI:
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
+        extra_headers: Optional[dict[str, str]] = None,
+        return_response: bool = False,
     ) -> dict[str, Any]:
         """
         Update existing operation.
@@ -298,12 +354,17 @@ class OperationsAPI:
         logger.debug(
             "updating_operation", operation_id=operation_id, payload_keys=list(payload.keys()),
         )
-        return self.client.patch(
+        response = self.client.patch(
             f"/operations/{operation_id}",
             json=payload,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )
+        if return_response:
+            return response
+        return response
 
     def submit_operation(
         self,
@@ -312,6 +373,8 @@ class OperationsAPI:
         payload: Optional[dict[str, Any]] = None,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
+        extra_headers: Optional[dict[str, str]] = None,
+        return_response: bool = False,
     ) -> dict[str, Any]:
         """
         Submit operation for processing (draft → submitted).
@@ -335,12 +398,17 @@ class OperationsAPI:
             >>> print(submitted_operation["status"])  # should be "submitted"
         """
         logger.debug("submitting_operation", operation_id=operation_id)
-        return self.client.post(
+        response = self.client.post(
             f"/operations/{operation_id}/submit",
             json=payload or {"submit": True},
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )
+        if return_response:
+            return response
+        return response
 
     def cancel_operation(
         self,
@@ -349,6 +417,8 @@ class OperationsAPI:
         payload: Optional[dict[str, Any]] = None,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
+        extra_headers: Optional[dict[str, str]] = None,
+        return_response: bool = False,
     ) -> dict[str, Any]:
         """
         Cancel operation (draft/submitted → cancelled).
@@ -372,12 +442,17 @@ class OperationsAPI:
             >>> print(cancelled_operation["status"])  # should be "cancelled"
         """
         logger.debug("cancelling_operation", operation_id=operation_id)
-        return self.client.post(
+        response = self.client.post(
             f"/operations/{operation_id}/cancel",
             json=payload or {"cancel": True},
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )
+        if return_response:
+            return response
+        return response
 
     def restore_operation(
         self,
@@ -385,6 +460,8 @@ class OperationsAPI:
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
+        extra_headers: Optional[dict[str, str]] = None,
+        return_response: bool = False,
     ) -> dict[str, Any]:
         """
         Restore a cancelled operation back to draft status.
@@ -395,20 +472,27 @@ class OperationsAPI:
             operation_id: Operation identifier to restore
             acting_user_id: Optional acting user ID override
             acting_site_id: Optional acting site ID override
+            extra_headers: Optional extra headers forwarded to SyncServer.
+            return_response: When True, return a ``(payload, response_headers)`` tuple.
 
         Returns:
             dict: Restored operation information
 
         Raises:
-            SyncServerAPIError: If the API request fails
+            SyncServerAPIError: On backend errors (409, 422, 403, etc.).
         """
         logger.debug("restoring_operation", operation_id=operation_id)
-        return self.client.post(
+        response = self.client.post(
             f"/operations/{operation_id}/restore",
             json={"restore": True},
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )
+        if return_response:
+            return response
+        return response
 
     def delete_operation(
         self,
@@ -416,7 +500,9 @@ class OperationsAPI:
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
-    ) -> None:
+        extra_headers: Optional[dict[str, str]] = None,
+        return_response: bool = False,
+    ) -> Any:
         """
         Delete a cancelled operation (soft delete).
 
@@ -426,6 +512,8 @@ class OperationsAPI:
             operation_id: Operation identifier to delete
             acting_user_id: Optional acting user ID override
             acting_site_id: Optional acting site ID override
+            extra_headers: Optional extra headers forwarded to SyncServer.
+            return_response: When True, return a ``(payload, response_headers)`` tuple.
 
         Raises:
             SyncAPIError: If the API request fails
@@ -435,11 +523,16 @@ class OperationsAPI:
             >>> operations_api.delete_operation("op-789")
         """
         logger.debug("deleting_operation", operation_id=operation_id)
-        self.client.delete(
+        result = self.client.delete(
             f"/operations/{operation_id}",
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )
+        if return_response:
+            return result
+        return result
 
     def accept_operation_lines(
         self,
@@ -448,6 +541,8 @@ class OperationsAPI:
         *,
         acting_user_id: str | int | None = None,
         acting_site_id: str | int | None = None,
+        extra_headers: Optional[dict[str, str]] = None,
+        return_response: bool = False,
     ) -> dict[str, Any]:
         """
         Submit acceptance for operation lines.
@@ -460,6 +555,8 @@ class OperationsAPI:
                 - lines (list[dict]): each line has line_number, accepted_qty, lost_qty, note.
             acting_user_id: Optional acting user ID override.
             acting_site_id: Optional acting site ID override.
+            extra_headers: Optional extra headers forwarded to SyncServer.
+            return_response: When True, return a ``(payload, response_headers)`` tuple.
 
         Returns:
             Updated operation dict with acceptance state.
@@ -468,12 +565,17 @@ class OperationsAPI:
             SyncServerAPIError: On backend errors (409, 422, 403, etc.).
         """
         logger.debug("accepting_operation_lines", operation_id=operation_id)
-        return self.client.post(
+        response = self.client.post(
             f"/operations/{operation_id}/accept-lines",
             json=payload,
             acting_user_id=acting_user_id,
             acting_site_id=acting_site_id,
+            extra_headers=extra_headers,
+            return_response=return_response,
         )
+        if return_response:
+            return response
+        return response
 
     # ---------- HELPER METHODS ----------
 

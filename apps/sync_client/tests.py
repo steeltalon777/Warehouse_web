@@ -31,6 +31,8 @@ class OperationsAPITests(SimpleTestCase):
             json=payload,
             acting_user_id=None,
             acting_site_id=None,
+            extra_headers=None,
+            return_response=False,
         )
 
 
@@ -41,6 +43,8 @@ class OperationsAPITests(SimpleTestCase):
             "/operations/op-1",
             acting_user_id=None,
             acting_site_id=None,
+            extra_headers=None,
+            return_response=False,
         )
 
 
