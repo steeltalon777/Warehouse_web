@@ -44,9 +44,9 @@ def resolve_items(
     payload = {"item_ids": [str(i) for i in item_ids]}
     response = client.post("/catalog/read/items/resolve", json=payload)
     if isinstance(response, dict):
-        results = response.get("results")
-        if isinstance(results, list):
-            return results
+        items = response.get("items")
+        if isinstance(items, list):
+            return items
     logger.warning(
         "catalog_resolver_unexpected_payload",
         payload_type=type(response).__name__,
