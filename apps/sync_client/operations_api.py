@@ -315,6 +315,54 @@ class OperationsAPI:
             return response
         return response
 
+    def create_operation_from_source_document(
+        self,
+        payload: dict[str, Any],
+        *,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+        extra_headers: Optional[dict[str, str]] = None,
+        return_response: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Create operation from source document (invoice, OCR, import).
+
+        Endpoint: POST /operations/from-source-document
+
+        Schema физически не допускает temporary_item.
+        Каждая строка обязана иметь item_id.
+        Endpoint самостоятельно проставляет creation_source='source_document'.
+
+        Args:
+            payload: SourceDocumentOperationCreate data
+            acting_user_id: Optional acting user ID override
+            acting_site_id: Optional acting site ID override
+            extra_headers: Optional extra headers forwarded to SyncServer.
+            return_response: When True, return a ``(payload, response_headers)`` tuple.
+
+        Returns:
+            dict: Created operation information
+
+        Raises:
+            SyncServerAPIError: On backend errors (422, 409, etc.).
+        """
+        logger.debug(
+            "creating_operation_from_source_document",
+            source_ref=payload.get("source_ref"),
+            source_document_type=payload.get("source_document_type"),
+        )
+        response = self.client.post(
+            "/operations/from-source-document",
+            json=payload,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+            extra_headers=extra_headers,
+            return_response=return_response,
+        )
+        if return_response:
+            return response
+        return response
+
     def update_operation(
         self,
         operation_id: str,

@@ -84,6 +84,7 @@ catalog_admin_patterns = [
 
 operations_patterns = [
     path("operations", operations_views.OperationsListView.as_view(), name="operations_list"),
+    path("operations/from-source-document", operations_views.OperationFromSourceDocumentView.as_view(), name="operation_from_source_document"),
     path("operations/<str:operation_id>", operations_views.OperationDetailView.as_view(), name="operation_detail"),
     path("operations/<str:operation_id>/effective-at", operations_views.OperationEffectiveAtView.as_view(), name="operation_effective_at"),
     path("operations/<str:operation_id>/submit", operations_views.OperationSubmitView.as_view(), name="operation_submit"),

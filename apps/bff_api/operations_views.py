@@ -436,6 +436,44 @@ class OperationRestoreView(LoginRequiredMixin, View):
             return _handle_sync_error(exc)
 
 
+class OperationFromSourceDocumentView(LoginRequiredMixin, View):
+    """BFF proxy for POST /api/v1/operations/from-source-document.
+
+    Создаёт операцию из внешнего документа (накладная, OCR, импорт).
+    Schema физически не допускает temporary_item.
+    """
+
+    def post(self, request):
+        if not _require_storekeeper(request.user):
+            return _error("Access denied", "forbidden", 403)
+        try:
+            payload = json.loads(request.body) if request.body else {}
+        except json.JSONDecodeError:
+            return _error("Invalid JSON body", "validation_error", 400)
+
+        if not isinstance(payload, dict):
+            return _error("JSON object body required", "validation_error", 400)
+
+        if not payload.get("source_ref"):
+            return _error("source_ref is required", "validation_error", 400)
+
+        extra_headers = _collect_correlation_headers(request)
+
+        try:
+            api = _ops(request)
+            data, sync_headers = api.create_operation_from_source_document(
+                payload,
+                extra_headers=extra_headers,
+                return_response=True,
+            )
+            response = _ok(data)
+            return _apply_sync_request_id(response, sync_headers, request)
+        except SyncBackendUnavailable as exc:
+            return _operation_outcome_unknown(exc, request)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
+
+
 class OperationAcceptLinesView(LoginRequiredMixin, View):
     def post(self, request, operation_id):
         if not _require_storekeeper(request.user):
