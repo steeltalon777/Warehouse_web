@@ -1263,6 +1263,190 @@ class BffApiOperationsInlineItemTests(TestCase):
         self.assertNotIn("sync_device_token", response_text)
 
 
+class BffApiOperationsFromSourceDocumentTests(TestCase):
+    """Tests for POST /bff/api/v1/operations/from-source-document.
+
+    TZ-SOURCE_DOCUMENT_OPERATION_INTAKE_HARDENING §8.4 (Gate A3 BFF mirror).
+    """
+
+    def setUp(self) -> None:
+        user_model = get_user_model()
+        self.storekeeper = user_model.objects.create_user(
+            username="sk_src_doc",
+            password="pass12345",
+            is_superuser=False,
+            is_staff=False,
+            is_active=True,
+        )
+        UserProfile.objects.create(user=self.storekeeper, role=Role.STOREKEEPER)
+
+        self.observer = user_model.objects.create_user(
+            username="obs_src_doc",
+            password="pass12345",
+            is_superuser=False,
+            is_staff=False,
+            is_active=True,
+        )
+        UserProfile.objects.create(user=self.observer, role=Role.OBSERVER)
+
+    def _payload(self) -> dict:
+        return {
+            "operation_type": "RECEIVE",
+            "site_id": 1,
+            "source_ref": "invoice-2026-07-23-001",
+            "source_document_type": "invoice",
+            "lines": [
+                {
+                    "line_number": 1,
+                    "item_id": 3186,
+                    "qty": "10",
+                    "source_item_name": "Круг 10мм",
+                },
+            ],
+            "client_request_id": "idem-src-doc-001",
+        }
+
+    def test_forwards_payload_to_sync_client(self) -> None:
+        mock_api = Mock()
+        mock_api.create_operation_from_source_document.return_value = (
+            {"id": "op-1", "status": "draft", "creation_source": "source_document"},
+            {},
+        )
+
+        payload = self._payload()
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations/from-source-document",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["creation_source"], "source_document")
+        mock_api.create_operation_from_source_document.assert_called_once_with(
+            payload,
+            extra_headers={},
+            return_response=True,
+        )
+
+    def test_missing_source_ref_returns_400(self) -> None:
+        mock_api = Mock()
+        payload = self._payload()
+        payload.pop("source_ref")
+
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations/from-source-document",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "validation_error")
+        mock_api.create_operation_from_source_document.assert_not_called()
+
+    def test_invalid_json_returns_400(self) -> None:
+        mock_api = Mock()
+
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations/from-source-document",
+                data="{not valid json",
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "validation_error")
+        mock_api.create_operation_from_source_document.assert_not_called()
+
+    def test_observer_forbidden(self) -> None:
+        mock_api = Mock()
+        self.client.force_login(self.observer)
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations/from-source-document",
+                data=json.dumps(self._payload()),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 403)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "forbidden")
+        mock_api.create_operation_from_source_document.assert_not_called()
+
+    def test_unauthenticated_redirects(self) -> None:
+        response = self.client.post(
+            "/bff/api/v1/operations/from-source-document",
+            data=json.dumps(self._payload()),
+            content_type="application/json",
+        )
+        self.assertIn(response.status_code, (302, 403))
+
+    def test_sync_409_idempotency_conflict_preserved(self) -> None:
+        from apps.sync_client.exceptions import SyncServerAPIError
+
+        mock_api = Mock()
+        mock_api.create_operation_from_source_document.side_effect = SyncServerAPIError(
+            message="source_document_idempotency_conflict",
+            status_code=409,
+            payload={
+                "detail": {
+                    "code": "source_document_idempotency_conflict",
+                    "message": "Source document with source_ref 'invoice-2026-07-23-001' was already used with a different payload",
+                }
+            },
+        )
+
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations/from-source-document",
+                data=json.dumps(self._payload()),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 409)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "source_document_idempotency_conflict")
+        self.assertIn("source_ref", body["error"]["message"])
+
+    def test_bff_response_envelope_shape(self) -> None:
+        mock_api = Mock()
+        mock_api.create_operation_from_source_document.return_value = (
+            {
+                "id": "op-1",
+                "creation_source": "source_document",
+                "source_ref": "invoice-2026-07-23-001",
+            },
+            {},
+        )
+
+        self.client.force_login(self.storekeeper)
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations/from-source-document",
+                data=json.dumps(self._payload()),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(set(body.keys()), {"ok", "data"})
+        self.assertEqual(body["data"]["creation_source"], "source_document")
+        self.assertEqual(body["data"]["source_ref"], "invoice-2026-07-23-001")
+
+
 class BffApiCatalogMergeTests(TestCase):
     def setUp(self) -> None:
         user_model = get_user_model()

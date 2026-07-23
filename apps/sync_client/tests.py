@@ -47,6 +47,75 @@ class OperationsAPITests(SimpleTestCase):
             return_response=False,
         )
 
+    def test_create_operation_from_source_document_uses_base_relative_path(self) -> None:
+        payload = {
+            "operation_type": "RECEIVE",
+            "site_id": 1,
+            "source_ref": "invoice-2026-07-23-001",
+            "source_document_type": "invoice",
+            "lines": [
+                {"line_number": 1, "item_id": 3186, "qty": "10"},
+            ],
+        }
+
+        self.api.create_operation_from_source_document(payload)
+
+        self.mock_client.post.assert_called_once_with(
+            "/operations/from-source-document",
+            json=payload,
+            acting_user_id=None,
+            acting_site_id=None,
+            extra_headers=None,
+            return_response=False,
+        )
+
+    def test_create_operation_from_source_document_propagates_extra_headers(self) -> None:
+        payload = {
+            "operation_type": "RECEIVE",
+            "site_id": 1,
+            "source_ref": "invoice-x",
+            "source_document_type": "ocr_scan",
+            "lines": [{"line_number": 1, "item_id": 100, "qty": "5"}],
+        }
+        headers = {"X-Request-Id": "abc-123"}
+
+        self.api.create_operation_from_source_document(
+            payload, extra_headers=headers,
+        )
+
+        self.mock_client.post.assert_called_once_with(
+            "/operations/from-source-document",
+            json=payload,
+            acting_user_id=None,
+            acting_site_id=None,
+            extra_headers=headers,
+            return_response=False,
+        )
+
+    def test_create_operation_from_source_document_return_response_tuple(self) -> None:
+        self.mock_client.post.return_value = ({"id": "op-1"}, {"X-Request-Id": "rid-1"})
+        payload = {
+            "operation_type": "RECEIVE",
+            "site_id": 1,
+            "source_ref": "invoice-rt",
+            "source_document_type": "invoice",
+            "lines": [{"line_number": 1, "item_id": 1, "qty": "1"}],
+        }
+
+        result = self.api.create_operation_from_source_document(
+            payload, return_response=True,
+        )
+
+        self.assertEqual(result, ({"id": "op-1"}, {"X-Request-Id": "rid-1"}))
+        self.mock_client.post.assert_called_once_with(
+            "/operations/from-source-document",
+            json=payload,
+            acting_user_id=None,
+            acting_site_id=None,
+            extra_headers=None,
+            return_response=True,
+        )
+
 
 class AssetsAPITests(SimpleTestCase):
     def setUp(self) -> None:
