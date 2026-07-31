@@ -20,6 +20,7 @@ from apps.bff_api.operations_enricher import (
     _get_user_labels,
     enrich_operation,
 )
+from apps.sync_client.api_error_response import api_error_response
 from apps.sync_client.exceptions import (
     SyncBackendUnavailable,
     SyncServerAPIError,
@@ -386,7 +387,7 @@ class OperationSubmitView(LoginRequiredMixin, View):
         except SyncBackendUnavailable as exc:
             return _operation_outcome_unknown(exc, request)
         except SyncServerAPIError as exc:
-            return _handle_sync_error(exc)
+            return api_error_response(exc)
 
 
 class OperationCancelView(LoginRequiredMixin, View):

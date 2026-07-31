@@ -118,6 +118,10 @@ class BffApiViewMethodTests(TestCase):
         self.assertEqual(body["data"]["status"], "submitted")
 
     def test_operations_submit_sync_conflict_409_preserves_detail(self) -> None:
+        # New submit contract (TZ-SYNCSERVER §8.2, §9.3): the submit endpoint
+        # passes the SyncServer payload through unchanged (problem envelope or
+        # legacy {"detail": ...}) instead of wrapping it in
+        # {"ok": False, "error": {...}}. `detail` stays a string.
         from apps.sync_client.exceptions import SyncConflictError
 
         detail_message = "SKU «М0001789» уже занят. Укажите другой SKU или оставьте поле пустым для автоматической генерации."
@@ -137,9 +141,49 @@ class BffApiViewMethodTests(TestCase):
 
         self.assertEqual(response.status_code, 409)
         body = response.json()
-        self.assertFalse(body["ok"])
-        self.assertEqual(body["error"]["code"], "conflict")
-        self.assertEqual(body["error"]["message"], detail_message)
+        self.assertEqual(body, {"detail": detail_message})
+
+    def test_operations_submit_domain_envelope_passed_through(self) -> None:
+        # Domain problem envelope (ADR-0025 §1): BFF forwards the whole payload
+        # (errors[], code, trace_id) so Angular can render the error surface.
+        from apps.sync_client.exceptions import SyncConflictError
+
+        envelope = {
+            "type": "urn:warehouse:problem:operation-submit-rejected",
+            "title": "Операция не может быть проведена",
+            "status": 409,
+            "code": "operation_submit_rejected",
+            "detail": "Недостаточно товара: Кабель — запрошено 120, на складе 80.",
+            "instance": "/api/v1/operations/op1/submit",
+            "trace_id": "trace-123",
+            "errors": [
+                {
+                    "code": "insufficient_stock",
+                    "scope": "line_group",
+                    "operation_line_ids": [101, 104],
+                    "item": {"id": 17, "name": "Кабель ВВГ 3×2.5"},
+                    "stock_site": {"id": 2, "name": "Склад Чита"},
+                    "required_qty": "120.000",
+                    "available_qty": "80.000",
+                }
+            ],
+        }
+        mock_api = Mock()
+        mock_api.submit_operation.side_effect = SyncConflictError(
+            "Недостаточно товара",
+            status_code=409,
+            payload=envelope,
+        )
+
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations/op1/submit",
+                data=json.dumps({"submit": True}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json(), envelope)
 
     def test_operations_list_forwards_item_ids_filter(self) -> None:
         mock_api = Mock()
