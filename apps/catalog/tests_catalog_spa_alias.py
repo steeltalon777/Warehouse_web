@@ -47,11 +47,12 @@ class CatalogSpaAliasBaseTestCase(TestCase):
         cls._spa_dir.cleanup()
         super().tearDownClass()
 
-    def create_user(self, username: str, *, role: str = "observer"):
+    def create_user(self, username: str, *, role: str = "observer", is_superuser: bool = False):
         user = get_user_model().objects.create_user(
             username=username,
             password="testpass123",
             is_active=True,
+            is_superuser=is_superuser,
         )
         SyncUserBinding.objects.create(
             user=user,
@@ -173,7 +174,7 @@ class CatalogSpaAliasAuthTests(CatalogSpaAliasBaseTestCase):
         self.assertNotIn("/login/", response.headers.get("Location", ""))
 
     def test_root_can_open_nomenclature(self) -> None:
-        user = self.create_user("root_catalog_manager", role="root")
+        user = self.create_user("root_catalog_manager", role="root", is_superuser=True)
         self.force_login_with_role(user)
 
         response = self.client.get("/nomenclature/")
