@@ -38,6 +38,39 @@ class ApiErrorResponseTests(SimpleTestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(json.loads(response.content), payload)
 
+    def test_cancel_envelope_dict_detail_passed_through(self) -> None:
+        # ADR-0027: cancel-flow envelope (dict detail with errors[]) must be
+        # forwarded by api_error_response as-is, without ok/error wrapping.
+        envelope = {
+            "type": "urn:warehouse:problem:operation-cancel-rejected",
+            "title": "Операция не может быть отменена",
+            "status": 409,
+            "code": "operation_cancel_rejected",
+            "detail": "Недостаточно товара: Кабель ВВГ 3×2.5 — запрошено 2, на складе 0. Всего проблемных групп: 1.",
+            "instance": "/api/v1/operations/op1/cancel",
+            "errors": [
+                {
+                    "code": "insufficient_stock",
+                    "scope": "line_group",
+                    "operation_line_ids": [101],
+                    "item": {"id": 17, "name": "Кабель ВВГ 3×2.5"},
+                    "stock_site": {"id": 2, "name": "Склад Чита"},
+                    "required_qty": "2.000",
+                    "available_qty": "0.000",
+                }
+            ],
+        }
+        exc = SyncConflictError(
+            "Недостаточно товара",
+            status_code=409,
+            payload=envelope,
+        )
+
+        response = api_error_response(exc)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(json.loads(response.content), envelope)
+
     def test_http_status_preserved_and_none_falls_back(self) -> None:
         exc = SyncConflictError("conflict", status_code=409, payload={"detail": "conflict"})
         self.assertEqual(api_error_response(exc).status_code, 409)
@@ -98,7 +131,7 @@ class OtherSubmitEndpointsSnapshotTests(SimpleTestCase):
         "OperationDetailView": "_handle_sync_error",
         "OperationEffectiveAtView": "_handle_sync_error",
         "OperationSubmitView": "api_error_response",
-        "OperationCancelView": "_handle_sync_error",
+        "OperationCancelView": "api_error_response",
         "OperationRestoreView": "_handle_sync_error",
         "OperationFromSourceDocumentView": "_handle_sync_error",
         "OperationAcceptLinesView": "_handle_sync_error",

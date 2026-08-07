@@ -409,6 +409,157 @@ class BffApiViewMethodTests(TestCase):
         warm_cache.assert_called_once()
 
 
+class BffApiCancelViewTests(TestCase):
+    """BFF OperationCancelView behaviour for SyncServer domain errors.
+
+    TZ-OPERATION_CANCEL_DOMAIN_ERRORS §7.1 / §13.2: cancel endpoint forwards
+    the SyncServer problem envelope (dict detail) as-is via api_error_response,
+    while backend-unavailable and permission checks keep existing behaviour.
+    """
+
+    def setUp(self) -> None:
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            username="bff_cancel_root",
+            password="pass12345",
+            is_superuser=True,
+            is_staff=True,
+            is_active=True,
+        )
+        self.plain_user = user_model.objects.create_user(
+            username="bff_cancel_plain",
+            password="pass12345",
+            is_superuser=False,
+            is_staff=False,
+            is_active=True,
+        )
+        self.client.force_login(self.user)
+
+    def test_operations_cancel_409_preserves_status_and_envelope(self) -> None:
+        from apps.sync_client.exceptions import SyncConflictError
+
+        envelope = {
+            "type": "urn:warehouse:problem:operation-cancel-rejected",
+            "title": "Операция не может быть отменена",
+            "status": 409,
+            "code": "operation_cancel_rejected",
+            "detail": "Недостаточно товара: Кабель ВВГ 3×2.5 — запрошено 2, на складе 0. Всего проблемных групп: 1.",
+            "instance": "/api/v1/operations/op1/cancel",
+            "trace_id": "trace-cancel-1",
+            "errors": [
+                {
+                    "code": "insufficient_stock",
+                    "scope": "line_group",
+                    "operation_line_ids": [101],
+                    "item": {"id": 17, "name": "Кабель ВВГ 3×2.5"},
+                    "stock_site": {"id": 2, "name": "Склад Чита"},
+                    "required_qty": "2.000",
+                    "available_qty": "0.000",
+                }
+            ],
+        }
+        mock_api = Mock()
+        mock_api.cancel_operation.side_effect = SyncConflictError(
+            "Недостаточно товара",
+            status_code=409,
+            payload=envelope,
+        )
+
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations/op1/cancel",
+                data=json.dumps({"cancel": True}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json(), envelope)
+
+    def test_operations_cancel_403_string_detail(self) -> None:
+        from apps.sync_client.exceptions import SyncForbiddenError
+
+        detail_message = "Доступ запрещён."
+        mock_api = Mock()
+        mock_api.cancel_operation.side_effect = SyncForbiddenError(
+            detail_message,
+            status_code=403,
+            payload={"detail": detail_message},
+        )
+
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations/op1/cancel",
+                data=json.dumps({"cancel": True}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json(), {"detail": detail_message})
+
+    def test_operations_cancel_422_validation_error(self) -> None:
+        from apps.sync_client.exceptions import SyncValidationError
+
+        mock_api = Mock()
+        mock_api.cancel_operation.side_effect = SyncValidationError(
+            "cancel must be true",
+            status_code=422,
+            payload={"detail": "cancel must be true"},
+        )
+
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations/op1/cancel",
+                data=json.dumps({"cancel": False}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json(), {"detail": "cancel must be true"})
+
+    def test_operations_cancel_storekeeper_only(self) -> None:
+        self.client.force_login(self.plain_user)
+
+        response = self.client.post(
+            "/bff/api/v1/operations/op1/cancel",
+            data=json.dumps({"cancel": True}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json(),
+            {"ok": False, "error": {"code": "forbidden", "message": "Access denied"}},
+        )
+
+    def test_operations_cancel_unauthenticated_redirect(self) -> None:
+        self.client.logout()
+
+        response = self.client.post(
+            "/bff/api/v1/operations/op1/cancel",
+            data=json.dumps({"cancel": True}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/login/", response.url)
+
+    def test_operations_cancel_happy_path(self) -> None:
+        mock_api = Mock()
+        mock_api.cancel_operation.return_value = ({"id": "op1", "status": "cancelled"}, {})
+
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.post(
+                "/bff/api/v1/operations/op1/cancel",
+                data=json.dumps({"cancel": True}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["status"], "cancelled")
+
+
 class BffApiCatalogBatchTests(TestCase):
     def setUp(self) -> None:
         user_model = get_user_model()

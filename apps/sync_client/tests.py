@@ -6,10 +6,16 @@ from __future__ import annotations
 
 from unittest.mock import Mock, patch
 
+import httpx
 from django.test import SimpleTestCase
 
 from .assets_api import AssetsAPI
 from .client import SyncServerClient
+from .exceptions import (
+    SyncConflictError,
+    SyncForbiddenError,
+    SyncValidationError,
+)
 from .issue_objects_api import IssueObjectsAPI
 from .issue_object_categories_api import IssueObjectCategoriesAPI
 from .operations_api import OperationsAPI
@@ -656,3 +662,105 @@ class IssueObjectsTreeAPITests(SimpleTestCase):
         result = self.api.get_tree()
 
         self.assertEqual(result, [])
+
+
+class SyncServerClientRaiseForResponseTests(SimpleTestCase):
+    """Tests for ``SyncServerClient._raise_for_response`` message extraction.
+
+    TZ-OPERATION_CANCEL_DOMAIN_ERRORS §7.3: dict ``detail`` (SyncServer problem
+    envelope) must be unwrapped into a readable ``exc.message`` instead of a
+    Python-repr of the whole dict. ``exc.payload`` keeps the full sanitized body.
+    """
+
+    def setUp(self) -> None:
+        self.client = SyncServerClient.__new__(SyncServerClient)
+
+    @staticmethod
+    def _response(status_code: int, body: dict) -> httpx.Response:
+        return httpx.Response(
+            status_code,
+            json=body,
+            request=httpx.Request("POST", "http://sync.test/api/v1/operations/op1/cancel"),
+        )
+
+    def test_dict_detail_message_used_as_exc_message(self) -> None:
+        body = {
+            "detail": {
+                "message": "Недостаточно товара: Кабель ВВГ 3×2.5 — запрошено 2, на складе 0.",
+                "code": "operation_cancel_rejected",
+            }
+        }
+
+        with self.assertRaises(SyncConflictError) as ctx:
+            self.client._raise_for_response(
+                self._response(409, body), method="POST", path="/operations/op1/cancel"
+            )
+
+        exc = ctx.exception
+        self.assertEqual(str(exc), "Недостаточно товара: Кабель ВВГ 3×2.5 — запрошено 2, на складе 0.")
+        self.assertNotEqual(str(exc), str(body.get("detail")))
+        self.assertEqual(exc.status_code, 409)
+        self.assertEqual(exc.payload, body)
+
+    def test_dict_detail_without_message_falls_back_to_nested_detail(self) -> None:
+        body = {
+            "detail": {
+                "detail": "Недостаточно товара на складе 0",
+                "code": "operation_cancel_rejected",
+            }
+        }
+
+        with self.assertRaises(SyncConflictError) as ctx:
+            self.client._raise_for_response(
+                self._response(409, body), method="POST", path="/operations/op1/cancel"
+            )
+
+        exc = ctx.exception
+        self.assertEqual(str(exc), "Недостаточно товара на складе 0")
+        self.assertEqual(exc.payload, body)
+
+    def test_dict_detail_without_message_or_detail_keeps_full_payload(self) -> None:
+        body = {"detail": {"code": "operation_cancel_rejected"}}
+
+        with self.assertRaises(SyncConflictError) as ctx:
+            self.client._raise_for_response(
+                self._response(409, body), method="POST", path="/operations/op1/cancel"
+            )
+
+        exc = ctx.exception
+        self.assertEqual(exc.payload, body)
+        self.assertTrue(str(exc))
+
+    def test_string_detail_keeps_plain_message(self) -> None:
+        body = {"detail": "operation is already cancelled"}
+
+        with self.assertRaises(SyncConflictError) as ctx:
+            self.client._raise_for_response(
+                self._response(409, body), method="POST", path="/operations/op1/cancel"
+            )
+
+        exc = ctx.exception
+        self.assertEqual(str(exc), "operation is already cancelled")
+        self.assertEqual(exc.payload, body)
+
+    def test_dict_detail_forbidden_maps_to_sync_forbidden(self) -> None:
+        body = {"detail": {"message": "Доступ запрещён.", "code": "role_not_permitted"}}
+
+        with self.assertRaises(SyncForbiddenError) as ctx:
+            self.client._raise_for_response(
+                self._response(403, body), method="POST", path="/operations/op1/cancel"
+            )
+
+        self.assertEqual(str(ctx.exception), "Доступ запрещён.")
+        self.assertEqual(ctx.exception.payload, body)
+
+    def test_dict_detail_validation_error_maps_to_sync_validation(self) -> None:
+        body = {"detail": {"message": "cancel must be true"}}
+
+        with self.assertRaises(SyncValidationError) as ctx:
+            self.client._raise_for_response(
+                self._response(422, body), method="POST", path="/operations/op1/cancel"
+            )
+
+        self.assertEqual(str(ctx.exception), "cancel must be true")
+        self.assertEqual(ctx.exception.payload, body)

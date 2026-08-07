@@ -130,7 +130,14 @@ class SyncServerClient:
     ) -> None:
         payload = self._extract_payload(response)
         sanitized = sanitize_payload(payload)
-        message = str(sanitized.get("detail") or "SyncServer error")
+        detail = sanitized.get("detail")
+        if isinstance(detail, dict):
+            # SyncServer problem-envelope case: detail is a structured object.
+            message = detail.get("message") or detail.get("detail") or str(detail) or "SyncServer error"
+        elif isinstance(detail, str):
+            message = detail or "SyncServer error"
+        else:
+            message = str(detail or "SyncServer error")
         status_code = response.status_code
 
         self._log_error(

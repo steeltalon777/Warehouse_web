@@ -414,7 +414,7 @@ class OperationCancelView(LoginRequiredMixin, View):
         except SyncBackendUnavailable as exc:
             return _operation_outcome_unknown(exc, request)
         except SyncServerAPIError as exc:
-            return _handle_sync_error(exc)
+            return api_error_response(exc)
 
 
 class OperationRestoreView(LoginRequiredMixin, View):
