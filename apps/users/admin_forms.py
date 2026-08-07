@@ -32,6 +32,9 @@ MANAGED_ROLE_CHOICES = [
     (Role.CHIEF_STOREKEEPER, "Главный кладовщик"),
     (Role.STOREKEEPER, "Кладовщик"),
     (Role.OBSERVER, "Обозреватель"),
+    # TZ-AGENT_ROLE_ADMIN_UI §3.3.B: agent (LLM) is assignable through Django admin
+    # (ADR-0030 §1, §4.3; TZ-AGENT-ROLE-SYNCSERVER §1.2).
+    (Role.AGENT, "LLM-агент"),
 ]
 
 
@@ -54,7 +57,9 @@ class SyncManagedUserAdminForm(UserChangeForm):
     site_ids = forms.MultipleChoiceField(
         label="Склады",
         choices=[],
-        required=True,
+        # TZ-AGENT_ROLE_ADMIN_UI §3.3.B: site_ids are optional for agent.
+        # The non-agent "at least one site" rule lives in clean() below.
+        required=False,
         widget=ScrollableCheckboxSelectMultiple,
         help_text="Выберите один или несколько складов, к которым привязан пользователь.",
     )
@@ -108,10 +113,17 @@ class SyncManagedUserAdminForm(UserChangeForm):
             raise ValidationError("Роль обязательна.")
         if role == Role.ROOT:
             raise ValidationError("Root-пользователи не управляются через Django-admin.")
-        if not site_ids_list:
+
+        # TZ-AGENT_ROLE_ADMIN_UI §3.3.B: agent is global, scope-independent
+        # (ADR-0030 §4.3, TZ-AGENT-ROLE-SYNCSERVER §4.3). site_ids are
+        # optional for agent — the SyncServer UserRole literal accepts
+        # `default_site_id=null` (verified during rev.2 of the SyncServer TZ).
+        is_agent_role = role == Role.AGENT
+
+        if not is_agent_role and not site_ids_list:
             raise ValidationError("Нужно выбрать хотя бы один склад.")
 
-        default_site_id = site_ids_list[0]
+        default_site_id = site_ids_list[0] if site_ids_list else None
 
         self.instance.username = cleaned_data.get("username") or self.instance.username
         self.instance.email = cleaned_data.get("email") or ""

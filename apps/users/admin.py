@@ -513,6 +513,10 @@ class SyncManagedUserAdmin(BaseUserAdmin):
         "sync_role_display",
         "sync_status_display",
     )
+    # TZ-AGENT_ROLE_ADMIN_UI §3.3.E: surface the new ``agent`` role (and the
+    # other SyncServer roles) in the changelist sidebar so root operators
+    # can quickly filter to ``role=agent`` accounts.
+    list_filter = ("sync_binding__sync_role", "is_active", "is_superuser")
     search_fields = ("username", "email")
     ordering = ("username",)
 

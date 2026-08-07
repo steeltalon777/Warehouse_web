@@ -39,6 +39,16 @@ ROLE_SCOPE_MAP: dict[str, dict[str, bool]] = {
         "can_operate": False,
         "can_manage_catalog": False,
     },
+    # TZ-AGENT_ROLE_ADMIN_UI §3.3.C: agent is scope-independent (ADR-0030
+    # §4.3, TZ-AGENT-ROLE-SYNCSERVER §4.3). The mapping keeps a placeholder
+    # permissions dict for consistency, but real scopes for agent are sent
+    # as an empty list (see build_scopes below and SyncServer PUT
+    # `/admin/users/{id}/scopes` accepting `{"scopes": []}`).
+    Role.AGENT: {
+        "can_view": True,
+        "can_operate": False,
+        "can_manage_catalog": True,
+    },
 }
 
 
@@ -60,6 +70,11 @@ class UserSyncService:
         return response.get("sites", []) if isinstance(response, dict) else []
 
     def build_scopes(self, role: str, site_ids: list[str]) -> list[dict[str, Any]]:
+        # TZ-AGENT_ROLE_ADMIN_UI §3.3.C: empty site_ids produce empty scopes.
+        # SyncServer PUT `/admin/users/{id}/scopes` accepts `{"scopes": []}`
+        # (verified during TZ-AGENT-ROLE-SYNCSERVER rev.2).
+        if not site_ids:
+            return []
         permissions = ROLE_SCOPE_MAP[role]
         return [
             {
@@ -88,7 +103,12 @@ class UserSyncService:
             "is_active": user.is_active,
             "is_root": False,
             "role": role,
-            "default_site_id": self._normalize_site_id(default_site_id),
+            # TZ-AGENT_ROLE_ADMIN_UI §3.3.C: agent sends `default_site_id=null`.
+            # _normalize_site_id(None) returns str(None)=="None" which is wrong;
+            # we short-circuit when the value is missing.
+            "default_site_id": (
+                self._normalize_site_id(default_site_id) if default_site_id else None
+            ),
         }
         scopes_payload = {
             "scopes": self.build_scopes(role, site_ids),
@@ -162,7 +182,10 @@ class UserSyncService:
             "is_active": user.is_active,
             "is_root": False,
             "role": role,
-            "default_site_id": self._normalize_site_id(default_site_id),
+            # TZ-AGENT_ROLE_ADMIN_UI §3.3.C: agent sends `default_site_id=null`.
+            "default_site_id": (
+                self._normalize_site_id(default_site_id) if default_site_id else None
+            ),
         }
         sync_user_response = self.client.post("/auth/sync-user", json=sync_user_payload)
 

@@ -67,6 +67,17 @@ def is_observer(user):
     return user.is_authenticated and _get_role(user) == "observer"
 
 
+def is_agent(user):
+    """TZ-AGENT_ROLE_ADMIN_UI §3.3.D: agent (LLM) identity (ADR-0030 §1).
+
+    Unlike ``is_chief_storekeeper`` / ``is_storekeeper`` / ``is_observer``,
+    a Django superuser is NOT considered an agent — it remains root.
+    Agent is its own non-root domain identity and the helper is symmetric
+    with the SyncServer `Identity.is_agent` predicate.
+    """
+    return user.is_authenticated and _get_role(user) == "agent"
+
+
 def can_manage_catalog(user):
     return is_root(user) or is_chief_storekeeper(user)
 

@@ -38,6 +38,10 @@ class Role(models.TextChoices):
     CHIEF_STOREKEEPER = "chief_storekeeper", "Chief Storekeeper"
     STOREKEEPER = "storekeeper", "Storekeeper"
     OBSERVER = "observer", "Observer"
+    # TZ-AGENT_ROLE_ADMIN_UI §3.3.A: agent (LLM) is a global, scope-independent
+    # SyncServer role (ADR-0030 §1, §4.3). Django uses this enum purely to drive
+    # the admin form choices — actual authorization is decided by SyncServer.
+    AGENT = "agent", "LLM Agent"
 
 
 class SyncStatus(models.TextChoices):
