@@ -1981,3 +1981,122 @@ class BffApiOperationsCorrelationTests(TestCase):
         call_kwargs = mock_api.list_operations_page.call_args.kwargs
         filters = call_kwargs.get("filters") or {}
         self.assertEqual(filters.get("client_request_id"), "lookup-key-001")
+
+
+class CatalogItemsResolvePruneTests(TestCase):
+    """T6: resolve-view pruning of non-active cache rows.
+
+    The BFF resolve endpoint performs best-effort deactivation of cache rows
+    for resolve results with status in {missing, deleted, inactive, merged}.
+    Pruning must never change the response or break the request.
+    """
+
+    url = "/bff/api/v1/catalog/read/items/resolve"
+
+    def setUp(self) -> None:
+        from django.utils import timezone
+
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            username="bff_resolve_root",
+            password="pass12345",
+            is_superuser=True,
+            is_staff=True,
+            is_active=True,
+        )
+        self.client.force_login(self.user)
+        self.now = timezone.now()
+
+    def _create_cached(self, sync_id: str, *, is_active: bool = True) -> None:
+        from apps.catalog_cache.models import CatalogCacheItem
+
+        CatalogCacheItem.objects.create(
+            sync_id=sync_id,
+            name=f"Item {sync_id}",
+            sku=f"SKU-{sync_id}",
+            search_text=f"item {sync_id}",
+            is_active=is_active,
+            synced_at=self.now,
+        )
+
+    def _post(self, item_ids):
+        return self.client.post(
+            self.url,
+            data=json.dumps({"item_ids": item_ids}),
+            content_type="application/json",
+        )
+
+    def test_non_active_statuses_deactivate_cached_rows(self) -> None:
+        from apps.catalog_cache.models import CatalogCacheItem
+
+        for sid in ("m1", "d2", "i3", "g4"):
+            self._create_cached(sid, is_active=True)
+
+        results = [
+            {"requested_id": "m1", "status": "missing"},
+            {"requested_id": "d2", "status": "deleted"},
+            {"requested_id": "i3", "status": "inactive"},
+            {"requested_id": "g4", "status": "merged", "canonical_item_id": "g9"},
+        ]
+        mock_client = Mock()
+        with patch("apps.bff_api.catalog_views.resolve_items", return_value=results):
+            response = self._post(["m1", "d2", "i3", "g4"])
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+        for sid in ("m1", "d2", "i3", "g4"):
+            self.assertFalse(CatalogCacheItem.objects.get(sync_id=sid).is_active)
+
+    def test_active_status_does_not_touch_cache_row(self) -> None:
+        from apps.catalog_cache.models import CatalogCacheItem
+
+        self._create_cached("a5", is_active=True)
+        results = [{"requested_id": "a5", "status": "active", "item": {}}]
+        mock_client = Mock()
+        with patch("apps.bff_api.catalog_views.resolve_items", return_value=results):
+            response = self._post(["a5"])
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(CatalogCacheItem.objects.get(sync_id="a5").is_active)
+
+    def test_unknown_id_is_safe(self) -> None:
+        results = [{"requested_id": "nope", "status": "missing"}]
+        mock_client = Mock()
+        with patch("apps.bff_api.catalog_views.resolve_items", return_value=results):
+            response = self._post(["nope"])
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+
+    def test_prune_exception_does_not_break_200(self) -> None:
+        from apps.catalog_cache.models import CatalogCacheItem
+
+        self._create_cached("x7", is_active=True)
+        results = [{"requested_id": "x7", "status": "deleted"}]
+        mock_client = Mock()
+        with (
+            patch("apps.bff_api.catalog_views.resolve_items", return_value=results),
+            patch(
+                "apps.bff_api.catalog_views.CatalogCacheSyncService.deactivate_item",
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            response = self._post(["x7"])
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["results"], results)
+        self.assertTrue(CatalogCacheItem.objects.get(sync_id="x7").is_active)
+
+    def test_validation_errors_return_400(self) -> None:
+        self.assertEqual(self._post([]).status_code, 400)
+        self.assertEqual(
+            self.client.post(
+                self.url,
+                data=json.dumps({"item_ids": "not-a-list"}),
+                content_type="application/json",
+            ).status_code,
+            400,
+        )
+        self.assertEqual(self._post(list(range(501))).status_code, 400)

@@ -809,6 +809,39 @@ class CatalogCachedCategorySearchView(LoginRequiredMixin, View):
         return _ok({"results": results})
 
 
+_PRUNE_STATUSES = {"missing", "deleted", "inactive", "merged"}
+
+
+def _prune_resolved_cache(results: list[dict]) -> None:
+    """Best-effort deactivation of cache rows for non-active resolve results.
+
+    Never raises: caching is a side-effect and must not change the resolve
+    response or break the request. ``active`` rows are intentionally left alone
+    (upsert of active rows is out of scope).
+    """
+    service = CatalogCacheSyncService()
+    deactivated = 0
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        if result.get("status") not in _PRUNE_STATUSES:
+            continue
+        # SyncServer resolve results echo the requested id under `requested_id`.
+        request_id = result.get("requested_id") or result.get("request_id")
+        if not request_id:
+            continue
+        try:
+            deactivated += service.deactivate_item(request_id)
+        except Exception:  # noqa: BLE001 — pruning must never break the resolve response
+            logger.exception(
+                "catalog_cache_prune_failed",
+                request_id=request_id,
+                status=result.get("status"),
+            )
+    if deactivated > 0:
+        logger.info("catalog_cache_resolve_pruned", deactivated=deactivated)
+
+
 class CatalogItemsResolveView(LoginRequiredMixin, View):
     """BFF resolver endpoint (TZ §4.3 / C4).
 
@@ -841,6 +874,9 @@ class CatalogItemsResolveView(LoginRequiredMixin, View):
             results = resolve_items(client, item_ids)
         except SyncServerAPIError as exc:
             return _handle_sync_error(exc)
+
+        _prune_resolved_cache(results)
+
         return _ok({"results": results})
 
 

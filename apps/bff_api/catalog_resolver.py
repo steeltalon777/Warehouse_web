@@ -29,7 +29,8 @@ def resolve_items(
     Returns one dict per requested ID, preserving input order. Each result
     carries the fields documented in TZ §4.3:
 
-    - ``request_id`` (echo of the input)
+    - ``requested_id`` (echo of the input id, as returned by the SyncServer
+      resolve response)
     - ``status`` — one of ``active``, ``merged``, ``inactive``, ``deleted``, ``missing``
     - ``canonical_item_id`` — present when ``status == "merged"``
     - ``item`` — present when ``status in {"active", "merged"}`` and the canonical

@@ -363,6 +363,39 @@ class CatalogCacheSyncServiceTests(TestCase):
         self.assertEqual(items[0]["unit_id"], "8")
         self.assertEqual(items[0]["unit_symbol"], "л")
 
+    def test_search_excludes_deactivated_items(self) -> None:
+        now = timezone.now()
+        CatalogCacheItem.objects.create(
+            sync_id="201",
+            name="Активное сверло",
+            sku="DRL-201",
+            search_text="сверло drl-201 инструмент",
+            category_id="3",
+            category_name="Инструмент",
+            unit_symbol="шт",
+            is_active=True,
+            source_updated_at=now,
+            synced_at=now,
+        )
+        CatalogCacheItem.objects.create(
+            sync_id="202",
+            name="Деактивированное сверло",
+            sku="DRL-202",
+            search_text="сверло drl-202 инструмент",
+            category_id="3",
+            category_name="Инструмент",
+            unit_symbol="шт",
+            is_active=False,
+            source_updated_at=now,
+            synced_at=now,
+        )
+
+        items = CatalogLookupService().search_items("сверло", limit=10)
+
+        result_ids = {i["id"] for i in items}
+        self.assertIn(201, result_ids)
+        self.assertNotIn(202, result_ids)
+
 
 class CatalogCacheRebuildActionTests(TestCase):
     """The SSR admin button now reports fetched/upserted/deactivated/duration."""
