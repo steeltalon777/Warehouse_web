@@ -16,7 +16,8 @@ class ItemMovementView(LoginRequiredMixin, View):
             client = _build_client(request)
             params: dict[str, str] = {}
             for key in ("site_id", "item_id", "category_id", "search",
-                        "date_from", "date_to", "page", "page_size"):
+                        "date_from", "date_to", "page", "page_size",
+                        "exclude_system_effects"):
                 val = request.GET.get(key)
                 if val is not None:
                     params[key] = val
