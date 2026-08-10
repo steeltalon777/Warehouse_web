@@ -101,3 +101,14 @@ urlpatterns = [
 
     path("", RedirectView.as_view(url="/client/", permanent=False)),
 ]
+
+# ---- PRODUCTION STATIC FILES FALLBACK ----
+# Whitenoise is configured but not intercepting; serve /static/ directly
+# via Django until Whitenoise is debugged.
+import re
+from django.conf import settings
+from django.views.static import serve as static_serve
+from django.urls import re_path
+urlpatterns += [
+    re_path(r"^static/(?P<path>.*)$", static_serve, {"document_root": settings.STATIC_ROOT}),
+]
