@@ -7,3 +7,4 @@ psycopg2-binary>=2.9.9,<2.10
 django-braces>=1.16,<2
 weasyprint>=66,<67
 structlog>=25.5,<26
+jsonschema>=4.23,<5

@@ -9,12 +9,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
+import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any
 
+import jsonschema
 import structlog
 from django.conf import settings
 from django.core.cache import cache
@@ -539,3 +547,376 @@ def get_cached_or_render(document_id: str, payload_hash: str) -> bytes | None:
     if cached is not None:
         return cached[0]
     return None
+
+
+# =====================================================================
+# QDE (Quartermaster Document Engine) integration — Phase 6A service layer
+# =====================================================================
+# ADR-0032 D1-D8 + TZ-QDE_INTEGRATION_READINESS §6.5/§7. Service layer only:
+# no view wiring, no artifact persistence, no legacy fallback. QDE is invoked
+# strictly through its CLI subprocess (no in-process QDE imports, ADR-0032 D3).
+
+QDE_ENGINE_CONTRACT_VERSION = "1.0.0"
+QDE_LOCALE = "ru-RU"
+QDE_RENDER_PROFILE = "print"
+QDE_OUTPUT_FORMAT = "pdf"
+QDE_TIMEOUT_RETRY_AFTER_SECONDS = 5
+
+# Bundled copy of the canonical QDE envelope schema (TZ §7.3):
+# QuartermasterDocumentEngine/contracts/envelope/v1/envelope.schema.json
+QDE_ENVELOPE_SCHEMA_PATH = Path(__file__).parent / "qde" / "envelope_v1.schema.json"
+with QDE_ENVELOPE_SCHEMA_PATH.open("r", encoding="utf-8") as _schema_file:
+    ENVELOPE_SCHEMA = json.load(_schema_file)
+
+# Subprocess env whitelist (TZ §7.2/§9.2): exactly these keys. Values come from
+# Django settings or fixed defaults; Django secrets are never passed through.
+QDE_SUBPROCESS_ENV_KEYS = (
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "QM_TEMPLATES_DIR",
+    "QM_TYPST_BINARY",
+    "QM_FONTS_DIR",
+    "TYPST_TIMESTAMP",
+)
+
+_TEMPLATE_ID_SAFE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_TEMPLATE_VERSION_SAFE_PATTERN = re.compile(r"^[0-9]+\.[0-9]+(\.[0-9]+)?$")
+
+
+class QdeRenderError(Exception):
+    """Base class for QDE render failures (ADR-0032 D8 / TZ §7.4).
+
+    Carries the QDE error code, details and the HTTP status mapping so a later
+    phase can translate failures to responses without touching this layer.
+    """
+
+    code: str = "RENDER_FAILED"
+    http_status: int = 500
+    retry_after: int | None = None
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        details: Any = None,
+        http_status: int | None = None,
+        retry_after: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.code = code or self.code
+        self.details = details
+        self.http_status = http_status or self.http_status
+        self.retry_after = retry_after if retry_after is not None else self.retry_after
+
+
+class QdeValidationError(QdeRenderError):
+    """Envelope/payload validation failure (HTTP 400 semantics)."""
+
+    code = "INVALID_PAYLOAD"
+    http_status = 400
+
+
+class QdeUnsupportedContractError(QdeRenderError):
+    """Unsupported engine/document contract or output format (HTTP 400)."""
+
+    code = "UNSUPPORTED_ENGINE_CONTRACT"
+    http_status = 400
+
+
+class QdeTemplateError(QdeRenderError):
+    """Template not installed / version not installed (HTTP 503)."""
+
+    code = "TEMPLATE_NOT_INSTALLED"
+    http_status = 503
+
+
+class QdeTemplateContractMismatchError(QdeRenderError):
+    """Template does not satisfy the envelope document_contract (HTTP 422)."""
+
+    code = "TEMPLATE_CONTRACT_MISMATCH"
+    http_status = 422
+
+
+class QdeBackendUnavailableError(QdeRenderError):
+    """Render backend missing/unavailable, incl. missing binary (HTTP 503)."""
+
+    code = "BACKEND_NOT_AVAILABLE"
+    http_status = 503
+
+
+class QdeFontError(QdeRenderError):
+    """Required bundled font not available (HTTP 503)."""
+
+    code = "FONT_NOT_AVAILABLE"
+    http_status = 503
+
+
+class QdeAssetError(QdeRenderError):
+    """Requested asset not available in the template package (HTTP 422)."""
+
+    code = "ASSET_NOT_AVAILABLE"
+    http_status = 422
+
+
+class QdeRenderFailedError(QdeRenderError):
+    """Generic render failure (HTTP 500)."""
+
+    code = "RENDER_FAILED"
+    http_status = 500
+
+
+class QdeTimeoutError(QdeRenderError):
+    """Subprocess timed out (HTTP 503 + retry_after semantics)."""
+
+    code = "SUBPROCESS_TIMEOUT"
+    http_status = 503
+    retry_after = 5
+
+
+# TZ §7.4: QDE stderr error code → Django wrapper exception class.
+QDE_STDERR_CODE_TO_EXCEPTION: dict[str, type[QdeRenderError]] = {
+    "INVALID_PAYLOAD": QdeValidationError,
+    "UNSUPPORTED_ENGINE_CONTRACT": QdeUnsupportedContractError,
+    "UNSUPPORTED_DOCUMENT_CONTRACT": QdeUnsupportedContractError,
+    "UNSUPPORTED_OUTPUT_FORMAT": QdeUnsupportedContractError,
+    "TEMPLATE_NOT_INSTALLED": QdeTemplateError,
+    "TEMPLATE_VERSION_NOT_INSTALLED": QdeTemplateError,
+    "TEMPLATE_CONTRACT_MISMATCH": QdeTemplateContractMismatchError,
+    "BACKEND_NOT_AVAILABLE": QdeBackendUnavailableError,
+    "FONT_NOT_AVAILABLE": QdeFontError,
+    "ASSET_NOT_AVAILABLE": QdeAssetError,
+    "RENDER_FAILED": QdeRenderFailedError,
+}
+
+
+@dataclass(frozen=True)
+class QdeRenderResult:
+    """Outcome of a successful QDE render (Phase 6A: no artifact persistence)."""
+
+    pdf_bytes: bytes
+    exit_code: int
+    stderr_message: str
+    elapsed_seconds: float
+    page_count: int | None = None
+
+
+def build_qde_subprocess_env() -> dict[str, str]:
+    """Build the deterministic QDE subprocess environment (TZ §7.2/§9.2).
+
+    Whitelist only: PATH/LANG/LC_ALL come from os.environ or fixed defaults;
+    QM_* and TYPST_TIMESTAMP come from Django settings. Django secrets
+    (SECRET_KEY, DATABASE_URL, SYNC_*_TOKEN, ...) are never passed through.
+    """
+    return {
+        "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+        "QM_TEMPLATES_DIR": str(getattr(settings, "QM_TEMPLATES_DIR", "")),
+        "QM_TYPST_BINARY": str(getattr(settings, "QM_TYPST_BINARY", "")),
+        "QM_FONTS_DIR": str(getattr(settings, "QM_FONTS_DIR", "")),
+        "TYPST_TIMESTAMP": str(getattr(settings, "TYPST_TIMESTAMP", "1700000000")),
+    }
+
+
+def build_qde_envelope(
+    document: dict[str, Any],
+    *,
+    template_map: Mapping[str, tuple[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Build a canonical QDE envelope from a SyncServer document dict.
+
+    Normalization rules (ADR-0032 D1/D2/D5, TZ §7.1):
+    - document_type defaults to "waybill"; locale "ru-RU"; render_profile "print";
+      engine_contract_version is fixed at QDE_ENGINE_CONTRACT_VERSION.
+    - document_contract comes from settings.QDE_DOCUMENT_CONTRACT.
+    - (template_id, template_version) are resolved ONLY through `template_map`
+      (default: settings.DOCUMENT_TEMPLATE_MAP). Values from the document dict
+      never influence template resolution (SEC-10 mitigation). Mapped values
+      are additionally checked against a safe pattern.
+    - envelope.document = document["payload"], which must be a dict
+      (missing/malformed payload → QdeValidationError).
+    - document_id/document_number are copied from the document dict when present.
+
+    The resulting envelope is validated against the bundled QDE envelope schema
+    (apps/documents/qde/envelope_v1.schema.json); validation failure raises
+    QdeValidationError (HTTP 400 semantics, TZ §7.3).
+
+    `template_map` may be overridden for tests/operator tooling; the production
+    path uses the settings default.
+    """
+    if not isinstance(document, dict):
+        raise QdeValidationError("document must be a dict.")
+    document_type = _text(document.get("document_type")) or "waybill"
+
+    resolution_map = (
+        template_map if template_map is not None else getattr(settings, "DOCUMENT_TEMPLATE_MAP", {})
+    )
+    try:
+        template_id, template_version = resolution_map[document_type]
+    except (KeyError, TypeError):
+        raise QdeValidationError(f"No QDE template mapping for document_type {document_type!r}.") from None
+    _validate_template_reference(template_id, template_version)
+
+    payload = document.get("payload")
+    if not isinstance(payload, dict):
+        raise QdeValidationError("Document payload is missing or malformed: expected a dict.")
+
+    envelope: dict[str, Any] = {
+        "engine_contract_version": QDE_ENGINE_CONTRACT_VERSION,
+        "document_contract": getattr(settings, "QDE_DOCUMENT_CONTRACT", "warehouse.operation-document/v2"),
+        "document_type": document_type,
+        "template_id": template_id,
+        "template_version": template_version,
+        "locale": QDE_LOCALE,
+        "render_profile": QDE_RENDER_PROFILE,
+        "document": payload,
+    }
+    document_id = _text(document.get("id"))
+    if document_id:
+        envelope["document_id"] = document_id
+    document_number = _text(document.get("document_number"))
+    if document_number:
+        envelope["document_number"] = document_number
+
+    try:
+        jsonschema.validate(envelope, ENVELOPE_SCHEMA)
+    except jsonschema.ValidationError as exc:
+        raise QdeValidationError(f"Envelope validation failed: {exc.message}") from exc
+
+    return envelope
+
+
+def _validate_template_reference(template_id: Any, template_version: Any) -> None:
+    """Reject unsafe template identifiers from the allowlist map (SEC-10)."""
+    if (
+        not isinstance(template_id, str)
+        or not _TEMPLATE_ID_SAFE_PATTERN.fullmatch(template_id)
+        or ".." in template_id
+    ):
+        raise QdeValidationError(f"Unsafe template_id {template_id!r} in template map.")
+    if not isinstance(template_version, str) or not _TEMPLATE_VERSION_SAFE_PATTERN.fullmatch(template_version):
+        raise QdeValidationError(f"Unsafe template_version {template_version!r} in template map.")
+
+
+def render_via_qde(
+    document: dict[str, Any] | None = None,
+    *,
+    template_map: Mapping[str, tuple[str, str]] | None = None,
+    envelope: dict[str, Any] | None = None,
+) -> QdeRenderResult:
+    """Render a document PDF through the QDE CLI subprocess.
+
+    Invocation (TZ §7.2, ADR-0032 D3/D8): argv-only, shell=False, private temp
+    dir via tempfile.mkdtemp(prefix="qde-", dir="/tmp") with mode 0700, whitelist
+    env (build_qde_subprocess_env), timeout from settings.QDE_SUBPROCESS_TIMEOUT_SECONDS,
+    cleanup in `finally`. A pre-built envelope may be passed instead of a document
+    dict (tests/operator tooling); the public entry builds the envelope itself.
+
+    QDE failures are NEVER silently replaced by the legacy renderer: any failure
+    raises the mapped QdeRenderError subclass (TZ §7.4); timeout raises
+    QdeTimeoutError (503 semantics); missing binary raises QdeBackendUnavailableError.
+    """
+    if envelope is None:
+        if document is None:
+            raise QdeValidationError("render_via_qde requires a document dict or a pre-built envelope.")
+        envelope = build_qde_envelope(document, template_map=template_map)
+
+    workdir = tempfile.mkdtemp(prefix="qde-", dir=tempfile.gettempdir())
+    os.chmod(workdir, 0o700)
+    envelope_path = os.path.join(workdir, "envelope.json")
+    output_path = os.path.join(workdir, "output.pdf")
+    argv = [
+        "python",
+        "-m",
+        "qm_cli.main",
+        "render",
+        "--input",
+        envelope_path,
+        "--output",
+        output_path,
+        "--format",
+        QDE_OUTPUT_FORMAT,
+    ]
+    timeout = float(getattr(settings, "QDE_SUBPROCESS_TIMEOUT_SECONDS", 15))
+    try:
+        with open(envelope_path, "w", encoding="utf-8") as envelope_file:
+            json.dump(envelope, envelope_file, ensure_ascii=False)
+
+        started = time.monotonic()
+        try:
+            completed = subprocess.run(
+                argv,
+                capture_output=True,
+                timeout=timeout,
+                env=build_qde_subprocess_env(),
+                check=False,
+                shell=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise QdeTimeoutError(
+                f"QDE render timed out after {timeout:g}s.",
+                details={"timeout_seconds": timeout},
+                retry_after=QDE_TIMEOUT_RETRY_AFTER_SECONDS,
+            ) from exc
+        except OSError as exc:
+            raise QdeBackendUnavailableError(
+                f"QDE subprocess could not be started: {exc}",
+                details={"argv": argv},
+            ) from exc
+        elapsed_seconds = time.monotonic() - started
+
+        stderr_message = (completed.stderr or b"").decode("utf-8", errors="replace").strip()
+        if completed.returncode == 0:
+            if os.path.isfile(output_path) and os.path.getsize(output_path) > 0:
+                with open(output_path, "rb") as pdf_file:
+                    pdf_bytes = pdf_file.read()
+                return QdeRenderResult(
+                    pdf_bytes=pdf_bytes,
+                    exit_code=0,
+                    stderr_message=stderr_message,
+                    elapsed_seconds=elapsed_seconds,
+                    page_count=None,  # pypdf is not a Warehouse_web dependency in Phase 6A
+                )
+            raise QdeRenderFailedError(
+                "QDE exited 0 but produced no PDF output.",
+                details={"exit_code": 0, "stderr": stderr_message},
+            )
+        raise _qde_error_from_stderr(stderr_message, exit_code=completed.returncode)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _qde_error_from_stderr(stderr_message: str, *, exit_code: int) -> QdeRenderError:
+    """Map a non-zero QDE exit to the TZ §7.4 exception hierarchy."""
+    code: str | None = None
+    message = stderr_message or "QDE render failed."
+    details: Any = None
+    parsed: Any = None
+    if stderr_message:
+        try:
+            parsed = json.loads(stderr_message)
+        except json.JSONDecodeError:
+            # QDE may prefix log lines before the final JSON error object.
+            match = re.search(r"\{.*\}", stderr_message, re.DOTALL)
+            if match:
+                try:
+                    parsed = json.loads(match.group(0))
+                except json.JSONDecodeError:
+                    parsed = None
+    if isinstance(parsed, dict):
+        error = parsed.get("error")
+        if isinstance(error, dict):
+            code = error.get("code")
+            if not isinstance(code, str):
+                code = None
+            message = _text(error.get("message")) or message
+            details = error.get("details")
+    exception_class = QDE_STDERR_CODE_TO_EXCEPTION.get(code, QdeRenderFailedError)
+    return exception_class(
+        f"QDE render failed: {message}",
+        code=code,
+        details=details,
+    )

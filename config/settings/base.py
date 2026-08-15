@@ -1,5 +1,6 @@
-from pathlib import Path
 import os
+import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -44,6 +45,51 @@ DOCUMENT_SHIPPER_REQUISITES = os.getenv(
     "мкр. Северный, д.11, база Угдан",
 ).strip()
 DOCUMENT_RENDERER_VERSION = os.getenv("DOCUMENT_RENDERER_VERSION", "waybill-pdf-v3").strip()
+
+# -------------------------------------------------------------------
+# QDE (Quartermaster Document Engine) render integration (Phase 6A)
+# See docs/adr/0032-qde-warehouse-integration-contract.md (D1-D8) and
+# docs/TZ-QDE_INTEGRATION_READINESS.md §6.5/§7/§9.2.
+# -------------------------------------------------------------------
+# Режим рендера: legacy | shadow | qde (Phase 6A default: legacy)
+DOCUMENTS_RENDER_MODE = os.environ.get("DOCUMENTS_RENDER_MODE", "legacy")
+
+# QDE emergency fallback (только для QDE mode; NO silent fallback)
+QDE_EMERGENCY_FALLBACK_ENABLED = (
+    os.environ.get("QDE_EMERGENCY_FALLBACK_ENABLED", "false").lower() == "true"
+)
+
+# QDE subprocess timeout (seconds)
+QDE_SUBPROCESS_TIMEOUT_SECONDS = int(os.environ.get("QDE_SUBPROCESS_TIMEOUT_SECONDS", "15"))
+
+# Canonical mapping document_type → (template_id, template_version).
+# The ONLY source for template resolution (ADR-0032 D5, SEC-10 mitigation);
+# arbitrary template ids from clients are never accepted.
+DOCUMENT_TEMPLATE_MAP = {
+    "waybill": ("warehouse-waybill-ru", "2.0.0"),  # Phase 6C: 2.0.0; 6A service layer only
+    # Phase 7+:
+    # "acceptance_certificate": ("acceptance-certificate-ru", "1.0.0"),
+    # "act": ("write-off-act-ru", "1.0.0"),
+    # "invoice": ("...", "..."),
+}
+
+# QDE document contract family for envelopes (ADR-0032 D1 / TZ §5.2)
+QDE_DOCUMENT_CONTRACT = os.environ.get("QDE_DOCUMENT_CONTRACT", "warehouse.operation-document/v2")
+
+# QDE install location (auto-detected from pip install -e ./QuartermasterDocumentEngine)
+QM_TEMPLATES_DIR = os.environ.get(
+    "QM_TEMPLATES_DIR",
+    str(Path(sys.prefix) / "share" / "quartermaster_document_engine" / "templates"),
+)
+
+# Typst binary (Docker image default: /usr/local/bin/typst, см. ADR-0032 D7).
+# Runtime download Typst запрещён (ADR-0030 D1, ADR-0032 D7).
+QM_TYPST_BINARY = os.environ.get("QM_TYPST_BINARY", "/usr/local/bin/typst")
+
+# Explicit render axis for bundled/pinned fonts; empty = QDE bundled default.
+QM_FONTS_DIR = os.environ.get("QM_FONTS_DIR", "")
+
+TYPST_TIMESTAMP = "1700000000"  # pinned for determinism (TZ §9.2)
 
 # Django auth in this project is a technical admin/staff layer.
 # Warehouse domain users/roles/sites are owned by SyncServer.
