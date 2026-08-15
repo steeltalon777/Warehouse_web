@@ -65,9 +65,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=typst-fetch /usr/local/typst/typst-0.15.1/typst-x86_64-unknown-linux-musl/typst /usr/local/bin/typst
 RUN chmod +x /usr/local/bin/typst && /usr/local/bin/typst --version
 
-# QDE bundled fonts + templates (canonical runtime resources; ADR-0032 D7)
+# QDE bundled fonts + canonical templates (ADR-0032 D7; spike-* templates are
+# dev artifacts and must NOT land in the runtime image).
 COPY QuartermasterDocumentEngine/fonts/ /opt/qde/fonts/
-COPY QuartermasterDocumentEngine/templates/ /opt/qde/templates/
+COPY QuartermasterDocumentEngine/templates/warehouse-waybill-ru /opt/qde/templates/warehouse-waybill-ru
+
+# Deterministic runtime environment (TZ §9.2): no host caches, no network.
+RUN mkdir -p /tmp/xdg
 
 # Installed Python packages from the builder stage, incl. QDE and its
 # share/ resources (templates/fonts/contracts via data-files).
@@ -84,6 +88,8 @@ ENV QM_TEMPLATES_DIR=/opt/qde/templates
 ENV TYPST_TIMESTAMP=1700000000
 ENV DOCUMENTS_RENDER_MODE=legacy
 ENV QDE_EMERGENCY_FALLBACK_ENABLED=false
+ENV HOME=/tmp
+ENV XDG_CACHE_HOME=/tmp/xdg
 
 EXPOSE 8001
 

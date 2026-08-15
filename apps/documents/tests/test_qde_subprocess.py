@@ -79,6 +79,18 @@ def _mkdtemp_fixed(path: str):
     return _mkdtemp
 
 
+def _fake_run_for_stderr_code(code: str):
+    """Build a subprocess.run fake that exits non-zero with the given QDE stderr code."""
+
+    def fake_run(args, **kwargs):
+        return _completed(
+            2 if code in ("INVALID_PAYLOAD", "UNSUPPORTED_ENGINE_CONTRACT", "UNSUPPORTED_DOCUMENT_CONTRACT", "UNSUPPORTED_OUTPUT_FORMAT") else 5,
+            _stderr_for_code(code),
+        )
+
+    return fake_run
+
+
 class RenderViaQdeTests(SimpleTestCase):
     def test_success_returns_pdf_bytes_with_canonical_argv(self) -> None:
         captured: dict = {}
@@ -163,16 +175,13 @@ class RenderViaQdeTests(SimpleTestCase):
         }
 
         for code, (exc_class, http_status) in expected_status.items():
-            with self.subTest(code=code):
-                def fake_run(args, **kwargs):
-                    return _completed(2 if code in ("INVALID_PAYLOAD", "UNSUPPORTED_ENGINE_CONTRACT", "UNSUPPORTED_DOCUMENT_CONTRACT", "UNSUPPORTED_OUTPUT_FORMAT") else 5, _stderr_for_code(code))
-
-                with patch("apps.documents.services.subprocess.run", side_effect=fake_run):
-                    with self.assertRaises(exc_class) as ctx:
-                        render_via_qde(_document())
-                self.assertEqual(ctx.exception.code, code)
-                self.assertEqual(ctx.exception.http_status, http_status)
-                self.assertIn(f"boom {code}", ctx.exception.message)
+            with self.subTest(code=code), patch(
+                "apps.documents.services.subprocess.run", side_effect=_fake_run_for_stderr_code(code)
+            ), self.assertRaises(exc_class) as ctx:
+                render_via_qde(_document())
+            self.assertEqual(ctx.exception.code, code)
+            self.assertEqual(ctx.exception.http_status, http_status)
+            self.assertIn(f"boom {code}", ctx.exception.message)
 
     def test_mapping_table_covers_all_eleven_codes(self) -> None:
         self.assertEqual(
@@ -208,9 +217,8 @@ class RenderViaQdeTests(SimpleTestCase):
         def fake_run(args, **kwargs):
             raise subprocess.TimeoutExpired(cmd=args, timeout=15)
 
-        with patch("apps.documents.services.subprocess.run", side_effect=fake_run):
-            with self.assertRaises(QdeTimeoutError) as ctx:
-                render_via_qde(_document())
+        with patch("apps.documents.services.subprocess.run", side_effect=fake_run), self.assertRaises(QdeTimeoutError) as ctx:
+            render_via_qde(_document())
         self.assertEqual(ctx.exception.http_status, 503)
         self.assertEqual(ctx.exception.retry_after, 5)
         self.assertIsInstance(ctx.exception, QdeRenderError)
@@ -219,9 +227,8 @@ class RenderViaQdeTests(SimpleTestCase):
         def fake_run(args, **kwargs):
             raise FileNotFoundError(2, "No such file or directory", "python")
 
-        with patch("apps.documents.services.subprocess.run", side_effect=fake_run):
-            with self.assertRaises(QdeBackendUnavailableError) as ctx:
-                render_via_qde(_document())
+        with patch("apps.documents.services.subprocess.run", side_effect=fake_run), self.assertRaises(QdeBackendUnavailableError) as ctx:
+            render_via_qde(_document())
         self.assertEqual(ctx.exception.http_status, 503)
         self.assertEqual(ctx.exception.code, "BACKEND_NOT_AVAILABLE")
 
@@ -229,9 +236,8 @@ class RenderViaQdeTests(SimpleTestCase):
         def fake_run(args, **kwargs):
             return _completed(5, b"Traceback ... something broke, not json")
 
-        with patch("apps.documents.services.subprocess.run", side_effect=fake_run):
-            with self.assertRaises(QdeRenderFailedError) as ctx:
-                render_via_qde(_document())
+        with patch("apps.documents.services.subprocess.run", side_effect=fake_run), self.assertRaises(QdeRenderFailedError) as ctx:
+            render_via_qde(_document())
         self.assertEqual(ctx.exception.http_status, 500)
         self.assertIn("not json", ctx.exception.message)
 
@@ -240,9 +246,8 @@ class RenderViaQdeTests(SimpleTestCase):
             stderr = b"2026-08-15 12:00:00 INFO render started\n" + _stderr_for_code("FONT_NOT_AVAILABLE")
             return _completed(4, stderr)
 
-        with patch("apps.documents.services.subprocess.run", side_effect=fake_run):
-            with self.assertRaises(QdeFontError) as ctx:
-                render_via_qde(_document())
+        with patch("apps.documents.services.subprocess.run", side_effect=fake_run), self.assertRaises(QdeFontError) as ctx:
+            render_via_qde(_document())
         self.assertEqual(ctx.exception.code, "FONT_NOT_AVAILABLE")
         self.assertEqual(ctx.exception.http_status, 503)
 
@@ -250,9 +255,8 @@ class RenderViaQdeTests(SimpleTestCase):
         def fake_run(args, **kwargs):
             return _completed(0, b"")
 
-        with patch("apps.documents.services.subprocess.run", side_effect=fake_run):
-            with self.assertRaises(QdeRenderFailedError):
-                render_via_qde(_document())
+        with patch("apps.documents.services.subprocess.run", side_effect=fake_run), self.assertRaises(QdeRenderFailedError):
+            render_via_qde(_document())
 
     def test_prebuilt_envelope_is_used(self) -> None:
         envelope = build_qde_envelope(_document())
@@ -288,11 +292,11 @@ class RenderViaQdeTests(SimpleTestCase):
     def test_temp_dir_removed_after_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workdir = os.path.join(tmp, "qde-work")
-            with patch("apps.documents.services.tempfile.mkdtemp", side_effect=_mkdtemp_fixed(workdir)), \
-                 patch(
-                     "apps.documents.services.subprocess.run",
-                     side_effect=lambda args, **kwargs: _completed(5, _stderr_for_code("RENDER_FAILED")),
-                 ):
-                with self.assertRaises(QdeRenderFailedError):
-                    render_via_qde(_document())
+            with patch(
+                "apps.documents.services.tempfile.mkdtemp", side_effect=_mkdtemp_fixed(workdir)
+            ), patch(
+                "apps.documents.services.subprocess.run",
+                side_effect=lambda args, **kwargs: _completed(5, _stderr_for_code("RENDER_FAILED")),
+            ), self.assertRaises(QdeRenderFailedError):
+                render_via_qde(_document())
             self.assertFalse(os.path.exists(workdir))
