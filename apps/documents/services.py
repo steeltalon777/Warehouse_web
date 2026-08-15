@@ -46,6 +46,24 @@ DEFAULT_RENDERER_VERSION = "waybill-pdf-v3"
 # pagination from logical-row counts to content-aware visual units.
 WAYBILL_LAYOUT_CACHE_VERSION = "layout-v7.1"
 
+# Canonical legacy render axes (TZ-QDE_INTEGRATION_READINESS.md §5.2).
+# Used by the legacy Django/WeasyPrint render path and by Phase 6B backfill
+# of historical artifact rows. engine_version falls back to
+# DEFAULT_RENDERER_VERSION only when the historical renderer_version is empty.
+DEFAULT_LEGACY_AXES = {
+    "engine": "django-legacy",
+    "engine_version": DEFAULT_RENDERER_VERSION,
+    "backend": "weasyprint",
+    # Actual Warehouse_web legacy WeasyPrint version: requirements.txt pins
+    # weasyprint>=66,<67; the dev/stand image installs 66.0.
+    "backend_version": "66.0",
+    "document_contract": "warehouse.operation-document/v2",
+    "template_id": "waybill_v1",
+    "template_version": "1.0",
+    "layout_version": WAYBILL_LAYOUT_CACHE_VERSION,
+    "render_role": "legacy",
+}
+
 # Content-aware waybill capacities (TZ-V3.1I rev. 7).
 # A unit is one visual item-name line. 22/28 are the calibrated first/middle
 # baseline capacities for a one-line name. Last-page capacities reserve its
@@ -120,11 +138,18 @@ def render_document_pdf(document: dict[str, Any], *, force: bool = False) -> Ren
         document_id=identity_dict["document_id"],
         revision=identity_dict["revision"],
         payload_hash=identity_dict["payload_hash"],
-        template_name=identity_dict["template_name"],
+        document_contract=DEFAULT_LEGACY_AXES["document_contract"],
+        template_id=identity_dict["template_id"],
         template_version=identity_dict["template_version"],
-        renderer_version=identity_dict["renderer_version"],
+        engine=DEFAULT_LEGACY_AXES["engine"],
+        engine_version=identity_dict["renderer_version"],
+        backend=DEFAULT_LEGACY_AXES["backend"],
+        backend_version=DEFAULT_LEGACY_AXES["backend_version"],
         defaults={
             "document_type": identity_dict["document_type"],
+            "renderer_version": identity_dict["renderer_version"],
+            "layout_version": DEFAULT_LEGACY_AXES["layout_version"],
+            "render_role": DEFAULT_LEGACY_AXES["render_role"],
             "status": RenderedDocumentArtifact.Status.RENDERING,
         },
     )
@@ -421,7 +446,7 @@ def build_document_pdf_filename(document: dict[str, Any]) -> str:
 def _cache_identity(document: dict[str, Any]) -> dict[str, Any]:
     payload = _payload(document)
     document_type = str(document.get("document_type") or "waybill")
-    template_name = str(document.get("template_name") or f"{document_type}_v1")
+    template_id = str(document.get("template_name") or f"{document_type}_v1")
     template_version = str(document.get("template_version") or "")
     renderer_version = str(getattr(settings, "DOCUMENT_RENDERER_VERSION", DEFAULT_RENDERER_VERSION))
     payload_hash = str(document.get("payload_hash") or _hash_payload(payload))
@@ -430,7 +455,7 @@ def _cache_identity(document: dict[str, Any]) -> dict[str, Any]:
         "revision": int(document.get("revision") or 0),
         "document_type": document_type,
         "payload_hash": payload_hash,
-        "template_name": template_name,
+        "template_id": template_id,
         "template_version": template_version,
         "renderer_version": renderer_version,
     }
@@ -561,6 +586,58 @@ QDE_LOCALE = "ru-RU"
 QDE_RENDER_PROFILE = "print"
 QDE_OUTPUT_FORMAT = "pdf"
 QDE_TIMEOUT_RETRY_AFTER_SECONDS = 5
+
+# Canonical QDE cache namespace (TZ §5.4). Never intersects with the legacy
+# "waybill_pdf:" namespace; the legacy namespace stays untouched for Phase 6D
+# SHADOW and rollback.
+QDE_CACHE_KEY_PREFIX = "qde_pdf:"
+
+
+def build_qde_cache_key(
+    *,
+    document_id: str,
+    revision: int,
+    payload_hash: str,
+    document_contract: str,
+    template_id: str,
+    template_version: str,
+    engine: str,
+    engine_version: str,
+    backend: str,
+    backend_version: str,
+) -> str:
+    """Build the canonical QDE cache key from the full render identity.
+
+    Canonical format (TZ §5.4):
+        qde_pdf:{document_id}:{revision}:{payload_hash}:{document_contract}:
+        {template_id}@{template_version}:{engine}@{engine_version}:
+        {backend}@{backend_version}
+
+    Every identity axis is mandatory. render_role, status and layout_version
+    are deliberately NOT part of the key.
+    """
+    return (
+        f"{QDE_CACHE_KEY_PREFIX}{document_id}:{revision}:{payload_hash}:{document_contract}:"
+        f"{template_id}@{template_version}:{engine}@{engine_version}:{backend}@{backend_version}"
+    )
+
+
+def build_legacy_waybill_cache_key(
+    *,
+    document_id: str,
+    payload_hash: str,
+    renderer_version: str,
+    template_version: str,
+) -> str:
+    """Build the legacy cache key (TZ §5.4), unchanged for backward compat.
+
+        waybill_pdf:{document_id}:{payload_hash}:{renderer_version}:
+        {template_version}:layout-v7.1
+    """
+    return (
+        f"{CACHE_KEY_PREFIX}{document_id}:{payload_hash}:{renderer_version}:"
+        f"{template_version}:{WAYBILL_LAYOUT_CACHE_VERSION}"
+    )
 
 # Bundled copy of the canonical QDE envelope schema (TZ §7.3):
 # QuartermasterDocumentEngine/contracts/envelope/v1/envelope.schema.json
