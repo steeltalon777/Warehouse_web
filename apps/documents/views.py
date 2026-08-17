@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
+import structlog
+from django.conf import settings
 from django.contrib import messages
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect
@@ -10,9 +12,11 @@ from django.utils.http import content_disposition_header
 from django.views import View
 
 from apps.common.mixins import SyncContextMixin
-from apps.documents.services import DocumentPdfRenderError, build_document_pdf_filename, render_document_pdf
+from apps.documents.services import DocumentPdfRenderError, build_document_pdf_filename, render_document_pdf, render_shadow_pdf
 from apps.sync_client.documents_api import DocumentsAPI
 from apps.sync_client.exceptions import SyncServerAPIError
+
+logger = structlog.get_logger()
 
 
 DOCUMENT_TYPE_LABELS = {
@@ -74,6 +78,17 @@ class DocumentPdfView(SyncContextMixin, View):
         except DocumentPdfRenderError as exc:
             messages.error(request, str(exc) or "Не удалось сформировать PDF.")
             return redirect("operations_spa")
+
+        # Phase 6D SHADOW: attempt QDE shadow render (best-effort, never blocks response).
+        render_mode = getattr(settings, "DOCUMENTS_RENDER_MODE", "legacy")
+        if render_mode == "shadow":
+            try:
+                render_shadow_pdf(document)
+            except Exception:
+                logger.exception(
+                    "shadow_render_failed",
+                    document_id=document_id,
+                )
 
         download = str(request.GET.get("download") or "").lower() in {"1", "true", "yes"}
         filename = build_document_pdf_filename(document)

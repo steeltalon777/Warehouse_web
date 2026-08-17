@@ -8,6 +8,7 @@ payload: HTML render context and cached PDF bytes.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
@@ -997,3 +998,179 @@ def _qde_error_from_stderr(stderr_message: str, *, exit_code: int) -> QdeRenderE
         code=code,
         details=details,
     )
+
+
+# =====================================================================
+# Phase 6D: SHADOW integration — shadow render + structural comparison
+# =====================================================================
+# TZ-QDE_INTEGRATION_READINESS §6.3/§10.4. Shadow mode: QDE renders
+# alongside legacy; shadow artifact persisted; structural comparison
+# available for operator commands. USER RESPONSE = LEGACY PDF always.
+
+
+def render_shadow_pdf(document: dict[str, Any]) -> RenderedDocumentResult | None:
+    """Attempt QDE shadow render + artifact persistence.
+
+    Returns RenderedDocumentResult on success, None on any failure.
+    NEVER raises — shadow path is best-effort by design (TZ §6.3).
+
+    Shadow artifacts are immutable once READY: same identity never overwrites
+    an existing READY shadow artifact's PDF/hash/render_role.
+    """
+    identity = _cache_identity(document)
+
+    # Check for existing READY shadow artifact (immutable).
+    existing = RenderedDocumentArtifact.objects.filter(
+        document_id=identity["document_id"],
+        revision=identity["revision"],
+        payload_hash=identity["payload_hash"],
+        engine="qde",
+        render_role="shadow",
+        status=RenderedDocumentArtifact.Status.READY,
+    ).first()
+    if existing is not None:
+        pdf_bytes = _read_artifact_pdf(existing)
+        if pdf_bytes:
+            return RenderedDocumentResult(artifact=existing, pdf_bytes=pdf_bytes, cache_hit=True)
+        # PDF file missing/corrupt — fall through to re-render.
+
+    # --- QDE render ---
+    try:
+        qde_result = render_via_qde(document)
+    except Exception as exc:
+        logger.warning(
+            "shadow_qde_render_failed",
+            document_id=identity["document_id"],
+            error=str(exc),
+        )
+        return None
+
+    pdf_bytes = qde_result.pdf_bytes
+    if not pdf_bytes:
+        logger.warning(
+            "shadow_qde_empty_output",
+            document_id=identity["document_id"],
+        )
+        return None
+
+    pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+
+    # --- Build QDE identity axes ---
+    template_map = getattr(settings, "DOCUMENT_TEMPLATE_MAP", {})
+    document_type = str(document.get("document_type") or "waybill")
+    try:
+        template_id, template_version = template_map[document_type]
+    except (KeyError, TypeError):
+        template_id, template_version = "unknown", "0.0.0"
+
+    # --- Persist shadow artifact ---
+    try:
+        artifact, created = RenderedDocumentArtifact.objects.get_or_create(
+            document_id=identity["document_id"],
+            revision=identity["revision"],
+            payload_hash=identity["payload_hash"],
+            document_contract=getattr(settings, "QDE_DOCUMENT_CONTRACT", "warehouse.operation-document/v2"),
+            template_id=template_id,
+            template_version=template_version,
+            engine="qde",
+            engine_version=QDE_ENGINE_CONTRACT_VERSION,
+            backend="typst",
+            backend_version="0.15.1",
+            defaults={
+                "document_type": document_type,
+                "renderer_version": identity["renderer_version"],
+                "render_role": "shadow",
+                "status": RenderedDocumentArtifact.Status.RENDERING,
+            },
+        )
+
+        if not created and artifact.status == RenderedDocumentArtifact.Status.READY:
+            # Already persisted — immutable, don't overwrite.
+            pdf_bytes = _read_artifact_pdf(artifact) or b""
+            return RenderedDocumentResult(artifact=artifact, pdf_bytes=pdf_bytes, cache_hit=True)
+
+        # Save PDF file to shadow storage (separate from legacy).
+        filename = f"documents/pdf/shadow/{identity['document_id']}_{identity['payload_hash']}.pdf"
+        artifact.pdf_file.save(filename, ContentFile(pdf_bytes), save=False)
+
+        artifact.status = RenderedDocumentArtifact.Status.READY
+        artifact.pdf_sha256 = pdf_sha256
+        artifact.size_bytes = len(pdf_bytes)
+        artifact.rendered_at = timezone.now()
+        artifact.last_error = ""
+        artifact.save(update_fields=[
+            "status", "pdf_sha256", "size_bytes", "rendered_at",
+            "last_error", "pdf_file", "updated_at",
+        ])
+
+        return RenderedDocumentResult(artifact=artifact, pdf_bytes=pdf_bytes, cache_hit=False)
+
+    except Exception as exc:
+        logger.warning(
+            "shadow_persistence_failed",
+            document_id=identity["document_id"],
+            error=str(exc),
+        )
+        return None
+
+
+def _read_artifact_pdf(artifact: RenderedDocumentArtifact) -> bytes | None:
+    """Read PDF bytes from artifact's file field. Returns None on failure."""
+    try:
+        if artifact.pdf_file:
+            return artifact.pdf_file.read()
+    except Exception:
+        pass
+    return None
+
+
+def compare_pdf_structural(pdf_a: bytes, pdf_b: bytes) -> dict[str, Any]:
+    """Compare two PDFs structurally: page count, media box, sha256.
+
+    Uses pypdf for PDF inspection. If pypdf is unavailable, returns
+    sha-only comparison with page_count_match/media_box_match = None.
+    """
+    result: dict[str, Any] = {
+        "legacy_sha256": hashlib.sha256(pdf_a).hexdigest(),
+        "shadow_sha256": hashlib.sha256(pdf_b).hexdigest(),
+    }
+    result["sha_match"] = result["legacy_sha256"] == result["shadow_sha256"]
+
+    try:
+        from pypdf import PdfReader
+
+        reader_a = PdfReader(io.BytesIO(pdf_a))
+        reader_b = PdfReader(io.BytesIO(pdf_b))
+
+        result["legacy_page_count"] = len(reader_a.pages)
+        result["shadow_page_count"] = len(reader_b.pages)
+        result["page_count_match"] = result["legacy_page_count"] == result["shadow_page_count"]
+
+        # Media box comparison (first page).
+        if reader_a.pages and reader_b.pages:
+            mb_a = reader_a.pages[0].mediabox
+            mb_b = reader_b.pages[0].mediabox
+            result["legacy_media_box"] = [float(v) for v in mb_a]
+            result["shadow_media_box"] = [float(v) for v in mb_b]
+            result["media_box_match"] = result["legacy_media_box"] == result["shadow_media_box"]
+        else:
+            result["legacy_media_box"] = None
+            result["shadow_media_box"] = None
+            result["media_box_match"] = False
+    except ImportError:
+        result["legacy_page_count"] = None
+        result["shadow_page_count"] = None
+        result["page_count_match"] = None
+        result["legacy_media_box"] = None
+        result["shadow_media_box"] = None
+        result["media_box_match"] = None
+    except Exception as exc:
+        result["legacy_page_count"] = None
+        result["shadow_page_count"] = None
+        result["page_count_match"] = None
+        result["legacy_media_box"] = None
+        result["shadow_media_box"] = None
+        result["media_box_match"] = None
+        result["error"] = str(exc)
+
+    return result
