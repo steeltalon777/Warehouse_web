@@ -707,20 +707,33 @@ class CatalogCachedItemSearchView(LoginRequiredMixin, View):
         try:
             client = _build_client(request)
             balances_api = BalancesAPI(client=client)
+            # Collect all item IDs and do a single targeted balance read
+            item_ids = [str(item.get("id", "")) for item in items if item.get("id")]
+            if not item_ids:
+                return items
+
+            balance_qty_map: dict[str, str] = {}
+            try:
+                # Use targeted item_ids filter (up to 200 per request)
+                for chunk_start in range(0, len(item_ids), 200):
+                    chunk = item_ids[chunk_start:chunk_start + 200]
+                    balance_data = balances_api.list_balances(
+                        filters={"site_id": source_site_id, "item_ids": ",".join(chunk)}
+                    )
+                    balance_items = balance_data.get("items", []) if isinstance(balance_data, dict) else []
+                    for bi in balance_items:
+                        bi_item_id = str(bi.get("item_id") or bi.get("resolved_item_id") or "")
+                        if bi_item_id:
+                            balance_qty_map[bi_item_id] = str(bi.get("qty", "0"))
+            except Exception:
+                logger.warning("balance_bulk_fetch_failed", exc_info=True)
+                # Fall back to no enrichment rather than false zeros
+                return items
+
             enriched: list[dict[str, Any]] = []
             for item in items:
-                item_id = item.get("id", "")
-                balance_qty = "0"
-                if item_id:
-                    try:
-                        balance_data = balances_api.list_balances(
-                            filters={"site_id": source_site_id, "item_id": item_id}
-                        )
-                        balance_items = balance_data.get("items", []) if isinstance(balance_data, dict) else []
-                        if balance_items:
-                            balance_qty = str(balance_items[0].get("qty", "0"))
-                    except Exception:
-                        logger.warning("balance_fetch_failed", item_id=item_id, exc_info=True)
+                item_id = str(item.get("id", ""))
+                balance_qty = balance_qty_map.get(item_id, "0")
                 enriched.append({
                     **item,
                     "source_site_id": source_site_id,

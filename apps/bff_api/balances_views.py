@@ -21,7 +21,7 @@ class BalancesView(LoginRequiredMixin, View):
         try:
             api = _balances(request)
             params = _extract_pagination(request)
-            for key in ("site_id", "item_id", "category_id", "search", "only_positive"):
+            for key in ("site_id", "item_id", "item_ids", "category_id", "search", "only_positive"):
                 val = request.GET.get(key)
                 if val is not None:
                     params[key] = val

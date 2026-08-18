@@ -26,6 +26,9 @@ def resolve_items(
 ) -> list[dict[str, Any]]:
     """Resolve a batch of item IDs through the authoritative SyncServer endpoint.
 
+    Chunks requests into <=100 IDs per SyncServer call (SyncServer limit)
+    and combines results preserving input order.
+
     Returns one dict per requested ID, preserving input order. Each result
     carries the fields documented in TZ §4.3:
 
@@ -42,20 +45,42 @@ def resolve_items(
     if not item_ids:
         return []
 
-    payload = {"item_ids": [str(i) for i in item_ids]}
-    response = client.post("/catalog/read/items/resolve", json=payload)
-    if isinstance(response, dict):
-        items = response.get("items")
-        if isinstance(items, list):
-            return items
-    logger.warning(
-        "catalog_resolver_unexpected_payload",
-        payload_type=type(response).__name__,
-        exc_info=True,
-    )
-    raise SyncServerAPIError(
-        "Catalog resolver returned unexpected payload",
-        status_code=502,
-        method="POST",
-        path="/catalog/read/items/resolve",
-    )
+    SYNC_CHUNK_SIZE = 100  # SyncServer ItemsResolveRequest.item_ids max_length
+
+    all_results: list[dict[str, Any]] = []
+    str_ids = [str(i) for i in item_ids]
+
+    for chunk_start in range(0, len(str_ids), SYNC_CHUNK_SIZE):
+        chunk = str_ids[chunk_start:chunk_start + SYNC_CHUNK_SIZE]
+        payload = {"item_ids": chunk}
+        response = client.post("/catalog/read/items/resolve", json=payload)
+        if isinstance(response, dict):
+            items = response.get("items")
+            if isinstance(items, list):
+                all_results.extend(items)
+            else:
+                logger.warning(
+                    "catalog_resolver_unexpected_payload",
+                    payload_type=type(response).__name__,
+                    exc_info=True,
+                )
+                raise SyncServerAPIError(
+                    "Catalog resolver returned unexpected payload",
+                    status_code=502,
+                    method="POST",
+                    path="/catalog/read/items/resolve",
+                )
+        else:
+            logger.warning(
+                "catalog_resolver_unexpected_payload",
+                payload_type=type(response).__name__,
+                exc_info=True,
+            )
+            raise SyncServerAPIError(
+                "Catalog resolver returned unexpected payload",
+                status_code=502,
+                method="POST",
+                path="/catalog/read/items/resolve",
+            )
+
+    return all_results
