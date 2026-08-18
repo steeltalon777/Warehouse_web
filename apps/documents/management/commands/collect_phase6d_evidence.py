@@ -279,7 +279,9 @@ class Command(BaseCommand):
             pages_match = structural.get("page_count_match")
             media_box_match = structural.get("media_box_match")
 
-            if sha_equal and pages_match and media_box_match and text_ok:
+            # Contract: MATCH if pages + text + media_box all match.
+            # SHA inequality between Typst and WeasyPrint is diagnostic only.
+            if pages_match and text_ok and media_box_match:
                 verdict = "MATCH"
             elif not text_ok or not pages_match:
                 # Page count difference is a structural divergence that needs

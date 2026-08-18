@@ -69,7 +69,6 @@ class Command(BaseCommand):
             self.stdout.write("No comparable legacy/shadow pairs found.")
             return
 
-        sha_match_count = 0
         structural_match_count = 0
 
         for legacy, shadow in pairs:
@@ -86,15 +85,15 @@ class Command(BaseCommand):
             legacy_sha = hashlib.sha256(legacy_pdf).hexdigest()
             shadow_sha = hashlib.sha256(shadow_pdf).hexdigest()
             sha_matches = legacy_sha == shadow_sha
-            if sha_matches:
-                sha_match_count += 1
 
             structural = compare_pdf_structural(legacy_pdf, shadow_pdf)
             structural_matches = structural.get("page_count_match") and structural.get("media_box_match")
             if structural_matches:
                 structural_match_count += 1
 
-            status = "MATCH" if sha_matches else "MISMATCH"
+            # Contract: MATCH if structural (pages + media_box) matches.
+            # SHA inequality between different engines is diagnostic only.
+            status = "MATCH" if structural_matches else "MISMATCH"
             self.stdout.write(
                 f"[{status}] doc={legacy.document_id} rev={legacy.revision} "
                 f"legacy_sha={legacy_sha[:12]} shadow_sha={shadow_sha[:12]} "
@@ -102,12 +101,10 @@ class Command(BaseCommand):
                 f"media_box_match={structural.get('media_box_match')}"
             )
 
-        match_ratio = sha_match_count / total if total else 0.0
         structural_ratio = structural_match_count / total if total else 0.0
 
         self.stdout.write(
             f"\nTotal pairs: {total}\n"
-            f"SHA match ratio: {sha_match_count}/{total} = {match_ratio:.2%}\n"
             f"Structural match ratio: {structural_match_count}/{total} = {structural_ratio:.2%}"
         )
 

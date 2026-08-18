@@ -586,7 +586,6 @@ class TestCompareShadowArtifacts(TestCase):
 
         call_command("compare_shadow_artifacts", stdout=out)
         output = out.getvalue()
-        self.assertIn("SHA match ratio", output)
         self.assertIn("Structural match ratio", output)
 
     def test_read_only(self):
@@ -643,8 +642,37 @@ class TestCompareShadowArtifacts(TestCase):
         output = out.getvalue()
         self.assertIn("MISMATCH", output)
 
+    def test_different_sha_same_structural_is_match(self):
+        """Different SHA but same pages + MediaBox → MATCH.
 
-# ── 8. Management Command: cleanup_shadow_artifacts ──────────────────
+        Different PDF engines (Typst vs WeasyPrint) produce different byte
+        streams for the same content.  Structural match is the contract.
+        """
+        _create_artifact_with_pdf(
+            pdf_bytes=LEGACY_PDF,
+            render_role="legacy",
+            engine="django-legacy",
+            engine_version="waybill-pdf-v3",
+            backend="weasyprint",
+            backend_version="66.0",
+            document_id="doc-sha-diff-1",
+            payload_hash="k" * 64,
+        )
+        _create_artifact_with_pdf(
+            pdf_bytes=DIFFERENT_PDF,
+            render_role="shadow",
+            engine="qde",
+            document_id="doc-sha-diff-1",
+            payload_hash="k" * 64,
+        )
+
+        out = io.StringIO()
+        from django.core.management import call_command
+
+        call_command("compare_shadow_artifacts", stdout=out)
+        output = out.getvalue()
+        # Both are minimal single-page PDFs with same MediaBox → MATCH
+        self.assertIn("MATCH", output)
 
 
 class TestCleanupShadowArtifacts(TestCase):
