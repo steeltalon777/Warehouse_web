@@ -11,13 +11,12 @@ import json
 import time
 
 import structlog
-from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from apps.sync_client.client import get_sync_client
+from apps.sync_client.client import SyncServerClient
 
 logger = structlog.get_logger()
 
@@ -38,6 +37,10 @@ ALLOWED_EVENT_TYPES = frozenset({
     "response_processing_failed",
     "navigation_away_with_unsaved",
     "unexpected_error",
+    "draft_autosaved",
+    "draft_restored",
+    "draft_lost",
+    "draft_cleared",
 })
 
 
@@ -109,21 +112,19 @@ def diagnostics_batch_view(request: HttpRequest) -> JsonResponse:
         except ValueError:
             cache.set(cache_key, 1, RATE_LIMIT_WINDOW_SEC)
 
-    # 4. Proxy to SyncServer
-    sync_url = settings.SYNC_SERVER_URL.rstrip("/") + "/api/v1/diagnostics/ui-events/batch"
-    forward_headers = {
-        "Content-Type": "application/json",
-        "X-User-Token": request.headers.get("X-User-Token", ""),
-        "X-Client-Session-Id": request.headers.get("X-Client-Session-Id", ""),
-    }
-    request_id = request.headers.get("X-Request-Id") or request.META.get("HTTP_X_REQUEST_ID", "")
-    if request_id:
-        forward_headers["X-Request-Id"] = request_id
+    # 4. Proxy to SyncServer via canonical SyncServerClient
+    extra_headers = {}
+    session_id = request.headers.get("X-Client-Session-Id")
+    if session_id:
+        extra_headers["X-Client-Session-Id"] = session_id
 
     try:
-        client = get_sync_client()
-        response = client.post(sync_url, content=raw, headers=forward_headers, timeout=10)
-        response.raise_for_status()
+        client = SyncServerClient(request=request)
+        client.post(
+            "/diagnostics/ui-events/batch",
+            json=payload,
+            extra_headers=extra_headers,
+        )
     except Exception as exc:  # httpx.HTTPError, connection errors, etc.
         logger.warning("diagnostics_proxy_failed", error=str(exc)[:200])
         # Per contract §5.4: do not retry on the client, do not fail the
