@@ -1124,11 +1124,29 @@ def _read_artifact_pdf(artifact: RenderedDocumentArtifact) -> bytes | None:
     return None
 
 
+_MEDIA_BOX_TOLERANCE_PT = 0.1  # 0.1 pt ≈ 0.035 mm — sub-pixel rounding tolerance
+
+
+def _media_box_equivalent(mb_a: list[float], mb_b: list[float], *, tol: float = _MEDIA_BOX_TOLERANCE_PT) -> bool:
+    """Return True if two MediaBox values represent the same physical page geometry.
+
+    Different PDF engines may round coordinate values at different precision.
+    A tolerance of 0.1 pt is far below the threshold of any visible difference
+    (1 pt ≈ 0.35 mm, so 0.1 pt ≈ 0.035 mm).
+    """
+    if len(mb_a) != len(mb_b):
+        return False
+    return all(abs(a - b) <= tol for a, b in zip(mb_a, mb_b))
+
+
 def compare_pdf_structural(pdf_a: bytes, pdf_b: bytes) -> dict[str, Any]:
     """Compare two PDFs structurally: page count, media box, sha256.
 
     Uses pypdf for PDF inspection. If pypdf is unavailable, returns
     sha-only comparison with page_count_match/media_box_match = None.
+
+    MediaBox comparison uses a tolerance of 0.1 pt to handle sub-pixel
+    rounding differences between Typst and WeasyPrint engines.
     """
     result: dict[str, Any] = {
         "legacy_sha256": hashlib.sha256(pdf_a).hexdigest(),
@@ -1146,13 +1164,13 @@ def compare_pdf_structural(pdf_a: bytes, pdf_b: bytes) -> dict[str, Any]:
         result["shadow_page_count"] = len(reader_b.pages)
         result["page_count_match"] = result["legacy_page_count"] == result["shadow_page_count"]
 
-        # Media box comparison (first page).
+        # Media box comparison (first page) with tolerance.
         if reader_a.pages and reader_b.pages:
-            mb_a = reader_a.pages[0].mediabox
-            mb_b = reader_b.pages[0].mediabox
-            result["legacy_media_box"] = [float(v) for v in mb_a]
-            result["shadow_media_box"] = [float(v) for v in mb_b]
-            result["media_box_match"] = result["legacy_media_box"] == result["shadow_media_box"]
+            mb_a = [float(v) for v in reader_a.pages[0].mediabox]
+            mb_b = [float(v) for v in reader_b.pages[0].mediabox]
+            result["legacy_media_box"] = mb_a
+            result["shadow_media_box"] = mb_b
+            result["media_box_match"] = _media_box_equivalent(mb_a, mb_b)
         else:
             result["legacy_media_box"] = None
             result["shadow_media_box"] = None

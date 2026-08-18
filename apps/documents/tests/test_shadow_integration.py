@@ -416,6 +416,30 @@ class TestPdfStructuralComparison(TestCase):
         if result["page_count_match"] is not None:
             self.assertFalse(result["page_count_match"])
 
+    def test_media_box_tolerance_subpixel_rounding(self):
+        """MediaBox values that differ by <0.1 pt must be treated as equivalent.
+
+        Different PDF engines (Typst vs WeasyPrint) may round coordinate
+        values at different precision.  A4 portrait is 595.28 × 841.89 pt.
+        """
+        from apps.documents.services import _media_box_equivalent
+
+        # Typical A4 from Typst (high precision)
+        mb_typst = [0.0, 0.0, 595.275591, 841.889764]
+        # Typical A4 from WeasyPrint (rounded)
+        mb_weasy = [0.0, 0.0, 595.2756, 841.8898]
+
+        self.assertTrue(_media_box_equivalent(mb_typst, mb_weasy))
+
+    def test_media_box_mismatch_real_difference(self):
+        """MediaBox values that differ by >0.1 pt must NOT be treated as equivalent."""
+        from apps.documents.services import _media_box_equivalent
+
+        mb_a4 = [0.0, 0.0, 595.276, 841.890]
+        mb_letter = [0.0, 0.0, 612.0, 792.0]
+
+        self.assertFalse(_media_box_equivalent(mb_a4, mb_letter))
+
 
 # ── 6. Shadow Artifact Immutability ──────────────────────────────────
 
