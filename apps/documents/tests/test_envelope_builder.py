@@ -13,7 +13,7 @@ from apps.documents.services import (
 
 DEFAULT_DOCUMENT_TYPE = "waybill"
 MAPPED_TEMPLATE_ID = "warehouse-waybill-ru"
-MAPPED_TEMPLATE_VERSION = "2.0.0"
+MAPPED_TEMPLATE_VERSION = "2.1.0"
 
 
 _MISSING = object()
