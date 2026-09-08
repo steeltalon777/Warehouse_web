@@ -96,6 +96,27 @@ class CategoriesView(LoginRequiredMixin, View):
             return _handle_sync_error(exc)
 
 
+class ItemIdentityCandidatesView(LoginRequiredMixin, View):
+    """GET /catalog/items/identity-candidates — BFF pass-through (ADR-0033).
+
+    Live alive-item identity candidates by normalized name, used for early
+    duplicate feedback in inline temporary_item editing and review screens.
+    """
+
+    def get(self, request):
+        try:
+            api = _catalog(request)
+            params: dict[str, Any] = {"name": request.GET.get("name", "")}
+            for key in ("unit_id", "category_id"):
+                val = request.GET.get(key)
+                if val is not None:
+                    params[key] = val
+            data = api.get_identity_candidates(**params)
+            return _ok(data)
+        except SyncServerAPIError as exc:
+            return _handle_sync_error(exc)
+
+
 class CategoriesTreeView(LoginRequiredMixin, View):
     def get(self, request):
         try:

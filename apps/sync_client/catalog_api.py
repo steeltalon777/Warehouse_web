@@ -440,6 +440,55 @@ class CatalogAPI:
             acting_site_id=acting_site_id,
         )
 
+    def get_identity_candidates(
+        self,
+        name: str,
+        *,
+        unit_id: int | str | None = None,
+        category_id: int | str | None = None,
+        acting_user_id: str | int | None = None,
+        acting_site_id: str | int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get live item identity candidates for early duplicate feedback (ADR-0033).
+
+        Endpoint: GET /catalog/items/identity-candidates
+
+        Args:
+            name: Requested item name (identity key = normalized name)
+            unit_id: Optional unit ID used for EXACT/PARTIAL tier classification
+            category_id: Optional category ID used for EXACT/PARTIAL tier classification
+            acting_user_id: Optional acting user ID override
+            acting_site_id: Optional acting site ID override
+
+        Returns:
+            dict: {"candidates": [...]} with alive candidate items, each carrying
+                id/name/sku/unit/category/is_active/requires_review/match.
+
+        Raises:
+            SyncAPIError: If the API request fails
+        """
+        params: dict[str, Any] = {"name": name}
+        if unit_id is not None:
+            params["unit_id"] = unit_id
+        if category_id is not None:
+            params["category_id"] = category_id
+
+        response = self.client.get(
+            "/catalog/items/identity-candidates",
+            params=params,
+            acting_user_id=acting_user_id,
+            acting_site_id=acting_site_id,
+        )
+        if isinstance(response, dict):
+            return response
+        logger.warning(
+            "unexpected_response_format",
+            endpoint="/catalog/items/identity-candidates",
+            response_type=type(response).__name__,
+        )
+        return {"candidates": []}
+
     def list_units(
         self,
         filters: Optional[dict[str, Any]] = None,

@@ -52,6 +52,7 @@ audit_patterns = [
 
 catalog_read_patterns = [
     path("catalog/items", catalog_views.ItemsView.as_view(), name="catalog_items"),
+    path("catalog/items/identity-candidates", catalog_views.ItemIdentityCandidatesView.as_view(), name="catalog_identity_candidates"),
     path("catalog/items/<int:item_id>", catalog_views.ItemReadView.as_view(), name="catalog_item_read"),
     path("catalog/categories", catalog_views.CategoriesView.as_view(), name="catalog_categories"),
     path("catalog/categories/tree", catalog_views.CategoriesTreeView.as_view(), name="catalog_categories_tree"),

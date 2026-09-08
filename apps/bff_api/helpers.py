@@ -170,6 +170,7 @@ def _handle_sync_error(exc: SyncServerAPIError) -> JsonResponse:
         "retry_safe",
         "lines",
         "operation_id",
+        "candidates",
     ):
         if passthrough_key in payload:
             error_body[passthrough_key] = payload[passthrough_key]
@@ -184,6 +185,7 @@ def _handle_sync_error(exc: SyncServerAPIError) -> JsonResponse:
             "retry_safe",
             "lines",
             "operation_id",
+            "candidates",
         ):
             if passthrough_key in detail_obj and passthrough_key not in error_body:
                 error_body[passthrough_key] = detail_obj[passthrough_key]
