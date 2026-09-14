@@ -158,6 +158,88 @@ class BffApiBalanceEnrichmentTests(TestCase):
         self.assertNotIn("balance_qty", enriched[0])
 
 
+class BffApiAuthoritativeSearchTests(TestCase):
+    """Stage 3a proof: `consistency=authoritative` never serves stale cache rows.
+
+    The fast path may legitimately return `catalog_cache_item` rows that the
+    authoritative catalog no longer has (the cache has no TTL); the explicit
+    refresh path must reach SyncServer instead and return only its answer.
+    """
+
+    def setUp(self) -> None:
+        from django.utils import timezone
+
+        from apps.catalog_cache.models import CatalogCacheItem
+
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            username="bff_search24",
+            password="pass12345",
+            is_superuser=True,
+            is_staff=True,
+            is_active=True,
+        )
+        self.client.force_login(self.user)
+        CatalogCacheItem.objects.create(
+            sync_id="900001",
+            name="Stale cache only item",
+            search_text="stale cache only item",
+            is_active=True,
+            synced_at=timezone.now(),
+        )
+
+    def test_authoritative_ignores_cache_only_candidates(self) -> None:
+        from apps.bff_api.catalog_views import CatalogCachedItemSearchView
+
+        fresh = {
+            "id": "fresh-1",
+            "name": "Fresh remote item",
+            "sku": "",
+            "category_id": "",
+            "category_name": "",
+            "hashtags": [],
+            "unit_id": "",
+            "unit_name": "",
+            "unit_symbol": "",
+            "is_active": True,
+            "requires_review": False,
+            "source": "remote",
+            "source_site_id": "",
+            "source_site_qty": "0",
+            "balance_qty": "0",
+        }
+
+        with patch.object(CatalogCachedItemSearchView, "_search_remote_items", return_value=[fresh]) as remote:
+            response = self.client.get(
+                "/bff/api/v1/catalog/search/items",
+                {"q": "stale", "consistency": "authoritative"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        results = body["data"]["results"]
+        # SyncServer was actually consulted...
+        remote.assert_called_once()
+        # ...and only its answer is returned: the cache-only candidate is gone.
+        self.assertEqual([r["id"] for r in results], ["fresh-1"])
+        self.assertEqual(body["data"]["consistency"], "authoritative")
+        self.assertEqual(body["data"]["source"], "remote")
+
+    def test_fast_mode_can_still_serve_cache_only_rows(self) -> None:
+        """Documents the stale-cache risk the authoritative refresh exists for."""
+        from apps.bff_api.catalog_views import CatalogCachedItemSearchView
+
+        with patch.object(CatalogCachedItemSearchView, "_search_remote_items", return_value=[]):
+            response = self.client.get(
+                "/bff/api/v1/catalog/search/items",
+                {"q": "stale", "consistency": "fast"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["data"]["results"]
+        self.assertIn("900001", [r["id"] for r in results])
+
+
 class BffApiStructuredLineErrorTests(TestCase):
     def test_operation_lines_invalid_promotes_lines_to_error(self) -> None:
         """B3: the BFF must surface `lines` at `error.lines` for the frontend."""
