@@ -67,6 +67,34 @@ class BffApiViewMethodTests(TestCase):
         self.assertTrue(body["ok"])
         self.assertEqual(body["data"], {"user": {"id": "u1"}})
 
+    def test_review_items_list_passes_action_state_fields_through(self) -> None:
+        mock_client = Mock()
+        mock_client.get.return_value = {
+            "items": [
+                {
+                    "id": 42,
+                    "item_name": "Болт М8",
+                    "total_balance": "5.500",
+                    "has_pending_acceptance": True,
+                    "has_active_registers": True,
+                }
+            ],
+            "total_count": 1,
+            "page": 1,
+            "page_size": 50,
+        }
+
+        with patch("apps.bff_api.review_items_views._build_client", return_value=mock_client):
+            response = self.client.get("/bff/api/v1/review-items")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        item = body["data"]["items"][0]
+        self.assertEqual(item["total_balance"], "5.500")
+        self.assertIs(item["has_pending_acceptance"], True)
+        self.assertIs(item["has_active_registers"], True)
+
     def test_admin_user_scopes_put_supported(self) -> None:
         mock_client = Mock()
         mock_client.put.return_value = [{"site_id": "1", "can_view": True}]
