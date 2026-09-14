@@ -13,13 +13,20 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from apps.documents.management.commands.compare_shadow_artifacts import (
+    INPUT_IDENTITY_FIELDS,
+    PRODUCER_IDENTITY_FIELDS,
+    _expected_shadow_axes,
+)
 from apps.documents.models import RenderedDocumentArtifact
 from apps.documents.services import (
+    DEFAULT_LEGACY_AXES,
     QDE_ARTIFACT_IDENTITY_FIELDS,
     QdeRenderFailedError,
     QdeTimeoutError,
@@ -32,6 +39,65 @@ from apps.documents.services import (
 LEGACY_PDF = b"%PDF-1.4\n% legacy\n%%EOF"
 SHADOW_PDF = b"%PDF-1.4\n% shadow\n%%EOF"
 DIFFERENT_PDF = b"%PDF-1.4\n% different\n%%EOF"
+
+
+def _minimal_pdf_bytes(*, pages: int = 1, marker: str = "") -> bytes:
+    """Build a valid minimal A4 PDF without external dependencies.
+
+    The fake `%PDF` stubs above cannot be parsed by pypdf, so real
+    MATCH/MISMATCH verdicts (page count + MediaBox) must be exercised with
+    parseable pages.
+    """
+    page_ids: list[int] = []
+    content_ids: list[int] = []
+    next_id = 3
+    for _ in range(pages):
+        page_ids.append(next_id)
+        next_id += 1
+    for _ in range(pages):
+        content_ids.append(next_id)
+        next_id += 1
+
+    chunks: list[bytes] = [b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"]
+    kids = " ".join(f"{pid} 0 R" for pid in page_ids)
+    chunks.append(
+        f"2 0 obj\n<< /Type /Pages /Kids [{kids}] /Count {pages} >>\nendobj\n".encode()
+    )
+    for index, page_id in enumerate(page_ids):
+        chunks.append(
+            f"{page_id} 0 obj\n<< /Type /Page /Parent 2 0 R "
+            f"/MediaBox [0 0 595.2756 841.8898] /Contents {content_ids[index]} 0 R >>\n"
+            f"endobj\n".encode()
+        )
+    stream = b"BT ET\n"
+    for content_id in content_ids:
+        chunks.append(
+            f"{content_id} 0 obj\n<< /Length {len(stream)} >>\nstream\n".encode()
+            + stream
+            + b"endstream\nendobj\n"
+        )
+
+    out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n" + marker.encode() + b"\n")
+    offsets: list[int] = []
+    for chunk in chunks:
+        offsets.append(len(out))
+        out += chunk
+    xref_offset = len(out)
+    out += f"xref\n0 {len(chunks) + 1}\n".encode()
+    out += b"0000000000 65535 f \n"
+    for offset in offsets:
+        out += f"{offset:010d} 00000 n \n".encode()
+    out += (
+        f"trailer\n<< /Size {len(chunks) + 1} /Root 1 0 R >>\n"
+        f"startxref\n{xref_offset}\n%%EOF\n"
+    ).encode()
+    return bytes(out)
+
+
+# Valid single-page A4 PDFs: same structure, different bytes (sha diagnostic).
+PDF_ONE_PAGE = _minimal_pdf_bytes(marker="legacy")
+PDF_ONE_PAGE_ALT = _minimal_pdf_bytes(marker="shadow")
+PDF_TWO_PAGES = _minimal_pdf_bytes(pages=2, marker="legacy")
 
 
 def _document(**overrides: object) -> dict:
@@ -87,10 +153,13 @@ def _create_artifact(**overrides) -> RenderedDocumentArtifact:
 
 
 def _create_artifact_with_pdf(
-    pdf_bytes: bytes = SHADOW_PDF, **overrides
+    pdf_bytes: bytes = SHADOW_PDF,
+    filename: str | None = None,
+    **overrides,
 ) -> RenderedDocumentArtifact:
     artifact = _create_artifact(**overrides)
-    filename = f"documents/pdf/shadow/{artifact.document_id}_{artifact.payload_hash}.pdf"
+    if filename is None:
+        filename = f"documents/pdf/shadow/{artifact.document_id}_{artifact.payload_hash}.pdf"
     artifact.pdf_file.save(filename, ContentFile(pdf_bytes), save=False)
     artifact.pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
     artifact.size_bytes = len(pdf_bytes)
@@ -107,6 +176,30 @@ def _create_artifact_with_pdf(
     return artifact
 
 
+def _create_shadow_with_axes(
+    pdf_bytes: bytes = SHADOW_PDF,
+    *,
+    document_id: str = "doc-shadow-1",
+    payload_hash: str = "a" * 64,
+    revision: int = 0,
+    filename: str | None = None,
+    **axis_overrides,
+) -> RenderedDocumentArtifact:
+    """Create a READY shadow artifact from the CURRENT QDE axes, then mutate.
+
+    All identity axes are resolved exactly like render_shadow_pdf does; axis
+    overrides simulate historical revisions (e.g.
+    ``template_version="2.2.0"``).
+    """
+    identity = _qde_shadow_identity(
+        _document(id=document_id, payload_hash=payload_hash, revision=revision)
+    )
+    fields = {field: identity[field] for field in QDE_ARTIFACT_IDENTITY_FIELDS}
+    fields["document_type"] = identity["document_type"]
+    fields.update(axis_overrides)
+    return _create_artifact_with_pdf(pdf_bytes=pdf_bytes, filename=filename, **fields)
+
+
 def _create_ready_shadow_for_current_identity(
     pdf_bytes: bytes = SHADOW_PDF,
 ) -> RenderedDocumentArtifact:
@@ -116,9 +209,47 @@ def _create_ready_shadow_for_current_identity(
     artifact is a cache hit for the same document/settings and a miss when any
     axis changes.
     """
-    identity = _qde_shadow_identity(_document())
-    fields = {field: identity[field] for field in QDE_ARTIFACT_IDENTITY_FIELDS}
-    return _create_artifact_with_pdf(pdf_bytes=pdf_bytes, **fields)
+    return _create_shadow_with_axes(pdf_bytes=pdf_bytes)
+
+
+def _create_legacy_with_axes(
+    pdf_bytes: bytes = LEGACY_PDF,
+    *,
+    document_id: str = "doc-legacy-1",
+    payload_hash: str = "a" * 64,
+    revision: int = 0,
+    filename: str | None = None,
+    **axis_overrides,
+) -> RenderedDocumentArtifact:
+    """Create a READY legacy artifact from the CURRENT legacy axes, then mutate.
+
+    Mirrors render_document_pdf: engine/backend/contract come from
+    DEFAULT_LEGACY_AXES, engine_version from DOCUMENT_RENDERER_VERSION.
+    """
+    fields = {
+        "document_type": "waybill",
+        "document_contract": DEFAULT_LEGACY_AXES["document_contract"],
+        "template_id": "waybill_v1",
+        "template_version": "1.0",
+        "engine": DEFAULT_LEGACY_AXES["engine"],
+        "engine_version": getattr(
+            settings,
+            "DOCUMENT_RENDERER_VERSION",
+            DEFAULT_LEGACY_AXES["engine_version"],
+        ),
+        "backend": DEFAULT_LEGACY_AXES["backend"],
+        "backend_version": DEFAULT_LEGACY_AXES["backend_version"],
+        "render_role": "legacy",
+    }
+    fields.update(axis_overrides)
+    return _create_artifact_with_pdf(
+        pdf_bytes=pdf_bytes,
+        filename=filename,
+        document_id=document_id,
+        payload_hash=payload_hash,
+        revision=revision,
+        **fields,
+    )
 
 
 # ── 1. Shadow Artifact Creation ──────────────────────────────────────
@@ -504,155 +635,304 @@ class TestShadowImmutability(TestCase):
 
 
 class TestCompareShadowArtifacts(TestCase):
-    """Test compare_shadow_artifacts management command."""
+    """Identity-exact pairing for compare_shadow_artifacts (Phase 6E preflight).
+
+    A valid pair shares the full input identity (document_id, revision,
+    payload_hash, document_contract) and each side must be the CURRENT
+    revision of its producer: legacy rows by DEFAULT_LEGACY_AXES +
+    DOCUMENT_RENDERER_VERSION, shadow rows by DOCUMENT_TEMPLATE_MAP + the
+    fixed QDE axes.  Historical template/engine revisions are skipped, never
+    mixed (TZ-QDE_INTEGRATION_READINESS §5.3/§5.5).
+    """
 
     def setUp(self):
         self.media_dir = tempfile.TemporaryDirectory()
-        self._settings = override_settings(MEDIA_ROOT=self.media_dir.name)
+        self._settings = override_settings(
+            MEDIA_ROOT=self.media_dir.name,
+            DOCUMENT_TEMPLATE_MAP={"waybill": ("warehouse-waybill-ru", "2.2.1")},
+        )
         self._settings.enable()
 
     def tearDown(self):
         self._settings.disable()
         self.media_dir.cleanup()
 
-    def test_no_artifacts(self):
-        out = io.StringIO()
+    # -- helpers ---------------------------------------------------------
+
+    @staticmethod
+    def _run(**options) -> str:
         from django.core.management import call_command
 
-        call_command("compare_shadow_artifacts", stdout=out)
-        self.assertIn("No comparable legacy/shadow pairs found", out.getvalue())
+        out = io.StringIO()
+        call_command("compare_shadow_artifacts", stdout=out, **options)
+        return out.getvalue()
+
+    @staticmethod
+    def _create_pair(
+        *,
+        document_id: str = "doc-pair-1",
+        payload_hash: str = "a" * 64,
+        legacy_pdf: bytes = PDF_ONE_PAGE,
+        shadow_pdf: bytes = PDF_ONE_PAGE_ALT,
+        legacy_axes: dict | None = None,
+        shadow_axes: dict | None = None,
+    ) -> None:
+        _create_legacy_with_axes(
+            pdf_bytes=legacy_pdf,
+            document_id=document_id,
+            payload_hash=payload_hash,
+            **(legacy_axes or {}),
+        )
+        _create_shadow_with_axes(
+            pdf_bytes=shadow_pdf,
+            document_id=document_id,
+            payload_hash=payload_hash,
+            **(shadow_axes or {}),
+        )
+
+    # -- identity axes ---------------------------------------------------
+
+    def test_pairing_axes_cover_canonical_render_identity(self):
+        """The pairing split must cover exactly QDE_ARTIFACT_IDENTITY_FIELDS."""
+        self.assertEqual(
+            set(INPUT_IDENTITY_FIELDS) | set(PRODUCER_IDENTITY_FIELDS),
+            set(QDE_ARTIFACT_IDENTITY_FIELDS),
+        )
+        self.assertFalse(set(INPUT_IDENTITY_FIELDS) & set(PRODUCER_IDENTITY_FIELDS))
+        self.assertEqual(
+            list(QDE_ARTIFACT_IDENTITY_FIELDS)[: len(INPUT_IDENTITY_FIELDS)],
+            list(INPUT_IDENTITY_FIELDS),
+        )
+
+    def test_expected_shadow_axes_mirror_render_identity(self):
+        """Expected shadow axes must equal what render_shadow_pdf persists."""
+        identity = _qde_shadow_identity(_document())
+        expected = _expected_shadow_axes("waybill")
+        for field, value in expected.items():
+            self.assertEqual(value, identity[field], msg=field)
+
+    def test_same_identity_is_paired(self):
+        self._create_pair()
+
+        output = self._run()
+
+        self.assertIn("Total pairs: 1", output)
+        self.assertIn("[MATCH] doc=doc-pair-1", output)
+        self.assertIn("qde_template=warehouse-waybill-ru@2.2.1", output)
+
+    def test_changed_identity_axis_prevents_pairing(self):
+        """Changing ANY identity axis on either side yields no pair."""
+        cases = (
+            ("input_document_id", "shadow", {"document_id": "doc-other"}),
+            ("input_revision", "shadow", {"revision": 7}),
+            ("input_payload_hash", "shadow", {"payload_hash": "z" * 64}),
+            (
+                "input_document_contract",
+                "shadow",
+                {"document_contract": "warehouse.operation-document/v3"},
+            ),
+            ("shadow_template_id", "shadow", {"template_id": "warehouse-waybill-other"}),
+            ("shadow_template_version", "shadow", {"template_version": "1.9.9"}),
+            ("shadow_engine", "shadow", {"engine": "qde-other"}),
+            ("shadow_engine_version", "shadow", {"engine_version": "0.0.1"}),
+            ("shadow_backend", "shadow", {"backend": "other"}),
+            ("shadow_backend_version", "shadow", {"backend_version": "0.0.1"}),
+            ("legacy_engine", "legacy", {"engine": "other-legacy"}),
+            ("legacy_engine_version", "legacy", {"engine_version": "waybill-pdf-v1"}),
+            ("legacy_backend", "legacy", {"backend": "other"}),
+            ("legacy_backend_version", "legacy", {"backend_version": "0.0.1"}),
+            (
+                "legacy_document_contract",
+                "legacy",
+                {"document_contract": "warehouse.operation-document/v3"},
+            ),
+        )
+        for name, side, overrides in cases:
+            with self.subTest(case=name):
+                RenderedDocumentArtifact.objects.all().delete()
+                legacy = _create_legacy_with_axes(
+                    document_id="doc-axis", payload_hash="x" * 64
+                )
+                shadow = _create_shadow_with_axes(
+                    document_id="doc-axis", payload_hash="x" * 64
+                )
+                target = legacy if side == "legacy" else shadow
+                for field, value in overrides.items():
+                    setattr(target, field, value)
+                target.save(update_fields=list(overrides))
+
+                output = self._run()
+
+                self.assertIn("No comparable legacy/shadow pairs found", output)
+
+    def test_legacy_template_label_is_not_a_cross_engine_axis(self):
+        """Legacy template_id/version are renderer labels, not pairing axes.
+
+        Legacy persists the document template label (waybill_v1); QDE persists
+        the package identity (warehouse-waybill-ru).  They never match, so the
+        legacy label must not prune the pair; the current legacy revision is
+        pinned by engine/backend/contract instead.
+        """
+        _create_legacy_with_axes(
+            document_id="doc-label",
+            payload_hash="l" * 64,
+            template_id="waybill_v2",
+            template_version="9.9",
+        )
+        _create_shadow_with_axes(document_id="doc-label", payload_hash="l" * 64)
+
+        output = self._run()
+
+        self.assertIn("Total pairs: 1", output)
+        self.assertIn("Skipped non-current revisions: legacy=0 shadow=0", output)
+
+    # -- historical revisions --------------------------------------------
+
+    def test_historical_template_versions_are_not_mixed(self):
+        _create_legacy_with_axes(document_id="doc-mix-1", payload_hash="m" * 64)
+        _create_shadow_with_axes(
+            document_id="doc-mix-1",
+            payload_hash="m" * 64,
+            template_version="2.2.0",
+            filename="documents/pdf/test/mix-stale.pdf",
+        )
+        _create_shadow_with_axes(
+            document_id="doc-mix-1",
+            payload_hash="m" * 64,
+            filename="documents/pdf/test/mix-current.pdf",
+        )
+
+        output = self._run()
+
+        self.assertIn("Total pairs: 1", output)
+        self.assertIn("qde_template=warehouse-waybill-ru@2.2.1", output)
+        self.assertNotIn("@2.2.0", output)
+        self.assertIn("Skipped non-current revisions: legacy=0 shadow=1", output)
+
+    def test_stale_shadow_revision_alone_yields_no_pairs(self):
+        _create_legacy_with_axes(document_id="doc-stale-1", payload_hash="s" * 64)
+        _create_shadow_with_axes(
+            document_id="doc-stale-1",
+            payload_hash="s" * 64,
+            template_version="2.2.0",
+            filename="documents/pdf/test/stale-only.pdf",
+        )
+
+        output = self._run()
+
+        self.assertIn("No comparable legacy/shadow pairs found", output)
+        self.assertIn("Skipped non-current revisions: legacy=0 shadow=1", output)
+        self.assertIn("Unpaired current artifacts: legacy=1 shadow=0", output)
+
+    def test_stale_legacy_revision_alone_yields_no_pairs(self):
+        _create_legacy_with_axes(
+            document_id="doc-stale-2",
+            payload_hash="t" * 64,
+            engine_version="waybill-pdf-v1",
+            filename="documents/pdf/test/stale-legacy.pdf",
+        )
+        _create_shadow_with_axes(document_id="doc-stale-2", payload_hash="t" * 64)
+
+        output = self._run()
+
+        self.assertIn("No comparable legacy/shadow pairs found", output)
+        self.assertIn("Skipped non-current revisions: legacy=1 shadow=0", output)
+        self.assertIn("Unpaired current artifacts: legacy=0 shadow=1", output)
+
+    def test_deterministic_selection_with_multiple_historical_rows(self):
+        _create_legacy_with_axes(
+            document_id="doc-det",
+            payload_hash="d" * 64,
+            engine_version="waybill-pdf-v1",
+            filename="documents/pdf/test/det-legacy-v1.pdf",
+        )
+        _create_legacy_with_axes(
+            document_id="doc-det",
+            payload_hash="d" * 64,
+            filename="documents/pdf/test/det-legacy-current.pdf",
+        )
+        _create_shadow_with_axes(
+            document_id="doc-det",
+            payload_hash="d" * 64,
+            template_version="2.2.0",
+            filename="documents/pdf/test/det-shadow-220.pdf",
+        )
+        _create_shadow_with_axes(
+            document_id="doc-det",
+            payload_hash="d" * 64,
+            filename="documents/pdf/test/det-shadow-current.pdf",
+        )
+
+        first = self._run()
+        second = self._run()
+
+        self.assertEqual(first, second)
+        self.assertIn("Total pairs: 1", first)
+        self.assertIn("qde_template=warehouse-waybill-ru@2.2.1", first)
+        self.assertIn("Skipped non-current revisions: legacy=1 shadow=1", first)
+
+    def test_unpaired_current_shadow_is_reported(self):
+        _create_shadow_with_axes(document_id="doc-orphan-1", payload_hash="o" * 64)
+
+        output = self._run()
+
+        self.assertIn("No comparable legacy/shadow pairs found", output)
+        self.assertIn("Unpaired current artifacts: legacy=0 shadow=1", output)
+
+    # -- command behaviour -----------------------------------------------
+
+    def test_no_artifacts(self):
+        output = self._run()
+
+        self.assertIn("No comparable legacy/shadow pairs found", output)
+        self.assertIn(
+            "Identity coverage: paired=0 current_legacy=0 current_shadow=0", output
+        )
 
     def test_deterministic_pairing(self):
-        _create_artifact_with_pdf(
-            pdf_bytes=LEGACY_PDF,
-            render_role="legacy",
-            engine="django-legacy",
-            engine_version="waybill-pdf-v3",
-            backend="weasyprint",
-            backend_version="66.0",
-            document_id="doc-pair-1",
-            payload_hash="a" * 64,
-        )
-        _create_artifact_with_pdf(
-            pdf_bytes=SHADOW_PDF,
-            render_role="shadow",
-            engine="qde",
-            document_id="doc-pair-1",
-            payload_hash="a" * 64,
-        )
+        self._create_pair()
 
-        out = io.StringIO()
-        from django.core.management import call_command
+        output = self._run()
 
-        call_command("compare_shadow_artifacts", stdout=out)
-        output = out.getvalue()
         self.assertIn("doc-pair-1", output)
+        self.assertIn("Total pairs: 1", output)
 
     def test_limit_option(self):
         for i in range(5):
-            _create_artifact_with_pdf(
-                pdf_bytes=LEGACY_PDF,
-                render_role="legacy",
-                engine="django-legacy",
-                engine_version="waybill-pdf-v3",
-                backend="weasyprint",
-                backend_version="66.0",
-                document_id=f"doc-limit-{i}",
-                payload_hash=f"{i:064d}",
-            )
-            _create_artifact_with_pdf(
-                pdf_bytes=SHADOW_PDF,
-                render_role="shadow",
-                engine="qde",
+            self._create_pair(
                 document_id=f"doc-limit-{i}",
                 payload_hash=f"{i:064d}",
             )
 
-        out = io.StringIO()
-        from django.core.management import call_command
+        output = self._run(limit=2)
 
-        call_command("compare_shadow_artifacts", limit=2, stdout=out)
-        output = out.getvalue()
         self.assertIn("Total pairs: 2", output)
 
     def test_output_ratios(self):
-        _create_artifact_with_pdf(
-            pdf_bytes=LEGACY_PDF,
-            render_role="legacy",
-            engine="django-legacy",
-            engine_version="waybill-pdf-v3",
-            backend="weasyprint",
-            backend_version="66.0",
-            document_id="doc-ratio-1",
-            payload_hash="b" * 64,
-        )
-        _create_artifact_with_pdf(
-            pdf_bytes=LEGACY_PDF,
-            render_role="shadow",
-            engine="qde",
-            document_id="doc-ratio-1",
-            payload_hash="b" * 64,
-        )
+        self._create_pair(document_id="doc-ratio-1", payload_hash="b" * 64)
 
-        out = io.StringIO()
-        from django.core.management import call_command
+        output = self._run()
 
-        call_command("compare_shadow_artifacts", stdout=out)
-        output = out.getvalue()
         self.assertIn("Structural match ratio", output)
 
     def test_read_only(self):
-        _create_artifact_with_pdf(
-            pdf_bytes=LEGACY_PDF,
-            render_role="legacy",
-            engine="django-legacy",
-            engine_version="waybill-pdf-v3",
-            backend="weasyprint",
-            backend_version="66.0",
-            document_id="doc-ro-1",
-            payload_hash="c" * 64,
-        )
-        _create_artifact_with_pdf(
-            pdf_bytes=SHADOW_PDF,
-            render_role="shadow",
-            engine="qde",
-            document_id="doc-ro-1",
-            payload_hash="c" * 64,
-        )
+        self._create_pair(document_id="doc-ro-1", payload_hash="c" * 64)
         count_before = RenderedDocumentArtifact.objects.count()
 
-        out = io.StringIO()
-        from django.core.management import call_command
-
-        call_command("compare_shadow_artifacts", stdout=out)
+        self._run()
 
         count_after = RenderedDocumentArtifact.objects.count()
         self.assertEqual(count_before, count_after)
 
     def test_mismatched_pdfs_detected(self):
-        _create_artifact_with_pdf(
-            pdf_bytes=LEGACY_PDF,
-            render_role="legacy",
-            engine="django-legacy",
-            engine_version="waybill-pdf-v3",
-            backend="weasyprint",
-            backend_version="66.0",
+        self._create_pair(
             document_id="doc-mismatch-1",
-            payload_hash="d" * 64,
-        )
-        _create_artifact_with_pdf(
-            pdf_bytes=DIFFERENT_PDF,
-            render_role="shadow",
-            engine="qde",
-            document_id="doc-mismatch-1",
-            payload_hash="d" * 64,
+            payload_hash="e" * 64,
+            shadow_pdf=PDF_TWO_PAGES,
         )
 
-        out = io.StringIO()
-        from django.core.management import call_command
+        output = self._run()
 
-        call_command("compare_shadow_artifacts", stdout=out)
-        output = out.getvalue()
         self.assertIn("MISMATCH", output)
 
     def test_different_sha_same_structural_is_match(self):
@@ -661,31 +941,12 @@ class TestCompareShadowArtifacts(TestCase):
         Different PDF engines (Typst vs WeasyPrint) produce different byte
         streams for the same content.  Structural match is the contract.
         """
-        _create_artifact_with_pdf(
-            pdf_bytes=LEGACY_PDF,
-            render_role="legacy",
-            engine="django-legacy",
-            engine_version="waybill-pdf-v3",
-            backend="weasyprint",
-            backend_version="66.0",
-            document_id="doc-sha-diff-1",
-            payload_hash="k" * 64,
-        )
-        _create_artifact_with_pdf(
-            pdf_bytes=DIFFERENT_PDF,
-            render_role="shadow",
-            engine="qde",
-            document_id="doc-sha-diff-1",
-            payload_hash="k" * 64,
-        )
+        self._create_pair(document_id="doc-sha-diff-1", payload_hash="k" * 64)
 
-        out = io.StringIO()
-        from django.core.management import call_command
+        output = self._run()
 
-        call_command("compare_shadow_artifacts", stdout=out)
-        output = out.getvalue()
-        # Both are minimal single-page PDFs with same MediaBox → MATCH
-        self.assertIn("MATCH", output)
+        self.assertIn("[MATCH]", output)
+        self.assertNotIn("MISMATCH", output)
 
 
 class TestCleanupShadowArtifacts(TestCase):
