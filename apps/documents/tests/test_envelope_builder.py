@@ -13,7 +13,7 @@ from apps.documents.services import (
 
 DEFAULT_DOCUMENT_TYPE = "waybill"
 MAPPED_TEMPLATE_ID = "warehouse-waybill-ru"
-MAPPED_TEMPLATE_VERSION = "2.2.1"
+MAPPED_TEMPLATE_VERSION = "2.2.2"
 
 
 _MISSING = object()
@@ -68,7 +68,7 @@ class BuildQdeEnvelopeTests(SimpleTestCase):
     def test_null_receiver_payload_is_copied_as_is(self) -> None:
         """ADR-0034: a contract-nullable receiver survives envelope building.
 
-        The builder is a pass-through (ADR-0032 D2) — the 2.2.1 template
+        The builder is a pass-through (ADR-0032 D2) — the 2.2.x template
         guards the null; the envelope must NOT normalize it away.
         """
         payload = {

@@ -66,8 +66,9 @@ QDE_SUBPROCESS_TIMEOUT_SECONDS = int(os.environ.get("QDE_SUBPROCESS_TIMEOUT_SECO
 # The ONLY source for template resolution (ADR-0032 D5, SEC-10 mitigation);
 # arbitrary template ids from clients are never accepted.
 DOCUMENT_TEMPLATE_MAP = {
-    # 2.2.1: ADR-0034 null-safety patch over 2.2.0 (byte-identical normal path).
-    "waybill": ("warehouse-waybill-ru", "2.2.1"),
+    # 2.2.2: global exact pagination balancing over 2.2.1 (null-safety
+    # guards and layout-config unchanged; partitions rebalanced).
+    "waybill": ("warehouse-waybill-ru", "2.2.2"),
     # Phase 7+:
     # "acceptance_certificate": ("acceptance-certificate-ru", "1.0.0"),
     # "act": ("write-off-act-ru", "1.0.0"),

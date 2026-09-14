@@ -649,7 +649,7 @@ class TestCompareShadowArtifacts(TestCase):
         self.media_dir = tempfile.TemporaryDirectory()
         self._settings = override_settings(
             MEDIA_ROOT=self.media_dir.name,
-            DOCUMENT_TEMPLATE_MAP={"waybill": ("warehouse-waybill-ru", "2.2.1")},
+            DOCUMENT_TEMPLATE_MAP={"waybill": ("warehouse-waybill-ru", "2.2.2")},
         )
         self._settings.enable()
 
@@ -718,7 +718,7 @@ class TestCompareShadowArtifacts(TestCase):
 
         self.assertIn("Total pairs: 1", output)
         self.assertIn("[MATCH] doc=doc-pair-1", output)
-        self.assertIn("qde_template=warehouse-waybill-ru@2.2.1", output)
+        self.assertIn("qde_template=warehouse-waybill-ru@2.2.2", output)
 
     def test_changed_identity_axis_prevents_pairing(self):
         """Changing ANY identity axis on either side yields no pair."""
@@ -805,7 +805,7 @@ class TestCompareShadowArtifacts(TestCase):
         output = self._run()
 
         self.assertIn("Total pairs: 1", output)
-        self.assertIn("qde_template=warehouse-waybill-ru@2.2.1", output)
+        self.assertIn("qde_template=warehouse-waybill-ru@2.2.2", output)
         self.assertNotIn("@2.2.0", output)
         self.assertIn("Skipped non-current revisions: legacy=0 shadow=1", output)
 
@@ -868,7 +868,7 @@ class TestCompareShadowArtifacts(TestCase):
 
         self.assertEqual(first, second)
         self.assertIn("Total pairs: 1", first)
-        self.assertIn("qde_template=warehouse-waybill-ru@2.2.1", first)
+        self.assertIn("qde_template=warehouse-waybill-ru@2.2.2", first)
         self.assertIn("Skipped non-current revisions: legacy=1 shadow=1", first)
 
     def test_unpaired_current_shadow_is_reported(self):
