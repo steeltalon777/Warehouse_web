@@ -20,9 +20,11 @@ from django.utils import timezone
 
 from apps.documents.models import RenderedDocumentArtifact
 from apps.documents.services import (
+    QDE_ARTIFACT_IDENTITY_FIELDS,
     QdeRenderFailedError,
     QdeTimeoutError,
     RenderedDocumentResult,
+    _qde_shadow_identity,
     compare_pdf_structural,
     render_shadow_pdf,
 )
@@ -105,6 +107,20 @@ def _create_artifact_with_pdf(
     return artifact
 
 
+def _create_ready_shadow_for_current_identity(
+    pdf_bytes: bytes = SHADOW_PDF,
+) -> RenderedDocumentArtifact:
+    """Create a READY shadow artifact using the CURRENT production render identity.
+
+    All identity axes are resolved exactly like render_shadow_pdf does, so the
+    artifact is a cache hit for the same document/settings and a miss when any
+    axis changes.
+    """
+    identity = _qde_shadow_identity(_document())
+    fields = {field: identity[field] for field in QDE_ARTIFACT_IDENTITY_FIELDS}
+    return _create_artifact_with_pdf(pdf_bytes=pdf_bytes, **fields)
+
+
 # ── 1. Shadow Artifact Creation ──────────────────────────────────────
 
 
@@ -161,10 +177,7 @@ class TestShadowArtifactSkip(TestCase):
 
     @patch("apps.documents.services.render_via_qde")
     def test_skip_if_ready_exists(self, mock_qde):
-        existing = _create_artifact_with_pdf(
-            pdf_bytes=SHADOW_PDF,
-            status=RenderedDocumentArtifact.Status.READY,
-        )
+        existing = _create_ready_shadow_for_current_identity()
 
         result = render_shadow_pdf(_document())
 
@@ -807,3 +820,125 @@ class TestCleanupShadowArtifacts(TestCase):
         self.assertTrue(
             RenderedDocumentArtifact.objects.filter(id=artifact.id).exists()
         )
+
+
+# ── 8. Shadow artifact cache identity (Phase 6D prerequisite) ────────
+
+
+class TestShadowArtifactCacheIdentity(TestCase):
+    """READY-artifact reuse must respect the full render identity.
+
+    Regression guard: a shadow artifact rendered with an older template
+    version (or any other changed render axis) must never be served as a
+    cache hit after that axis changes (TZ-QDE_INTEGRATION_READINESS
+    §5.3/§5.5). Before the fix, render_shadow_pdf looked artifacts up by
+    (document_id, revision, payload_hash, engine, render_role, status) only,
+    so a template bump (2.1.0 → 2.2.0) kept serving the old PDF.
+    """
+
+    def setUp(self):
+        self.media_dir = tempfile.TemporaryDirectory()
+        self._settings = override_settings(MEDIA_ROOT=self.media_dir.name)
+        self._settings.enable()
+
+    def tearDown(self):
+        self._settings.disable()
+        self.media_dir.cleanup()
+
+    @staticmethod
+    def _qde_result(pdf_bytes: bytes) -> SimpleNamespace:
+        return SimpleNamespace(
+            pdf_bytes=pdf_bytes,
+            exit_code=0,
+            stderr_message="",
+            elapsed_seconds=0.1,
+            page_count=None,
+        )
+
+    def test_identity_fields_match_model_unique_constraint(self) -> None:
+        """Reuse lookup axes must stay equal to the artifact identity axes."""
+        constraint_fields: list[str] = []
+        for constraint in RenderedDocumentArtifact._meta.constraints:
+            if constraint.name == "uniq_rendered_document_artifact_v2":
+                constraint_fields = list(constraint.fields)
+        self.assertEqual(list(QDE_ARTIFACT_IDENTITY_FIELDS), constraint_fields)
+
+    @patch("apps.documents.services.render_via_qde")
+    def test_same_identity_reuses_ready_artifact(self, mock_qde) -> None:
+        existing = _create_ready_shadow_for_current_identity()
+
+        result = render_shadow_pdf(_document())
+
+        mock_qde.assert_not_called()
+        self.assertIsNotNone(result)
+        self.assertEqual(result.artifact.id, existing.id)
+        self.assertTrue(result.cache_hit)
+        self.assertEqual(result.pdf_bytes, SHADOW_PDF)
+
+    @patch("apps.documents.services.render_via_qde")
+    def test_old_template_version_is_not_reused(self, mock_qde) -> None:
+        """Defect reproduction: template bump 2.1.0 → 2.2.0 must re-render."""
+        old_map = {"waybill": ("warehouse-waybill-ru", "2.1.0")}
+        new_map = {"waybill": ("warehouse-waybill-ru", "2.2.0")}
+
+        with override_settings(DOCUMENT_TEMPLATE_MAP=old_map):
+            old = _create_ready_shadow_for_current_identity()
+
+        mock_qde.return_value = self._qde_result(DIFFERENT_PDF)
+        with override_settings(DOCUMENT_TEMPLATE_MAP=new_map):
+            result = render_shadow_pdf(_document())
+
+        mock_qde.assert_called_once()
+        self.assertIsNotNone(result)
+        self.assertNotEqual(result.artifact.id, old.id)
+        self.assertEqual(result.artifact.template_version, "2.2.0")
+        self.assertEqual(result.pdf_bytes, DIFFERENT_PDF)
+        self.assertFalse(result.cache_hit)
+
+        old.refresh_from_db()
+        self.assertEqual(old.template_version, "2.1.0")
+        self.assertEqual(old.pdf_sha256, hashlib.sha256(SHADOW_PDF).hexdigest())
+
+    @patch("apps.documents.services.render_via_qde")
+    def test_changed_document_contract_is_not_reused(self, mock_qde) -> None:
+        """Another render axis: a document_contract change is a new revision."""
+        with override_settings(QDE_DOCUMENT_CONTRACT="warehouse.operation-document/v3"):
+            old = _create_ready_shadow_for_current_identity()
+
+        mock_qde.return_value = self._qde_result(DIFFERENT_PDF)
+        with override_settings(QDE_DOCUMENT_CONTRACT="warehouse.operation-document/v2"):
+            result = render_shadow_pdf(_document())
+
+        mock_qde.assert_called_once()
+        self.assertIsNotNone(result)
+        self.assertNotEqual(result.artifact.id, old.id)
+        self.assertEqual(result.artifact.document_contract, "warehouse.operation-document/v2")
+
+    @patch("apps.documents.services.render_via_qde")
+    def test_each_identity_axis_change_forces_new_render(self, mock_qde) -> None:
+        """Every axis in QDE_ARTIFACT_IDENTITY_FIELDS participates in reuse."""
+        for field in QDE_ARTIFACT_IDENTITY_FIELDS:
+            with self.subTest(field=field):
+                RenderedDocumentArtifact.objects.all().delete()
+                mock_qde.reset_mock()
+                mock_qde.return_value = self._qde_result(DIFFERENT_PDF)
+
+                identity = _qde_shadow_identity(_document())
+                if field == "revision":
+                    identity[field] = identity[field] + 1
+                elif field == "payload_hash":
+                    identity[field] = "b" * 64
+                else:
+                    identity[field] = f"{identity[field]}-other"
+                fields = {key: identity[key] for key in QDE_ARTIFACT_IDENTITY_FIELDS}
+                old = _create_artifact_with_pdf(pdf_bytes=SHADOW_PDF, **fields)
+
+                result = render_shadow_pdf(_document())
+
+                mock_qde.assert_called_once()
+                self.assertIsNotNone(result)
+                self.assertNotEqual(
+                    result.artifact.id,
+                    old.id,
+                    f"changed axis {field!r} must not reuse the old artifact",
+                )

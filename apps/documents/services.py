@@ -1007,6 +1007,64 @@ def _qde_error_from_stderr(stderr_message: str, *, exit_code: int) -> QdeRenderE
 # alongside legacy; shadow artifact persisted; structural comparison
 # available for operator commands. USER RESPONSE = LEGACY PDF always.
 
+# Canonical QDE artifact identity axes. Mirrors the model's
+# `uniq_rendered_document_artifact_v2` unique constraint (TZ §5.3/§5.5):
+# any change of one of these axes is a NEW render revision. Both the
+# READY-artifact reuse lookup and artifact persistence MUST use exactly
+# these fields, so lookup and creation can never drift apart.
+QDE_ARTIFACT_IDENTITY_FIELDS = (
+    "document_id",
+    "revision",
+    "payload_hash",
+    "document_contract",
+    "template_id",
+    "template_version",
+    "engine",
+    "engine_version",
+    "backend",
+    "backend_version",
+)
+
+# Fixed QDE shadow render axes (ADR-0030 D1 / ADR-0032 D7).
+QDE_SHADOW_ENGINE = "qde"
+QDE_SHADOW_BACKEND = "typst"
+QDE_SHADOW_BACKEND_VERSION = "0.15.1"  # pinned Typst binary
+
+
+def _qde_shadow_identity(document: dict[str, Any]) -> dict[str, Any]:
+    """Resolve the full QDE shadow render identity for a document.
+
+    Single source of truth for the READY-artifact lookup AND artifact
+    persistence (TZ §5.3/§5.5: every identity axis change creates a new render
+    revision). Template axes come ONLY from settings.DOCUMENT_TEMPLATE_MAP
+    (ADR-0032 D5, SEC-10); document-provided template fields are ignored.
+
+    `render_role` and `status` are deliberately not render-identity axes:
+    role is audit context, status is a technical transition of the same
+    revision (TZ §6.6). They qualify the reuse SELECT instead.
+    """
+    base = _cache_identity(document)
+    document_type = base["document_type"]
+    template_map = getattr(settings, "DOCUMENT_TEMPLATE_MAP", {})
+    try:
+        template_id, template_version = template_map[document_type]
+    except (KeyError, TypeError):
+        template_id, template_version = "unknown", "0.0.0"
+    return {
+        "document_id": base["document_id"],
+        "revision": base["revision"],
+        "document_type": document_type,
+        "payload_hash": base["payload_hash"],
+        "document_contract": getattr(settings, "QDE_DOCUMENT_CONTRACT", "warehouse.operation-document/v2"),
+        "template_id": template_id,
+        "template_version": template_version,
+        "engine": QDE_SHADOW_ENGINE,
+        "engine_version": QDE_ENGINE_CONTRACT_VERSION,
+        "backend": QDE_SHADOW_BACKEND,
+        "backend_version": QDE_SHADOW_BACKEND_VERSION,
+        "renderer_version": base["renderer_version"],
+    }
+
 
 def render_shadow_pdf(document: dict[str, Any]) -> RenderedDocumentResult | None:
     """Attempt QDE shadow render + artifact persistence.
@@ -1015,16 +1073,16 @@ def render_shadow_pdf(document: dict[str, Any]) -> RenderedDocumentResult | None
     NEVER raises — shadow path is best-effort by design (TZ §6.3).
 
     Shadow artifacts are immutable once READY: same identity never overwrites
-    an existing READY shadow artifact's PDF/hash/render_role.
+    an existing READY shadow artifact's PDF/hash/render_role. Reuse requires
+    the FULL render identity — a bumped template/contract/backend axis must
+    render a new artifact instead of serving the previous revision.
     """
-    identity = _cache_identity(document)
+    identity = _qde_shadow_identity(document)
+    identity_kwargs = {field: identity[field] for field in QDE_ARTIFACT_IDENTITY_FIELDS}
 
-    # Check for existing READY shadow artifact (immutable).
+    # Check for existing READY shadow artifact for the SAME render identity.
     existing = RenderedDocumentArtifact.objects.filter(
-        document_id=identity["document_id"],
-        revision=identity["revision"],
-        payload_hash=identity["payload_hash"],
-        engine="qde",
+        **identity_kwargs,
         render_role="shadow",
         status=RenderedDocumentArtifact.Status.READY,
     ).first()
@@ -1055,29 +1113,12 @@ def render_shadow_pdf(document: dict[str, Any]) -> RenderedDocumentResult | None
 
     pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
 
-    # --- Build QDE identity axes ---
-    template_map = getattr(settings, "DOCUMENT_TEMPLATE_MAP", {})
-    document_type = str(document.get("document_type") or "waybill")
-    try:
-        template_id, template_version = template_map[document_type]
-    except (KeyError, TypeError):
-        template_id, template_version = "unknown", "0.0.0"
-
-    # --- Persist shadow artifact ---
+    # --- Persist shadow artifact (same identity axes as the reuse lookup) ---
     try:
         artifact, created = RenderedDocumentArtifact.objects.get_or_create(
-            document_id=identity["document_id"],
-            revision=identity["revision"],
-            payload_hash=identity["payload_hash"],
-            document_contract=getattr(settings, "QDE_DOCUMENT_CONTRACT", "warehouse.operation-document/v2"),
-            template_id=template_id,
-            template_version=template_version,
-            engine="qde",
-            engine_version=QDE_ENGINE_CONTRACT_VERSION,
-            backend="typst",
-            backend_version="0.15.1",
+            **identity_kwargs,
             defaults={
-                "document_type": document_type,
+                "document_type": identity["document_type"],
                 "renderer_version": identity["renderer_version"],
                 "render_role": "shadow",
                 "status": RenderedDocumentArtifact.Status.RENDERING,
