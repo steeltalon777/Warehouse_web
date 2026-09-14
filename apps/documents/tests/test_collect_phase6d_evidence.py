@@ -30,6 +30,7 @@ from apps.documents.management.commands.collect_phase6d_evidence import (
     _count_numeric_occurrences,
     _extract_required_text,
     _git_info,
+    _load_document_ids,
     _normalize_text,
     _quantity_variants,
     _read_git_sha_from_files,
@@ -549,3 +550,67 @@ class CommandGuardTests(SimpleTestCase):
         self.assertEqual(manifest["warehouse_web"]["git_sha"], "deadbeef")
         self.assertEqual(manifest["corpus"]["processed"], 2)
         self.assertEqual(header, list(RESULT_FIELDS))
+
+
+class LoadDocumentIdsTests(SimpleTestCase):
+    def _write(self, tmp: str, name: str, content: str) -> str:
+        path = os.path.join(tmp, name)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        return path
+
+    def test_json_array_and_line_formats(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            json_path = self._write(tmp, "ids.json", '["a", "b ", " c "]')
+            line_path = self._write(tmp, "ids.txt", "a\n\nb ,\nc\n")
+            self.assertEqual(_load_document_ids(json_path), {"a", "b", "c"})
+            self.assertEqual(_load_document_ids(line_path), {"a", "b", "c"})
+
+    def test_invalid_json_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "ids.json", "[not-json")
+            with self.assertRaisesMessage(CommandError, "Invalid JSON"):
+                _load_document_ids(path)
+
+    def test_missing_file_raises(self) -> None:
+        with self.assertRaisesMessage(CommandError, "Cannot read"):
+            _load_document_ids("/nonexistent/ids.txt")
+
+
+@override_settings(DOCUMENT_TEMPLATE_MAP=TEMPLATE_MAP_220)
+class DocumentIdsFilterTests(SimpleTestCase):
+    @patch(f"{COMMAND_MODULE}.Command._fetch_documents")
+    @patch("apps.sync_client.client.SyncServerClient")
+    def test_document_ids_file_filters_corpus(self, mock_client, mock_fetch) -> None:
+        mock_fetch.return_value = ([{"id": "a"}, {"id": "b"}, {"id": "c"}], 3, 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            ids_path = os.path.join(tmp, "ids.txt")
+            with open(ids_path, "w", encoding="utf-8") as handle:
+                handle.write("c\na\n")
+            out = MagicMock()
+            call_command(
+                "collect_phase6d_evidence",
+                "--dry-run",
+                "--output-dir", tmp,
+                "--document-ids-file", ids_path,
+                stdout=out,
+            )
+        printed = "".join(call.args[0] for call in out.write.call_args_list)
+        self.assertIn("Corpus filter: 2/3", printed)
+        self.assertIn("documents_to_process: 2", printed)
+
+    @patch(f"{COMMAND_MODULE}.Command._fetch_documents")
+    @patch("apps.sync_client.client.SyncServerClient")
+    def test_unknown_document_id_aborts(self, mock_client, mock_fetch) -> None:
+        mock_fetch.return_value = ([{"id": "a"}], 1, 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            ids_path = os.path.join(tmp, "ids.txt")
+            with open(ids_path, "w", encoding="utf-8") as handle:
+                handle.write("a\nmissing-id\n")
+            with self.assertRaisesMessage(CommandError, "not found in the fetched corpus"):
+                call_command(
+                    "collect_phase6d_evidence",
+                    "--dry-run",
+                    "--output-dir", tmp,
+                    "--document-ids-file", ids_path,
+                )

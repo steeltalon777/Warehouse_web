@@ -510,6 +510,32 @@ def _git_info() -> dict[str, Any]:
         }
 
 
+def _load_document_ids(path: str) -> set[str]:
+    """Load document ids from ``path`` (JSON array or one id per line).
+
+    Used by ``--document-ids-file`` for targeted reruns of known
+    failures. Blank lines are ignored; ids are stripped.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            raw = handle.read()
+    except OSError as exc:
+        raise CommandError(f"Cannot read --document-ids-file {path!r}: {exc}") from exc
+
+    text = raw.strip()
+    if text.startswith("["):
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise CommandError(f"Invalid JSON in --document-ids-file {path!r}: {exc}") from exc
+        if not isinstance(payload, list):
+            raise CommandError(f"--document-ids-file {path!r} must contain an array of ids.")
+        ids = [str(item).strip() for item in payload]
+    else:
+        ids = [line.strip().strip(",").strip() for line in text.splitlines()]
+    return {item for item in ids if item}
+
+
 def _build_summary(
     results: list[dict[str, Any]],
     *,
@@ -638,6 +664,15 @@ class Command(BaseCommand):
             help="SyncServer document_type filter for the corpus (default: waybill).",
         )
         parser.add_argument(
+            "--document-ids-file",
+            type=str,
+            default="",
+            help=(
+                "File with document ids to process (JSON array or one per line). "
+                "Filters the fetched corpus; used for targeted reruns of known failures."
+            ),
+        )
+        parser.add_argument(
             "--output-dir",
             type=str,
             default="",
@@ -691,7 +726,31 @@ class Command(BaseCommand):
             client, document_type, page_size
         )
         fetched_count = len(fetched_documents)
-        documents = fetched_documents[:limit] if limit > 0 else fetched_documents
+        documents = fetched_documents
+        document_ids_file = options["document_ids_file"]
+        if document_ids_file:
+            wanted_ids = _load_document_ids(document_ids_file)
+            if not wanted_ids:
+                raise CommandError(f"--document-ids-file {document_ids_file!r} contains no ids.")
+            documents = [
+                stub
+                for stub in documents
+                if (stub.get("id") if isinstance(stub, dict) else str(stub)) in wanted_ids
+            ]
+            found_ids = {
+                (stub.get("id") if isinstance(stub, dict) else str(stub)) for stub in documents
+            }
+            missing_ids = wanted_ids - found_ids
+            if missing_ids:
+                raise CommandError(
+                    f"--document-ids-file: {len(missing_ids)} id(s) not found in the fetched "
+                    f"corpus (first: {sorted(missing_ids)[:3]})."
+                )
+            self.stdout.write(
+                f"Corpus filter: {len(documents)}/{fetched_count} fetched {document_type}(s) "
+                f"selected by {document_ids_file}."
+            )
+        documents = documents[:limit] if limit > 0 else documents
         corpus_size = len(documents)
         self.stdout.write(
             f"Corpus: {corpus_size} to process ({fetched_count} fetched, {total_available} available "
@@ -948,6 +1007,7 @@ class Command(BaseCommand):
             "processed": corpus_size,
             "pages_fetched": pages,
             "limit_applied": limit,
+            "document_ids_file": document_ids_file or None,
         }
         summary = _build_summary(
             results,

@@ -13,7 +13,7 @@ from apps.documents.services import (
 
 DEFAULT_DOCUMENT_TYPE = "waybill"
 MAPPED_TEMPLATE_ID = "warehouse-waybill-ru"
-MAPPED_TEMPLATE_VERSION = "2.2.0"
+MAPPED_TEMPLATE_VERSION = "2.2.1"
 
 
 _MISSING = object()
@@ -63,6 +63,31 @@ class BuildQdeEnvelopeTests(SimpleTestCase):
         self.assertEqual(envelope["document_number"], "WB-1")
         self.assertEqual(envelope["document"]["operation_display_number"], "060326/0121/1")
         # Envelope must satisfy the bundled QDE schema (TZ §7.3).
+        jsonschema.validate(envelope, ENVELOPE_SCHEMA)
+
+    def test_null_receiver_payload_is_copied_as_is(self) -> None:
+        """ADR-0034: a contract-nullable receiver survives envelope building.
+
+        The builder is a pass-through (ADR-0032 D2) — the 2.2.1 template
+        guards the null; the envelope must NOT normalize it away.
+        """
+        payload = {
+            "operation_type": "RECEIVE",
+            "receiver": None,
+            "recipient": None,
+            "lines": [
+                {
+                    "line_number": 1,
+                    "item_name": "Прокладка",
+                    "unit_symbol": "шт",
+                    "quantity": 1,
+                }
+            ],
+        }
+        envelope = build_qde_envelope(_document(payload))
+        self.assertEqual(envelope["template_version"], MAPPED_TEMPLATE_VERSION)
+        self.assertIsNone(envelope["document"]["receiver"])
+        self.assertNotIn("consignee_label", envelope["document"])
         jsonschema.validate(envelope, ENVELOPE_SCHEMA)
 
     def test_document_type_defaults_to_waybill(self) -> None:
