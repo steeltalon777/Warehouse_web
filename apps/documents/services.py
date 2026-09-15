@@ -105,8 +105,19 @@ class RenderedDocumentResult:
     cache_hit: bool
 
 
-def render_document_pdf(document: dict[str, Any], *, force: bool = False) -> RenderedDocumentResult:
-    """Render PDF through Django and cache in Django cache (not disk)."""
+def render_document_pdf(
+    document: dict[str, Any],
+    *,
+    force: bool = False,
+    render_role: str | None = None,
+) -> RenderedDocumentResult:
+    """Render PDF through Django and cache in Django cache (not disk).
+
+    `render_role` is audit metadata about the context that created the row
+    (TZ §6.6), never part of render identity: the normal legacy path uses
+    "legacy"; Phase 6F emergency fallback passes "emergency_fallback".
+    Existing rows keep their creation role (immutable after creation).
+    """
     identity = _cache_identity(document)
     # rev. 6 (hotfix 09.07.2026): cache_key MUST include renderer_version.
     # Without it, bumping DOCUMENT_RENDERER_VERSION does not invalidate the cache,
@@ -150,7 +161,7 @@ def render_document_pdf(document: dict[str, Any], *, force: bool = False) -> Ren
             "document_type": identity_dict["document_type"],
             "renderer_version": identity_dict["renderer_version"],
             "layout_version": DEFAULT_LEGACY_AXES["layout_version"],
-            "render_role": DEFAULT_LEGACY_AXES["render_role"],
+            "render_role": render_role or DEFAULT_LEGACY_AXES["render_role"],
             "status": RenderedDocumentArtifact.Status.RENDERING,
         },
     )
@@ -1032,7 +1043,11 @@ QDE_SHADOW_BACKEND_VERSION = "0.15.1"  # pinned Typst binary
 
 
 def _qde_shadow_identity(document: dict[str, Any]) -> dict[str, Any]:
-    """Resolve the full QDE shadow render identity for a document.
+    """Resolve the full QDE render identity for a document.
+
+    Shared by the Phase 6D shadow path and the Phase 6F primary path: the
+    identity axes are identical for both, only `render_role` (audit context,
+    not an identity axis) differs at persistence time.
 
     Single source of truth for the READY-artifact lookup AND artifact
     persistence (TZ §5.3/§5.5: every identity axis change creates a new render
@@ -1153,6 +1168,82 @@ def render_shadow_pdf(document: dict[str, Any]) -> RenderedDocumentResult | None
             error=str(exc),
         )
         return None
+
+
+# =====================================================================
+# Phase 6F: QDE primary cutover — primary render + artifact persistence
+# =====================================================================
+# TZ-QDE_INTEGRATION_READINESS §6.4/§10.6. QDE is the primary renderer when
+# settings.DOCUMENTS_RENDER_MODE == "qde". Failures are NEVER silently
+# replaced by the legacy renderer here: QdeRenderError propagates and the
+# view decides whether the operator-enabled emergency fallback applies.
+
+
+def render_qde_primary(document: dict[str, Any]) -> RenderedDocumentResult:
+    """Render a document through QDE as the primary artifact.
+
+    Reuse (TZ §5.5/§6.6): a READY artifact for the full render identity is
+    returned as a cache hit regardless of the render context that created it
+    — a shadow artifact legitimately serves as a later primary cache hit,
+    while its historical render_role is never rewritten. Any identity axis
+    change (payload, contract, template, engine, backend) is a new render
+    revision and never reuses a stale artifact.
+
+    Unlike render_shadow_pdf this function does NOT swallow QDE failures:
+    the mapped QdeRenderError (or a persistence error) propagates to the
+    caller, so no legacy PDF can silently replace the primary response.
+    """
+    identity = _qde_shadow_identity(document)
+    identity_kwargs = {field: identity[field] for field in QDE_ARTIFACT_IDENTITY_FIELDS}
+
+    # Check for an existing READY artifact for the SAME render identity.
+    existing = RenderedDocumentArtifact.objects.filter(
+        **identity_kwargs,
+        status=RenderedDocumentArtifact.Status.READY,
+    ).first()
+    if existing is not None:
+        pdf_bytes = _read_artifact_pdf(existing)
+        if pdf_bytes:
+            return RenderedDocumentResult(artifact=existing, pdf_bytes=pdf_bytes, cache_hit=True)
+        # PDF file missing/corrupt — fall through to a fresh render.
+
+    qde_result = render_via_qde(document)
+    pdf_bytes = qde_result.pdf_bytes
+    if not pdf_bytes:
+        raise QdeRenderFailedError("QDE exited 0 but produced no primary PDF output.")
+
+    pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+
+    artifact, created = RenderedDocumentArtifact.objects.get_or_create(
+        **identity_kwargs,
+        defaults={
+            "document_type": identity["document_type"],
+            "renderer_version": identity["renderer_version"],
+            "render_role": "primary",
+            "status": RenderedDocumentArtifact.Status.RENDERING,
+        },
+    )
+
+    if not created and artifact.status == RenderedDocumentArtifact.Status.READY:
+        # Another request finished the same render first — keep it immutable.
+        pdf_bytes = _read_artifact_pdf(artifact) or pdf_bytes
+        return RenderedDocumentResult(artifact=artifact, pdf_bytes=pdf_bytes, cache_hit=True)
+
+    # Primary storage (documents/pdf/), deliberately separate from shadow storage.
+    filename = f"documents/pdf/{identity['document_id']}_{identity['payload_hash']}.pdf"
+    artifact.pdf_file.save(filename, ContentFile(pdf_bytes), save=False)
+
+    artifact.status = RenderedDocumentArtifact.Status.READY
+    artifact.pdf_sha256 = pdf_sha256
+    artifact.size_bytes = len(pdf_bytes)
+    artifact.rendered_at = timezone.now()
+    artifact.last_error = ""
+    artifact.save(update_fields=[
+        "status", "pdf_sha256", "size_bytes", "rendered_at",
+        "last_error", "pdf_file", "updated_at",
+    ])
+
+    return RenderedDocumentResult(artifact=artifact, pdf_bytes=pdf_bytes, cache_hit=False)
 
 
 def _read_artifact_pdf(artifact: RenderedDocumentArtifact) -> bytes | None:

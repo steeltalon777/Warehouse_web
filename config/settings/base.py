@@ -51,7 +51,11 @@ DOCUMENT_RENDERER_VERSION = os.getenv("DOCUMENT_RENDERER_VERSION", "waybill-pdf-
 # See docs/adr/0032-qde-warehouse-integration-contract.md (D1-D8) and
 # docs/TZ-QDE_INTEGRATION_READINESS.md §6.5/§7/§9.2.
 # -------------------------------------------------------------------
-# Режим рендера: legacy | shadow | qde (Phase 6A default: legacy)
+# Режим рендера: legacy | shadow | qde.
+# legacy (default) / shadow — Django renderer primary (Phase 6D shadow verification).
+# qde (Phase 6F cutover) — QDE primary; legacy only as explicit emergency
+# fallback (QDE_EMERGENCY_FALLBACK_ENABLED, default false — no silent fallback).
+# Rollback: set DOCUMENTS_RENDER_MODE=legacy + restart (no data changes).
 DOCUMENTS_RENDER_MODE = os.environ.get("DOCUMENTS_RENDER_MODE", "legacy")
 
 # QDE emergency fallback (только для QDE mode; NO silent fallback)
