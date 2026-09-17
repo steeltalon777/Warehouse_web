@@ -257,6 +257,41 @@ class BffApiViewMethodTests(TestCase):
             return_response=True,
         )
 
+    def test_operations_list_forwards_effective_period_filter(self) -> None:
+        """Normal Operations journal period filter is business time: the BFF
+        must forward effective_after/effective_before to SyncServer verbatim.
+        """
+        mock_api = Mock()
+        mock_api.list_operations_page.return_value = (
+            {"items": [], "total_count": 0, "page": 1, "page_size": 20},
+            {},
+        )
+
+        with patch("apps.bff_api.operations_views._ops", return_value=mock_api):
+            response = self.client.get(
+                "/bff/api/v1/operations",
+                {
+                    "effective_after": "2026-09-01T00:00:00Z",
+                    "effective_before": "2026-09-30T23:59:59Z",
+                    "page": "1",
+                    "page_size": "20",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        mock_api.list_operations_page.assert_called_once_with(
+            filters={
+                "effective_after": "2026-09-01T00:00:00Z",
+                "effective_before": "2026-09-30T23:59:59Z",
+                "page": "1",
+                "page_size": "20",
+            },
+            extra_headers={},
+            return_response=True,
+        )
+
     def test_operations_delete_supported(self) -> None:
         mock_api = Mock()
         mock_api.delete_operation.return_value = (None, {})
